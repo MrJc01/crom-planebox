@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crom Planebox - Voxel 3D com MCP & OpenRouter IA</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --hud-bg: rgba(18, 22, 16, 0.62);
+      --hud-border: rgba(220, 226, 200, 0.35);
+      --hud-text: #e8e6d8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e0a; font-family: 'Outfit', 'Segoe UI', sans-serif; user-select: none; }
+    #app { width: 100%; height: 100%; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    .hud {
+      position: fixed; inset: 0; pointer-events: none;
+      font-family: "Courier New", ui-monospace, monospace;
+      font-weight: bold; color: var(--hud-text);
+      text-shadow: 1px 1px 0 rgba(0,0,0,.75);
+      user-select: none;
+      z-index: 5;
+    }
+
+    #crosshair {
+      position: absolute; left: 50%; top: 50%;
+      width: 6px; height: 6px; margin: -3px 0 0 -3px;
+      background: rgba(255,255,255,.85); border-radius: 50%;
+      box-shadow: 0 0 3px rgba(0,0,0,.8);
+    }
+
+    #status {
+      position: absolute; top: 18px; left: 18px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #emblem {
+      width: 46px; height: 46px; transform: rotate(45deg);
+      background: linear-gradient(135deg, #57c95c, #1e7a2e);
+      border: 3px solid rgba(240,240,230,.8);
+      box-shadow: 0 0 8px rgba(0,0,0,.5), inset 0 0 10px rgba(255,255,255,.25);
+    }
+    #bars { display: flex; flex-direction: column; gap: 6px; }
+    .bar {
+      width: 190px; height: 12px;
+      background: rgba(0,0,0,.55);
+      border: 2px solid var(--hud-border);
+    }
+    .bar > div { height: 100%; transition: width .25s ease; }
+    #hp > div { background: linear-gradient(180deg, #e4574d, #a32b23); width: 100%; }
+    #sp > div { background: linear-gradient(180deg, #4db3e4, #2361a3); width: 100%; }
+
+    #hotbar {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 6px;
+    }
+    .slot {
+      position: relative; width: 56px; height: 56px;
+      background: var(--hud-bg);
+      border: 2px solid var(--hud-border);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .slot.sel { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,.35); }
+    .slot .key {
+      position: absolute; top: 2px; left: 5px; font-size: 11px; opacity: .85;
+    }
+    .slot .count {
+      position: absolute; bottom: 2px; right: 5px; font-size: 12px;
+    }
+    .slot .icon {
+      width: 30px; height: 30px;
+      border: 1px solid rgba(0,0,0,.4);
+      box-shadow: inset -4px -6px 0 rgba(0,0,0,.22), inset 4px 5px 0 rgba(255,255,255,.18);
+    }
+    .slot .icon.hand {
+      border: none; box-shadow: none; background: none;
+      font-size: 24px; width: auto; height: auto;
+    }
+
+    #buildinfo {
+      position: absolute; right: 18px; bottom: 16px;
+      text-align: right; font-size: 15px; line-height: 1.65;
+    }
+
+    #panel {
+      position: absolute; top: 18px; right: 18px;
+      min-width: 260px;
+      background: var(--hud-bg);
+      border: 2px solid var(--hud-border);
+      border-radius: 4px;
+      padding: 10px 14px;
+      font-size: 13.5px; line-height: 1.8;
+    }
+
+    #toast {
+      position: absolute; top: 84px; left: 50%; transform: translateX(-50%);
+      background: var(--hud-bg); border: 2px solid var(--hud-border);
+      padding: 6px 18px; font-size: 14px; border-radius: 4px;
+      opacity: 0; transition: opacity .3s;
+    }
+
+    #menu {
+      position: fixed; inset: 0; z-index: 1000;
+      background: radial-gradient(ellipse at center, rgba(10,16,8,.75), rgba(5,8,4,.95));
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; cursor: pointer;
+      font-family: "Courier New", ui-monospace, monospace;
+      color: #ecead9; text-shadow: 2px 2px 0 rgba(0,0,0,.8);
+    }
+    #menu h1 { font-size: 54px; letter-spacing: 4px; color: #38bdf8; text-shadow: 0 0 20px rgba(56,189,248,0.5); }
+    #menu h2 { font-size: 16px; font-weight: normal; opacity: .8; margin-top: -10px; }
+    #menu .play {
+      margin-top: 12px; padding: 14px 48px; font-size: 20px; font-weight: bold;
+      background: linear-gradient(135deg, #0284c7, #0369a1); border: 2px solid rgba(240,240,230,.8);
+      border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    #menu .keys {
+      margin-top: 14px; font-size: 13.5px; line-height: 2; opacity: .9;
+      text-align: center;
+    }
+    #loading { font-size: 14px; opacity: .8; }
+
+    /* Custom Scrollbar for Chat & Settings */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud" id="hud" style="display:none">
+    <div id="crosshair"></div>
+    <div id="status">
+      <div id="emblem"></div>
+      <div id="bars">
+        <div class="bar" id="hp"><div></div></div>
+        <div class="bar" id="sp"><div></div></div>
+      </div>
+    </div>
+    <div id="hotbar"></div>
+    <div id="buildinfo"></div>
+    <div id="panel"></div>
+    <div id="toast"></div>
+  </div>
+
+  <div id="menu">
+    <h1>CROM PLANEBOX</h1>
+    <h2>sandbox voxel 3D &middot; assistente IA com MCP & OpenRouter</h2>
+    <div class="play">▶ CLIQUE PARA JOGAR</div>
+    <div class="keys">
+      WASD mover &middot; ESPAÇO pular &middot; SHIFT correr &middot; F voar<br/>
+      Botão ESQ quebrar &middot; Botão DIR construir &middot; RODA muda bloco<br/>
+      E modo construção &middot; X altura &middot; V largura &middot; C modo detalhe<br/>
+      <strong>[T]</strong> Chat IA (MCP) &middot; <strong>[ESC]</strong> Configurações / Pausa &middot; <strong>[1/2/3]</strong> Alternar Câmeras
+    </div>
+    <div id="loading">carregando…</div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

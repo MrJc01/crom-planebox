@@ -1,0 +1,317 @@
+import * as THREE from 'three';
+import { World } from '../world/world';
+import { B } from '../world/blocks';
+
+export type EntityType = 'human' | 'orc' | 'goblin' | 'animal' | 'hero';
+
+export interface EntityRecord {
+  id: string;
+  name: string;
+  type: EntityType;
+  faction: string;
+  role: string;
+  health: number;
+  maxHealth: number;
+  pos: THREE.Vector3;
+  targetPos?: THREE.Vector3;
+  behaviorScript?: string;
+  onUpdate?: (dt: number, entity: EntityRecord) => void;
+  mesh: THREE.Group;
+  legLeft?: THREE.Mesh;
+  legRight?: THREE.Mesh;
+  armLeft?: THREE.Mesh;
+  armRight?: THREE.Mesh;
+  walkCycle: number;
+}
+
+export class EntitySystem {
+  private world: World;
+  private scene: THREE.Scene;
+  private entities: Map<string, EntityRecord> = new Map();
+
+  constructor(world: World, scene: THREE.Scene) {
+    this.world = world;
+    this.scene = scene;
+  }
+
+  /**
+   * Permite à IA criar entidades/seres 3D inteiramente personalizados do zero usando partes 3D e scripts de comportamento JS.
+   */
+  public createCustomEntity(config: {
+    name?: string;
+    faction?: string;
+    role?: string;
+    x: number;
+    y: number;
+    z: number;
+    behaviorScript?: string;
+    parts?: Array<{
+      offsetX: number;
+      offsetY: number;
+      offsetZ: number;
+      sizeX: number;
+      sizeY: number;
+      sizeZ: number;
+      color: number | string;
+    }>;
+  }): EntityRecord {
+    const id = `entity-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const group = new THREE.Group();
+
+    const parts = config.parts || [
+      { offsetX: 0, offsetY: 0.75, offsetZ: 0, sizeX: 0.8, sizeY: 1.2, sizeZ: 0.8, color: 0x3b82f6 }
+    ];
+
+    for (const p of parts) {
+      const geo = new THREE.BoxGeometry(p.sizeX || 0.5, p.sizeY || 0.5, p.sizeZ || 0.5);
+      const colVal = typeof p.color === 'string' ? parseInt(p.color.replace('#', ''), 16) : (p.color || 0x3b82f6);
+      const mat = new THREE.MeshLambertMaterial({ color: colVal });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(p.offsetX || 0, p.offsetY || 0, p.offsetZ || 0);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+
+    group.position.set(config.x, config.y, config.z);
+    this.scene.add(group);
+
+    let onUpdateFn: ((dt: number, entity: EntityRecord) => void) | undefined = undefined;
+    if (config.behaviorScript && typeof config.behaviorScript === 'string') {
+      try {
+        onUpdateFn = new Function('dt', 'entity', 'Math', 'THREE', config.behaviorScript) as any;
+      } catch (err) {
+        console.error(`❌ [EntitySystem] Erro ao compilar script de comportamento da entidade:`, err);
+      }
+    }
+
+    const record: EntityRecord = {
+      id,
+      name: config.name || 'Ser Voxel',
+      type: 'human',
+      faction: config.faction || 'Neutro',
+      role: config.role || 'Entidade',
+      health: 100,
+      maxHealth: 100,
+      pos: new THREE.Vector3(config.x, config.y, config.z),
+      behaviorScript: config.behaviorScript,
+      onUpdate: onUpdateFn,
+      mesh: group,
+      walkCycle: 0
+    };
+
+    this.entities.set(id, record);
+    console.log(`🤖 [EntitySystem] Entidade 3D personalizada "${record.name}" gerada com script de comportamento!`);
+    return record;
+  }
+
+  /**
+   * Spawns a new 3D Voxel NPC Entity in the scene.
+   */
+  public spawnEntity(
+    type: EntityType = 'human',
+    name: string = 'Habitante',
+    x: number = 0,
+    y: number = 20,
+    z: number = 0,
+    faction: string = 'Reino',
+    role: string = 'Cidadão'
+  ): EntityRecord {
+    const id = `npc-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    // Group container for NPC
+    const group = new THREE.Group();
+
+    // Color theme per entity type
+    let bodyColor = 0x3b82f6; // Blue for human
+    let headColor = 0xfde047;
+    if (type === 'orc') { bodyColor = 0x15803d; headColor = 0x166534; }
+    else if (type === 'goblin') { bodyColor = 0x84cc16; headColor = 0x4d7c0f; }
+    else if (type === 'hero') { bodyColor = 0xeab308; headColor = 0xfef08a; }
+    else if (type === 'animal') { bodyColor = 0xb45309; headColor = 0x78350f; }
+
+    // Head
+    const headGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+    const headMat = new THREE.MeshLambertMaterial({ color: headColor });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.set(0, 1.4, 0);
+    group.add(head);
+
+    // Body/Torso
+    const bodyGeo = new THREE.BoxGeometry(0.7, 0.9, 0.4);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.set(0, 0.75, 0);
+    group.add(body);
+
+    // Left Arm
+    const armGeo = new THREE.BoxGeometry(0.22, 0.7, 0.22);
+    const armMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+    const armLeft = new THREE.Mesh(armGeo, armMat);
+    armLeft.position.set(-0.5, 0.7, 0);
+    group.add(armLeft);
+
+    // Right Arm
+    const armRight = new THREE.Mesh(armGeo, armMat);
+    armRight.position.set(0.5, 0.7, 0);
+    group.add(armRight);
+
+    // Left Leg
+    const legGeo = new THREE.BoxGeometry(0.26, 0.7, 0.26);
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x1e293b });
+    const legLeft = new THREE.Mesh(legGeo, legMat);
+    legLeft.position.set(-0.2, 0.35, 0);
+    group.add(legLeft);
+
+    // Right Leg
+    const legRight = new THREE.Mesh(legGeo, legMat);
+    legRight.position.set(0.2, 0.35, 0);
+    group.add(legRight);
+
+    // Name Label Above Head (Canvas Texture)
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(0, 0, 256, 64);
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.fillText(name, 128, 30);
+      ctx.font = '16px sans-serif';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(`[${faction}] ${role}`, 128, 52);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(2, 0.5, 1);
+    sprite.position.set(0, 2.1, 0);
+    group.add(sprite);
+
+    // Set Initial Position
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    const record: EntityRecord = {
+      id,
+      name,
+      type,
+      faction,
+      role,
+      health: 100,
+      maxHealth: 100,
+      pos: new THREE.Vector3(x, y, z),
+      targetPos: new THREE.Vector3(x + (Math.random() * 20 - 10), y, z + (Math.random() * 20 - 10)),
+      mesh: group,
+      legLeft,
+      legRight,
+      armLeft,
+      armRight,
+      walkCycle: Math.random() * Math.PI * 2
+    };
+
+    this.entities.set(id, record);
+    console.log(`🤖 [EntitySystem] Entidade 3D '${name}' (${type}) gerada em (${x.toFixed(1)}, ${y}, ${z.toFixed(1)}) ID: ${id}`);
+    return record;
+  }
+
+  /**
+   * Updates all entity positions, animations, and simple pathfinding/wandering.
+   */
+  public update(dt: number): void {
+    for (const entity of this.entities.values()) {
+      // Find ground Y
+      let groundY = entity.pos.y;
+      for (let y = Math.floor(entity.pos.y + 4); y >= 0; y--) {
+        const b = this.world.getBlock(Math.floor(entity.pos.x), y, Math.floor(entity.pos.z));
+        if (b !== B.AIR && b !== B.WATER) {
+          groundY = y + 1;
+          break;
+        }
+      }
+      entity.pos.y += (groundY - entity.pos.y) * Math.min(1, dt * 10);
+
+      // Wandering AI towards target
+      if (entity.targetPos) {
+        const dirX = entity.targetPos.x - entity.pos.x;
+        const dirZ = entity.targetPos.z - entity.pos.z;
+        const dist = Math.hypot(dirX, dirZ);
+
+        if (dist > 0.8) {
+          const speed = (entity.type === 'goblin' ? 4 : 2.5) * dt;
+          entity.pos.x += (dirX / dist) * speed;
+          entity.pos.z += (dirZ / dist) * speed;
+
+          // Rotate mesh towards movement direction
+          const angle = Math.atan2(dirX, dirZ);
+          entity.mesh.rotation.y = angle;
+
+          // Walk Leg Animation
+          entity.walkCycle += dt * 8;
+          if (entity.legLeft && entity.legRight) {
+            entity.legLeft.rotation.x = Math.sin(entity.walkCycle) * 0.5;
+            entity.legRight.rotation.x = -Math.sin(entity.walkCycle) * 0.5;
+          }
+          if (entity.armLeft && entity.armRight) {
+            entity.armLeft.rotation.x = -Math.sin(entity.walkCycle) * 0.4;
+            entity.armRight.rotation.x = Math.sin(entity.walkCycle) * 0.4;
+          }
+        } else {
+          // Pick new random wander target
+          entity.targetPos.set(
+            entity.pos.x + (Math.random() * 30 - 15),
+            entity.pos.y,
+            entity.pos.z + (Math.random() * 30 - 15)
+          );
+        }
+      }
+
+      // Sync 3D Mesh
+      entity.mesh.position.copy(entity.pos);
+    }
+  }
+
+  /**
+   * Returns summary list of active entities for LLM context.
+   */
+  public listEntities(): any[] {
+    const list: any[] = [];
+    for (const e of this.entities.values()) {
+      list.push({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        faction: e.faction,
+        role: e.role,
+        health: e.health,
+        position: { x: Number(e.pos.x.toFixed(1)), y: Number(e.pos.y.toFixed(1)), z: Number(e.pos.z.toFixed(1)) }
+      });
+    }
+    return list;
+  }
+
+  /**
+   * Controls an entity or orders movement to specific (targetX, targetZ).
+   */
+  public controlEntity(id: string, targetX: number, targetZ: number, newRole?: string): boolean {
+    const entity = this.entities.get(id);
+    if (!entity) return false;
+
+    if (newRole) entity.role = newRole;
+    entity.targetPos = new THREE.Vector3(targetX, entity.pos.y, targetZ);
+    console.log(`🕹️ [EntitySystem] Entidade '${entity.name}' enviada para (${targetX}, ${targetZ})`);
+    return true;
+  }
+
+  /**
+   * Clears all active entities when world changes.
+   */
+  public clearAll(): void {
+    for (const e of this.entities.values()) {
+      this.scene.remove(e.mesh);
+    }
+    this.entities.clear();
+  }
+}
