@@ -1,5 +1,6 @@
 import Dexie, { Table } from 'dexie';
-import { BlockType } from '../voxel/BlockTypes';
+
+export type GameMode = 'classic' | 'survival' | 'ghost' | 'creative' | 'adventure';
 
 export interface WorldRecord {
   id: string;
@@ -8,9 +9,15 @@ export interface WorldRecord {
   groundHeight: number;
   fov: number;
   cameraMode: 'topdown' | 'fps' | 'ghost';
+  defaultGameMode?: GameMode;
+  onlineEnabled?: boolean;
+  /** Versão do schema de save deste mundo (mundos antigos sem o campo são tratados como versão 1). Incremente ao mudar o formato de PlayerRecord/WorldRecord de um jeito que exija migração. */
+  saveVersion?: number;
   createdAt: number;
   updatedAt: number;
 }
+
+export const CURRENT_SAVE_VERSION = 1;
 
 export interface BlockModRecord {
   id?: number;
@@ -19,7 +26,24 @@ export interface BlockModRecord {
   x: number;
   y: number;
   z: number;
-  blockType: BlockType;
+  blockType: number;
+}
+
+export interface PlayerRecord {
+  worldId: string;
+  playerId: string;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  health: number;
+  hunger: number;
+  gameMode: GameMode;
+  inventory: { label: string; block: number; count: number; infinite?: boolean; toolTier?: number }[];
+  isOp: boolean;
+  updatedAt: number;
 }
 
 export interface ChatThreadRecord {
@@ -54,12 +78,22 @@ export interface AppSettingsRecord {
   renderDistance: number;
 }
 
+export interface UICustomizationRecord {
+  worldId: string;
+  id: string;
+  kind: 'style' | 'panel' | 'move';
+  payload: any;
+  createdAt: number;
+}
+
 export class VoxelDatabase extends Dexie {
   worlds!: Table<WorldRecord, string>;
   blockMods!: Table<BlockModRecord, number>;
   chatMessages!: Table<ChatMessageRecord, number>;
   chatThreads!: Table<ChatThreadRecord, string>;
   settings!: Table<AppSettingsRecord, string>;
+  players!: Table<PlayerRecord, [string, string]>;
+  uiCustomizations!: Table<UICustomizationRecord, string>;
 
   constructor() {
     super('CromPlaneboxDB');
@@ -69,6 +103,15 @@ export class VoxelDatabase extends Dexie {
       chatMessages: '++id, worldId, threadId, timestamp',
       chatThreads: 'id, worldId, updatedAt',
       settings: 'key'
+    });
+    this.version(3).stores({
+      worlds: 'id, name, updatedAt',
+      blockMods: '++id, [worldId+key], worldId',
+      chatMessages: '++id, worldId, threadId, timestamp',
+      chatThreads: 'id, worldId, updatedAt',
+      settings: 'key',
+      players: '[worldId+playerId], worldId',
+      uiCustomizations: 'id, worldId'
     });
   }
 }

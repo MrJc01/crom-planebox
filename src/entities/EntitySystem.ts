@@ -35,6 +35,18 @@ export class EntitySystem {
   }
 
   /**
+   * Varredura síncrona de chão no momento do spawn, para a entidade nunca aparecer
+   * flutuando/afundada nos primeiros frames (antes o encaixe só ocorria no primeiro update()).
+   */
+  private groundSnap(x: number, z: number, fallbackY: number): number {
+    for (let y = Math.floor(fallbackY + 8); y >= 0; y--) {
+      const b = this.world.getBlock(Math.floor(x), y, Math.floor(z));
+      if (b !== B.AIR && b !== B.WATER) return y + 1;
+    }
+    return fallbackY;
+  }
+
+  /**
    * Permite à IA criar entidades/seres 3D inteiramente personalizados do zero usando partes 3D e scripts de comportamento JS.
    */
   public createCustomEntity(config: {
@@ -73,7 +85,8 @@ export class EntitySystem {
       group.add(mesh);
     }
 
-    group.position.set(config.x, config.y, config.z);
+    const snappedY = this.groundSnap(config.x, config.z, config.y);
+    group.position.set(config.x, snappedY, config.z);
     this.scene.add(group);
 
     let onUpdateFn: ((dt: number, entity: EntityRecord) => void) | undefined = undefined;
@@ -93,7 +106,7 @@ export class EntitySystem {
       role: config.role || 'Entidade',
       health: 100,
       maxHealth: 100,
-      pos: new THREE.Vector3(config.x, config.y, config.z),
+      pos: new THREE.Vector3(config.x, snappedY, config.z),
       behaviorScript: config.behaviorScript,
       onUpdate: onUpdateFn,
       mesh: group,
@@ -190,8 +203,9 @@ export class EntitySystem {
     sprite.position.set(0, 2.1, 0);
     group.add(sprite);
 
-    // Set Initial Position
-    group.position.set(x, y, z);
+    // Set Initial Position (encaixe imediato no chão, sem esperar o primeiro update())
+    const snappedY = this.groundSnap(x, z, y);
+    group.position.set(x, snappedY, z);
     this.scene.add(group);
 
     const record: EntityRecord = {
@@ -202,8 +216,8 @@ export class EntitySystem {
       role,
       health: 100,
       maxHealth: 100,
-      pos: new THREE.Vector3(x, y, z),
-      targetPos: new THREE.Vector3(x + (Math.random() * 20 - 10), y, z + (Math.random() * 20 - 10)),
+      pos: new THREE.Vector3(x, snappedY, z),
+      targetPos: new THREE.Vector3(x + (Math.random() * 20 - 10), snappedY, z + (Math.random() * 20 - 10)),
       mesh: group,
       legLeft,
       legRight,
@@ -303,6 +317,21 @@ export class EntitySystem {
     entity.targetPos = new THREE.Vector3(targetX, entity.pos.y, targetZ);
     console.log(`🕹️ [EntitySystem] Entidade '${entity.name}' enviada para (${targetX}, ${targetZ})`);
     return true;
+  }
+
+  /**
+   * "Possui"/transforma o jogador na entidade indicada: remove a entidade decorativa da cena
+   * e devolve sua posição, para o chamador (MCPExecutors) teleportar o PlayerController até lá.
+   * É o caminho alternativo a spawnEntity/createCustomEntity quando o pedido é "vire este ser"
+   * em vez de "crie um NPC decorativo".
+   */
+  public takeControlOf(id: string): { x: number; y: number; z: number; name: string } | null {
+    const entity = this.entities.get(id);
+    if (!entity) return null;
+    const { x, y, z } = entity.pos;
+    this.scene.remove(entity.mesh);
+    this.entities.delete(id);
+    return { x, y, z, name: entity.name };
   }
 
   /**

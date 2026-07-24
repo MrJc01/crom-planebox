@@ -1,11 +1,10 @@
-import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord } from './Database';
-import { BlockType } from '../voxel/BlockTypes';
+import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord } from './Database';
 
 export interface ExportedWorldPackage {
   version: number;
   exportedAt: number;
   world: WorldRecord;
-  blockMods: { x: number; y: number; z: number; blockType: BlockType }[];
+  blockMods: { x: number; y: number; z: number; blockType: number }[];
   chatMessages: Omit<ChatMessageRecord, 'id'>[];
 }
 
@@ -32,17 +31,17 @@ export class WorldRepository {
     });
   }
 
-  static async saveBlockMod(worldId: string, x: number, y: number, z: number, blockType: BlockType): Promise<void> {
+  static async saveBlockMod(worldId: string, x: number, y: number, z: number, blockType: number): Promise<void> {
     const key = `${x},${y},${z}`;
     const existing = await db.blockMods.where('[worldId+key]').equals([worldId, key]).first();
     if (existing) {
-      if (blockType === BlockType.AIR) {
+      if (blockType === 0) {
         if (existing.id) await db.blockMods.delete(existing.id);
       } else {
         existing.blockType = blockType;
         await db.blockMods.put(existing);
       }
-    } else if (blockType !== BlockType.AIR) {
+    } else if (blockType !== 0) {
       await db.blockMods.add({
         worldId,
         key,
@@ -54,35 +53,50 @@ export class WorldRepository {
     }
   }
 
-  static async saveBlockModBatch(worldId: string, mods: { x: number; y: number; z: number; blockType: BlockType }[]): Promise<void> {
+  /**
+   * Versão em lote de verdade: antes fazia 1 leitura + 1 escrita sequencial POR bloco
+   * (2N round-trips de IndexedDB), o que media ~150ms/bloco neste ambiente — uma estrutura
+   * de ~650 mini-blocos (ex.: `stamp_structure` de um muro) levava mais de 1 minuto e parecia
+   * travado. Agora faz 1 leitura em lote + no máximo 2 escritas em lote, independente de N.
+   */
+  static async saveBlockModBatch(worldId: string, mods: { x: number; y: number; z: number; blockType: number }[]): Promise<void> {
+    if (mods.length === 0) return;
+
+    // Dedup por chave (x,y,z): se o mesmo bloco aparece mais de uma vez no lote, só o último vale.
+    const byKey = new Map<string, { x: number; y: number; z: number; blockType: number }>();
+    for (const m of mods) byKey.set(`${m.x},${m.y},${m.z}`, m);
+
+    const pairs = Array.from(byKey.keys()).map((key) => [worldId, key] as [string, string]);
+
     await db.transaction('rw', db.blockMods, async () => {
-      for (const m of mods) {
-        const key = `${m.x},${m.y},${m.z}`;
-        const existing = await db.blockMods.where('[worldId+key]').equals([worldId, key]).first();
+      const existingRecords = await db.blockMods.where('[worldId+key]').anyOf(pairs).toArray();
+      const existingByKey = new Map(existingRecords.map((r) => [r.key, r]));
+
+      const toPut: BlockModRecord[] = [];
+      const toDeleteIds: number[] = [];
+
+      for (const [key, m] of byKey) {
+        const existing = existingByKey.get(key);
         if (existing) {
-          if (m.blockType === BlockType.AIR) {
-            if (existing.id) await db.blockMods.delete(existing.id);
+          if (m.blockType === 0) {
+            if (existing.id !== undefined) toDeleteIds.push(existing.id);
           } else {
             existing.blockType = m.blockType;
-            await db.blockMods.put(existing);
+            toPut.push(existing);
           }
-        } else if (m.blockType !== BlockType.AIR) {
-          await db.blockMods.add({
-            worldId,
-            key,
-            x: m.x,
-            y: m.y,
-            z: m.z,
-            blockType: m.blockType
-          });
+        } else if (m.blockType !== 0) {
+          toPut.push({ worldId, key, x: m.x, y: m.y, z: m.z, blockType: m.blockType });
         }
       }
+
+      if (toPut.length > 0) await db.blockMods.bulkPut(toPut);
+      if (toDeleteIds.length > 0) await db.blockMods.bulkDelete(toDeleteIds);
     });
   }
 
-  static async getBlockModsForWorld(worldId: string): Promise<Map<string, BlockType>> {
+  static async getBlockModsForWorld(worldId: string): Promise<Map<string, number>> {
     const records = await db.blockMods.where('worldId').equals(worldId).toArray();
-    const map = new Map<string, BlockType>();
+    const map = new Map<string, number>();
     for (const r of records) {
       map.set(r.key, r.blockType);
     }
@@ -145,6 +159,34 @@ export class WorldRepository {
     return await db.chatMessages.add(msg);
   }
 
+  /**
+   * Corrige mensagens "órfãs" (sem threadId) salvas antes da correção de 24/07/2026 —
+   * `OpenRouterClient.sendMessage` não recebia/gravava threadId nas mensagens, então assim
+   * que o ChatOverlay passava a filtrar por thread pra exibir, a conversa inteira "sumia"
+   * (a UI achava que a thread estava vazia). Aqui, qualquer mensagem órfã é realocada para a
+   * thread mais antiga do mundo (criando uma "Conversa Recuperada" se não existir nenhuma).
+   * Chamado automaticamente ao carregar um mundo — idempotente (não faz nada se não há órfãs).
+   */
+  static async repairOrphanedChatMessages(worldId: string): Promise<void> {
+    const orphans = await db.chatMessages.where('worldId').equals(worldId).filter((m) => !m.threadId).toArray();
+    if (orphans.length === 0) return;
+
+    let threads = await this.getChatThreads(worldId);
+    // Usa a thread mais recente (mesma que `ChatOverlay.setWorldId` seleciona como ativa logo em
+    // seguida), pra recuperação já aparecer imediatamente sem o usuário precisar trocar de aba.
+    let targetThread = threads.length > 0 ? threads[0] : null;
+    if (!targetThread) {
+      targetThread = await this.createChatThread(worldId, 'Conversa Recuperada');
+    }
+
+    console.log(`🩹 [WorldRepository] Recuperando ${orphans.length} mensagem(ns) de chat sem thread no mundo "${worldId}" → thread "${targetThread.id}"`);
+    await db.transaction('rw', db.chatMessages, async () => {
+      for (const m of orphans) {
+        if (m.id !== undefined) await db.chatMessages.update(m.id, { threadId: targetThread!.id });
+      }
+    });
+  }
+
   static async clearChatMessages(worldId: string): Promise<void> {
     await db.chatMessages.where('worldId').equals(worldId).delete();
   }
@@ -173,7 +215,11 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
    - ETAPA 1 [NIVELAMENTO]: Use 'flattenArea(x1, z1, x2, z2)' para limpar árvores, folhas e nivelar o terreno. Em seguida, use 'capture_snapshot' para ver a área limpa.
    - ETAPA 2 [ESTRUTURA BASE]: Construa o piso, paredes ocas ('fillBox' com 'hollow: true'), corte aberturas de portas e coloque janelas de vidro ('B.GLASS'). Em seguida, use 'capture_snapshot' para inspecionar.
    - ETAPA 3 [TELHADO E ILUMINAÇÃO]: Construa o telhado, adicione iluminação no teto com 'B.GLOWSTONE' e acabamentos. Use 'capture_snapshot' para verificar.
-   - ETAPA 4 [ENTIDADES E SERES 3D]: Programe e gere as entidades habitando o local usando 'createEntity'. Tire a foto final com 'capture_snapshot'. Se notar qualquer imperfeição na foto, corrija imediatamente!
+   - ETAPA 4 [ENTIDADES E SERES 3D]: Programe e gere as entidades habitando o local usando 'createEntity'. Use 'capture_multi_angle' (tira 4 fotos automáticas: frente/direita/trás/esquerda) como verificação final obrigatória de QUALQUER construção terminada — é mais confiável que um único 'capture_snapshot' porque revela erros escondidos atrás da construção. Se notar qualquer imperfeição em qualquer uma das fotos, corrija imediatamente!
+   - Se algo der errado no meio de um script, use 'list_recent_errors' para ver os últimos erros desta sessão antes de tentar de novo — evita repetir o mesmo engano.
+
+1.1 ATALHO PARA ESTRUTURAS COMUNS (árvore, casa pequena, torre, muro):
+   Em vez de reconstruir do zero via 'execute_voxel_script' toda vez que o pedido for uma dessas estruturas simples, prefira a ferramenta 'stamp_structure(template_id, x, y, z)' — ela carimba a estrutura inteira de uma vez, de forma confiável e rápida. Use 'execute_voxel_script' para tudo que for customizado, único ou não coberto pelos templates.
 
 2. PROPORÇÃO E ESCALA DO JOGADOR NO MUNDO VOXEL:
    - 1 mini-voxel = 0.33m x 0.33m x 0.33m (3 mini-voxels por metro real)
@@ -211,7 +257,14 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
    - setBlock(x, y, z, blockType) / breakBlock(x, y, z)
    - fillBox(x1, y1, z1, x2, y2, z2, blockType, hollow)
    - createEntity({ name, x, y, z, parts, behaviorScript })
-   - registerCustomBlock({ name, topColor, sideColor, bottomColor })`,
+   - registerCustomBlock({ name, topColor, sideColor, bottomColor })
+
+5. SPAWNAR UM SER DECORATIVO vs. TRANSFORMAR O PRÓPRIO JOGADOR:
+   - Use 'spawn_entity' ou 'createEntity' (dentro de 'execute_voxel_script') quando o pedido for "crie um X" / "coloque um X aqui" — gera um NPC decorativo que anda sozinho pelo mundo.
+   - Use 'possess_entity(entity_id)' quando o pedido for "eu quero ser um X" / "me transforme em X" / "vire-se em X" — em vez de criar um NPC ao lado do jogador, teleporta o PRÓPRIO jogador para o lugar da entidade e remove o NPC decorativo. Use 'list_entities' primeiro para achar o ID.
+
+6. REGRA CRÍTICA DE ARQUITETURA — NUNCA ESQUEÇA:
+   Todo o Crom Planebox roda 100% no navegador do usuário (client-side). Você NUNCA deve tentar chamar, sugerir ou simular chamadas de rede para um "backend do jogo" — não existe nenhum. As únicas exceções de rede são: (a) a API do provedor de IA que está te executando agora, e (b) opcionalmente, quando o usuário conectar o mundo à "Crom" para multiplayer P2P, um relay mínimo que só troca sinalização WebRTC e nunca vê blocos, inventário ou chat. Toda modificação de UI que você fizer (ferramentas 'modify_ui_style', 'move_hud_element', 'create_custom_panel') também deve continuar sendo só DOM/CSS local, nunca envolvendo um servidor.`,
       fov: 75,
       renderDistance: 6
     };
@@ -290,5 +343,41 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
     });
 
     return newWorldId;
+  }
+
+  // Player save-file: posição, vida, fome, modo de jogo, inventário e OP por mundo
+  static async getPlayer(worldId: string, playerId: string): Promise<PlayerRecord | undefined> {
+    return await db.players.get([worldId, playerId]);
+  }
+
+  static async savePlayer(record: PlayerRecord): Promise<void> {
+    record.updatedAt = Date.now();
+    await db.players.put(record);
+  }
+
+  static async listPlayers(worldId: string): Promise<PlayerRecord[]> {
+    return await db.players.where('worldId').equals(worldId).toArray();
+  }
+
+  static async setPlayerOp(worldId: string, playerId: string, isOp: boolean): Promise<void> {
+    const rec = await db.players.get([worldId, playerId]);
+    if (rec) {
+      rec.isOp = isOp;
+      rec.updatedAt = Date.now();
+      await db.players.put(rec);
+    }
+  }
+
+  // Customizações de UI feitas pela IA (agentic frontend), persistidas por mundo
+  static async saveUICustomization(rec: UICustomizationRecord): Promise<void> {
+    await db.uiCustomizations.put(rec);
+  }
+
+  static async getUICustomizations(worldId: string): Promise<UICustomizationRecord[]> {
+    return await db.uiCustomizations.where('worldId').equals(worldId).toArray();
+  }
+
+  static async clearUICustomizations(worldId: string): Promise<void> {
+    await db.uiCustomizations.where('worldId').equals(worldId).delete();
   }
 }

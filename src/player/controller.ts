@@ -23,6 +23,10 @@ export class PlayerController {
   flying = false;
   noclip = false;
   inWater = false;
+  inLava = false;
+  headUnder = false;
+  /** Velocidade Y no instante do impacto com o chão (negativa = caindo), consumida pelo SurvivalSystem para dano de queda. */
+  lastImpactVelY = 0;
   keys = new Set<string>();
   stamina = 1;
 
@@ -88,7 +92,11 @@ export class PlayerController {
     this.inWater = chest === B.WATER;
     const headBlock = this.world.getBlock(
       Math.floor(this.pos.x), Math.floor(this.pos.y + EYE), Math.floor(this.pos.z));
-    const headUnder = headBlock === B.WATER;
+    this.headUnder = headBlock === B.WATER;
+
+    // contato com lava (pés ou peito) para o SurvivalSystem aplicar dano contínuo
+    const feetBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.2), Math.floor(this.pos.z));
+    this.inLava = chest === B.LAVA || feetBlock === B.LAVA;
 
     const sprinting = k.has('ShiftLeft') && !this.flying && this.onGround && ml > 0 && this.stamina > 0.05;
     if (sprinting) this.stamina = Math.max(0, this.stamina - dt * 0.22);
@@ -155,7 +163,7 @@ export class PlayerController {
           p.y += dy;
           this.onGround = false;
         } else {
-          if (dy < 0) this.onGround = true;
+          if (dy < 0) { this.onGround = true; this.lastImpactVelY = this.vel.y; }
           this.vel.y = 0;
         }
       }
@@ -189,7 +197,5 @@ export class PlayerController {
       this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 8);
       this.camera.updateProjectionMatrix();
     }
-
-    void headUnder;
   }
 }

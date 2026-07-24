@@ -6,6 +6,7 @@ import { VoxelPhysics } from '../world/physics';
 import { B, BLOCKS, isSolid, isDecor, isLog, isReplaceable } from '../world/blocks';
 import { SCALE } from '../world/chunk';
 import { PlayerController } from './controller';
+import { getStructureTemplate } from '../crafting/StructureTemplates';
 
 const REACH = 18; // ~6 m
 
@@ -20,6 +21,10 @@ export interface HotbarSlot {
   block: number; // B.AIR = mão
   count: number;
   infinite?: boolean;
+  /** Se definido, este slot é uma FERRAMENTA (ex.: picareta), não um bloco colocável. 0=mão, 1=madeira, 2=pedra, 3=ferro. */
+  toolTier?: number;
+  /** Se definido, este slot é uma ESTRUTURA pronta (árvore, casa, torre, muro) — ao colocar, "carimba" todos os blocos do template de uma vez. */
+  structureId?: string;
 }
 
 export type BuildMode = 'single' | 'box';
@@ -45,11 +50,20 @@ export class Interaction {
 
   highlight: THREE.LineSegments;
   boxPreview: THREE.Mesh;
+  /** Preview transparente de uma estrutura inteira (árvore, casa, torre, muro) antes de "carimbar" no mundo. */
+  structurePreview: THREE.Group;
+  private previewStructureId: string | null = null;
   private breakCooldown = 0;
   private placeCooldown = 0;
 
   onChanged: () => void = () => {};
   onToast: (msg: string) => void = () => {};
+
+  /** Modo Sobrevivência: gera drops físicos e exige tier de ferramenta; fora dele, grant() instantâneo como hoje. */
+  survivalMode = false;
+  onItemDrop: (blockType: number, count: number, x: number, y: number, z: number) => void = () => {};
+  /** Notifica cada bloco quebrado/colocado localmente — usado pelo host para retransmitir via PeerSync. */
+  onBlockChange: (x: number, y: number, z: number, blockType: number) => void = () => {};
 
   constructor(
     private world: World,
@@ -68,6 +82,10 @@ export class Interaction {
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18, depthWrite: false }));
     this.boxPreview.visible = false;
     scene.add(this.boxPreview);
+
+    this.structurePreview = new THREE.Group();
+    this.structurePreview.visible = false;
+    scene.add(this.structurePreview);
 
     physics.onDrop = (t, n) => this.grant(t, n);
   }
@@ -106,9 +124,21 @@ export class Interaction {
     return null;
   }
 
-  private grant(blockType: number, n: number): void {
+  public grant(blockType: number, n: number): void {
     const slot = this.hotbar.find((s) => s.block === blockType);
     if (slot) { slot.count += n; this.onChanged(); }
+  }
+
+  /** Concede o drop respeitando o tier de ferramenta (Sobrevivência) e o efeito de item físico. */
+  private awardDrop(dropBlock: number, requiredTier: number, x: number, y: number, z: number): void {
+    if (dropBlock < 0) return;
+    if (this.survivalMode) {
+      const equippedTier = this.hotbar[this.selected]?.toolTier ?? 0;
+      if (equippedTier < requiredTier) return; // quebra mas não dropa: ferramenta insuficiente
+      this.onItemDrop(dropBlock, 1, x + 0.5, y + 0.5, z + 0.5);
+    } else {
+      this.grant(dropBlock, 1);
+    }
   }
 
   /** célula (alinhada) que contém o voxel, no modo atual */
@@ -160,7 +190,12 @@ export class Interaction {
       this.highlight.scale.set(c, c, c);
       this.highlight.position.set(hx + c / 2, hy + c / 2, hz + c / 2);
 
-      if (this.buildMode === 'box' && this.hotbar[this.selected].block !== B.AIR) {
+      const structureId = this.hotbar[this.selected].structureId;
+      if (structureId) {
+        this.boxPreview.visible = false;
+        this.updateStructurePreview(structureId, hit);
+      } else if (this.buildMode === 'box' && this.hotbar[this.selected].block !== B.AIR) {
+        this.structurePreview.visible = false;
         // célula base: vizinha da célula atingida na direção da normal
         const bx = this.snap(hit.x + hit.nx * c);
         const by = this.snap(hit.y + hit.ny * c);
@@ -173,11 +208,54 @@ export class Interaction {
           bx - hw * c + w / 2, by + h / 2, bz - hw * c + w / 2);
       } else {
         this.boxPreview.visible = false;
+        this.structurePreview.visible = false;
       }
     } else {
       this.highlight.visible = false;
       this.boxPreview.visible = false;
+      this.structurePreview.visible = false;
     }
+  }
+
+  /** Posição de base (grid macro, 1 bloco = SCALE) para carimbar uma estrutura à frente da face mirada. */
+  private structureBasePos(hit: RayHit): [number, number, number] {
+    const snapMacro = (v: number) => Math.floor(v / SCALE) * SCALE;
+    return [
+      snapMacro(hit.x + hit.nx * SCALE),
+      snapMacro(hit.y + hit.ny * SCALE),
+      snapMacro(hit.z + hit.nz * SCALE),
+    ];
+  }
+
+  private updateStructurePreview(structureId: string, hit: RayHit): void {
+    if (this.previewStructureId !== structureId) {
+      this.previewStructureId = structureId;
+      this.structurePreview.clear();
+      const template = getStructureTemplate(structureId);
+      if (template) {
+        const geo = new THREE.BoxGeometry(SCALE * 0.96, SCALE * 0.96, SCALE * 0.96);
+        const edgeGeo = new THREE.EdgesGeometry(geo);
+        for (const b of template.blocks) {
+          const def = BLOCKS[b.block];
+          const color = def?.colors ? new THREE.Color(def.colors[0][0], def.colors[0][1], def.colors[0][2]) : new THREE.Color(0x38bdf8);
+          const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, depthWrite: false });
+          const mesh = new THREE.Mesh(geo, mat);
+          // cada unidade do template ocupa um bloco macro inteiro (SCALE³ mini-voxels);
+          // o grupo fica ancorado no canto (bx,by,bz), então cada mesh centra na própria célula.
+          mesh.position.set((b.dx + 0.5) * SCALE, (b.dy + 0.5) * SCALE, (b.dz + 0.5) * SCALE);
+          this.structurePreview.add(mesh);
+
+          // contorno branco nítido, para o preview ficar legível mesmo quando a cor do bloco
+          // se mistura com o terreno (ex.: folhas verdes sobre grama)
+          const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 }));
+          edges.position.copy(mesh.position);
+          this.structurePreview.add(edges);
+        }
+      }
+    }
+    const [bx, by, bz] = this.structureBasePos(hit);
+    this.structurePreview.position.set(bx, by, bz);
+    this.structurePreview.visible = true;
   }
 
   tryBreak(camera: THREE.Camera): void {
@@ -191,10 +269,11 @@ export class Interaction {
     // cortar tronco → derruba a árvore inteira (independente do modo)
     if (isLog(hit.type) && !BLOCKS[hit.type].structural) {
       this.world.setBlock(hit.x, hit.y, hit.z, B.AIR);
+      this.onBlockChange(hit.x, hit.y, hit.z, B.AIR);
       const push = new THREE.Vector3(dir.x, 0, dir.z).normalize();
       this.physics.fellTree(hit.x, hit.y + 1, hit.z, push.x, push.z);
       this.physics.onBlockChanged(hit.x, hit.y, hit.z);
-      this.grant(B.LOG, 1);
+      this.awardDrop(B.LOG, BLOCKS[hit.type].minToolTier ?? 0, hit.x, hit.y, hit.z);
       this.onChanged();
       return;
     }
@@ -207,8 +286,9 @@ export class Interaction {
       if (t === B.AIR || t === B.WATER) continue;
       if (isLog(t)) continue; // troncos só caem via corte direto
       this.world.setBlock(x, y, z, B.AIR);
+      this.onBlockChange(x, y, z, B.AIR);
       const def = BLOCKS[t];
-      if (def.drops >= 0) this.grant(def.drops, 1);
+      if (def.drops >= 0) this.awardDrop(def.drops, def.minToolTier ?? 0, x, y, z);
       broke++;
     }
     if (broke > 0) {
@@ -221,11 +301,18 @@ export class Interaction {
   tryPlace(camera: THREE.Camera): void {
     if (this.placeCooldown > 0) return;
     const slot = this.hotbar[this.selected];
-    if (slot.block === B.AIR) return;
+    if (slot.toolTier !== undefined) return;
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const hit = this.raycast(new THREE.Vector3().copy(camera.position), dir);
     if (!hit) return;
+
+    if (slot.structureId) {
+      this.placeCooldown = 0.4;
+      this.stampStructure(slot.structureId, hit);
+      return;
+    }
+    if (slot.block === B.AIR) return;
     this.placeCooldown = this.buildMode === 'box' ? 0.3 : 0.15;
 
     const c = this.cell;
@@ -245,6 +332,7 @@ export class Interaction {
             z + 1 > p.z - 0.95 && z < p.z + 0.95 &&
             y + 1 > p.y && y < p.y + 5.3) continue;
         if (this.world.setBlock(x, y, z, slot.block)) {
+          this.onBlockChange(x, y, z, slot.block);
           if (!slot.infinite) slot.count--;
           placed++;
         }
@@ -254,6 +342,38 @@ export class Interaction {
     if (placed > 0) this.onChanged();
     if (slot.count <= 0 && !slot.infinite) {
       this.onToast(`acabou: ${slot.label}!`);
+    }
+  }
+
+  /**
+   * "Carimba" todos os blocos do template de estrutura de uma vez, em vez do fluxo de bloco único.
+   * Cada unidade do template vira um bloco macro cheio (cubo SCALE³ de mini-voxels), igual a
+   * colocar um bloco normal fora do modo detalhe — para a estrutura ficar na mesma escala visual.
+   */
+  private stampStructure(structureId: string, hit: RayHit): void {
+    const template = getStructureTemplate(structureId);
+    if (!template) return;
+    const [bx, by, bz] = this.structureBasePos(hit);
+
+    let placed = 0;
+    for (const b of template.blocks) {
+      const ox = bx + b.dx * SCALE, oy = by + b.dy * SCALE, oz = bz + b.dz * SCALE;
+      for (let x = ox; x < ox + SCALE; x++) {
+        for (let y = oy; y < oy + SCALE; y++) {
+          for (let z = oz; z < oz + SCALE; z++) {
+            if (this.world.setBlock(x, y, z, b.block)) {
+              this.onBlockChange(x, y, z, b.block);
+              placed++;
+            }
+          }
+        }
+      }
+    }
+    if (placed > 0) {
+      const maxDim = template.blocks.reduce((m, bl) => Math.max(m, Math.abs(bl.dx), Math.abs(bl.dy), Math.abs(bl.dz)), 0);
+      this.physics.onCellChanged(bx, by, bz, (maxDim + 2) * SCALE);
+      this.onChanged();
+      this.onToast(`${template.name} construída! (${placed} mini-blocos)`);
     }
   }
 

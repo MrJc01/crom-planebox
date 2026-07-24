@@ -6,19 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "devDependencies": {
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@babylonjs/core": "^9.18.0",
-    "@babylonjs/gui": "^9.18.0",
-    "@babylonjs/loaders": "^9.18.0",
     "@types/three": "^0.185.1",
     "dexie": "^4.4.4",
-    "earcut": "^3.2.3",
     "three": "^0.185.1"
   }
 }

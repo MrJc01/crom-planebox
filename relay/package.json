@@ -1,0 +1,13 @@
+{
+  "name": "crom-relay",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Relay mínimo e opcional de sinalização WebRTC + diretório de salas para o Crom Planebox. Não guarda dados de jogo.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

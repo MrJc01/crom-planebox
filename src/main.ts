@@ -13,17 +13,25 @@ import { OpenRouterClient } from './ai/OpenRouterClient';
 import { CameraManager } from './engine/CameraManager';
 import { HUD } from './ui/HUD';
 import { ChatOverlay } from './ui/ChatOverlay';
-import { SettingsModal } from './ui/SettingsModal';
+import { PauseMenu } from './ui/PauseMenu';
+import { MainMenu } from './ui/MainMenu';
+import { WorldCreationWizard } from './ui/WorldCreationWizard';
+import { UIManager } from './ui/UIManager';
 import { InventoryModal } from './ui/InventoryModal';
 import { EntitySystem } from './entities/EntitySystem';
 import { EventSystem } from './events/EventSystem';
-
 import { UndoManager } from './storage/UndoManager';
+import { GameModeManager } from './game/GameModeManager';
+import { SurvivalSystem } from './game/SurvivalSystem';
+import { ItemDropSystem } from './game/ItemDropSystem';
+import { SignalingClient } from './net/SignalingClient';
+import { PeerSync } from './net/PeerSync';
+import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
+import { NetMessage } from './net/protocol';
+import { WorldRecord, CURRENT_SAVE_VERSION } from './storage/Database';
 
-const VIEW_RADIUS = 5;      // chunks (~53 m view radius)
-const UNLOAD_RADIUS = 7;
-const MESH_BUDGET = 2;      // remesh count per frame
 const MAX_INFLIGHT = 6;     // simultaneous generations in worker
+const LAST_WORLD_KEY = 'crom:lastWorldId';
 
 let seed = (Math.random() * 0xffffffff) >>> 0;
 
@@ -31,6 +39,8 @@ async function bootstrap() {
   console.log('🎮 Inicializando Crom Planebox 3D Engine (Base Crom Quadrado)...');
 
   const app = document.getElementById('app') || document.body;
+  const menuEl = document.getElementById('menu');
+  if (menuEl) menuEl.style.display = 'none'; // substituído pelo MainMenu real
 
   const gs = createScene(app);
   const world = new World();
@@ -41,6 +51,12 @@ async function bootstrap() {
   const inventoryModal = new InventoryModal(inter);
 
   const cameraManager = new CameraManager(gs.scene, gs.camera, gs.renderer, player);
+  const gameModeManager = new GameModeManager(cameraManager, player);
+  const survivalSystem = new SurvivalSystem(player);
+  const itemDropSystem = new ItemDropSystem(gs.scene, player);
+
+  itemDropSystem.onCollect = (blockType, count) => inter.grant(blockType, count);
+  inter.onItemDrop = (blockType, count, x, y, z) => itemDropSystem.spawn(blockType, count, x, y, z);
 
   function findSpawn(): THREE.Vector3 {
     for (let r = 0; r < 64; r++) {
@@ -56,7 +72,6 @@ async function bootstrap() {
     return new THREE.Vector3(0.5, 120, 0.5);
   }
 
-  // Initial spawn safely above ground surface
   player.pos.copy(findSpawn());
 
   // Mesh map per chunk
@@ -185,22 +200,11 @@ async function bootstrap() {
     c.dirty = false;
   }
 
-  // Ensure world record in IndexedDB
-  const worlds = await WorldRepository.getAllWorlds();
-  let currentWorld = worlds.length > 0 ? worlds[0] : {
-    id: 'world-default',
-    name: 'Mundo Voxel Quadrado',
-    seed,
-    groundHeight: 4,
-    fov: 75,
-    cameraMode: 'topdown' as const,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+  // Nenhum mundo é criado/carregado automaticamente — o MainMenu decide isso (seção 2 do checklist).
+  let currentWorld: WorldRecord = {
+    id: '', name: 'Nenhum Mundo', seed, groundHeight: 4, fov: 75, cameraMode: 'topdown',
+    defaultGameMode: 'classic', onlineEnabled: false, createdAt: 0, updatedAt: 0,
   };
-
-  if (worlds.length === 0) {
-    await WorldRepository.saveWorld(currentWorld);
-  }
 
   // World simulation systems
   const undoManager = new UndoManager(world);
@@ -211,17 +215,195 @@ async function bootstrap() {
   const mcpExecutors = new MCPExecutors(world, player, gs.scene, gs.renderer, currentWorld.id, entitySystem, eventSystem, undoManager);
   const openRouterClient = new OpenRouterClient(mcpExecutors);
 
-  // HUD & UI Overlays
+  // HUD & UI Overlays (ficam ocultos até o jogo realmente começar, para o MainMenu não competir com eles)
   const hud = new HUD(cameraManager);
+  hud.canUseTopdown = () => gameModeManager.mode === 'creative';
   undoManager.onToast = (msg) => hud.showToast(msg);
   const chatOverlay = new ChatOverlay(openRouterClient);
+  hud.setVisible(false);
+  inventoryModal.setHotbarVisible(false);
+  chatOverlay.hide();
+
+  // --- Identidade local & Rede P2P (host-autoritativo; ver docs/NETWORK_PROTOCOL.md) ---
+  const localPlayerId = `local-${Math.random().toString(36).slice(2, 9)}`;
+  const localPlayerName = 'Você';
+  let localIsOp = true; // dono do mundo (host/single-player) é sempre OP por padrão
+  const remotePlayers = new Map<string, { name: string; isOp: boolean }>();
+
+  const signaling = new SignalingClient();
+  const peerSync = new PeerSync(signaling);
+  const commandSystem = new CommandSystem();
+
+  chatOverlay.localPlayerName = localPlayerName;
+
+  function listAllPlayers(): KnownPlayer[] {
+    return [
+      { id: localPlayerId, name: localPlayerName, isOp: localIsOp },
+      ...Array.from(remotePlayers.entries()).map(([id, p]) => ({ id, name: p.name, isOp: p.isOp })),
+    ];
+  }
+
+  function setPlayerOp(target: string, isOp: boolean): boolean {
+    if (target === localPlayerName || target === localPlayerId) { localIsOp = isOp; return true; }
+    for (const [id, p] of remotePlayers) {
+      if (p.name === target || id === target) {
+        p.isOp = isOp;
+        peerSync.sendTo(id, { type: 'op_changed', playerId: id, isOp });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function buildCommandContext(callerId: string, callerIsOp: boolean): CommandContext {
+    return {
+      callerId,
+      callerIsOp,
+      isHost: peerSync.role !== 'guest',
+      gameModeManager,
+      player,
+      listPlayers: listAllPlayers,
+      setOp: setPlayerOp,
+      setGameMode: (target, mode) => {
+        if (!target || target === localPlayerName || target === localPlayerId) {
+          gameModeManager.setMode(mode);
+          return true;
+        }
+        for (const [id] of remotePlayers) {
+          if (id === target) return true; // promoção remota efetiva fica para uma próxima iteração (roster completo)
+        }
+        return false;
+      },
+      kick: (target) => {
+        for (const [id, p] of remotePlayers) {
+          if (p.name === target || id === target) {
+            peerSync.sendTo(id, { type: 'kick', playerId: id });
+            remotePlayers.delete(id);
+            return true;
+          }
+        }
+        return false;
+      },
+      connectCrom: async () => await peerSync.hostRoom(currentWorld.name || 'Mundo Crom'),
+      disconnectCrom: () => peerSync.stop(),
+    };
+  }
+
+  chatOverlay.onCommand = async (raw) => {
+    if (peerSync.role === 'guest') {
+      peerSync.sendToHost({ type: 'command', playerId: localPlayerId, raw });
+      return { ok: true, message: 'Comando enviado ao anfitrião...' };
+    }
+    return commandSystem.execute(raw, buildCommandContext(localPlayerId, localIsOp));
+  };
+
+  chatOverlay.onWorldChatSend = (text) => {
+    const msg: NetMessage = { type: 'chat_message', playerId: localPlayerId, name: localPlayerName, text, timestamp: Date.now() };
+    if (peerSync.role === 'host') peerSync.broadcast(msg);
+    else if (peerSync.role === 'guest') peerSync.sendToHost(msg);
+  };
+
+  peerSync.onMessage = (msg, fromPeerId) => {
+    switch (msg.type) {
+      case 'chat_message':
+        chatOverlay.receiveWorldChatMessage(msg.name, msg.text);
+        if (peerSync.role === 'host') peerSync.broadcast(msg, fromPeerId);
+        break;
+      case 'command': {
+        if (peerSync.role !== 'host') break;
+        const remote = remotePlayers.get(fromPeerId);
+        commandSystem.execute(msg.raw, buildCommandContext(fromPeerId, remote?.isOp ?? false)).then((result) => {
+          peerSync.sendTo(fromPeerId, { type: 'chat_message', playerId: 'system', name: 'Sistema', text: result.message, timestamp: Date.now() });
+        });
+        break;
+      }
+      case 'block_update':
+        world.setBlock(msg.x, msg.y, msg.z, msg.blockType);
+        break;
+      case 'full_sync':
+        for (const m of msg.blockMods) world.setBlock(m.x, m.y, m.z, m.blockType);
+        chatOverlay.receiveWorldChatMessage('', 'Sincronizado com o mundo do anfitrião.', true);
+        break;
+      case 'player_joined':
+        remotePlayers.set(msg.playerId, { name: msg.name, isOp: false });
+        chatOverlay.receiveWorldChatMessage('', `${msg.name} entrou no mundo.`, true);
+        break;
+      case 'player_left':
+        remotePlayers.delete(msg.playerId);
+        chatOverlay.receiveWorldChatMessage('', 'Um jogador saiu do mundo.', true);
+        break;
+      case 'op_changed':
+        if (msg.playerId === localPlayerId) localIsOp = msg.isOp;
+        break;
+      case 'kick':
+        if (msg.playerId === localPlayerId) {
+          chatOverlay.receiveWorldChatMessage('', 'Você foi removido do mundo pelo anfitrião.', true);
+          peerSync.stop();
+        }
+        break;
+    }
+  };
+
+  peerSync.onPeerConnected = (peerId) => {
+    if (peerSync.role !== 'host') return;
+    const name = `Jogador-${peerId.slice(-4)}`;
+    remotePlayers.set(peerId, { name, isOp: false });
+    WorldRepository.getBlockModsForWorld(currentWorld.id).then((mods) => {
+      const blockMods = Array.from(mods.entries()).map(([key, blockType]) => {
+        const [x, y, z] = key.split(',').map(Number);
+        return { x, y, z, blockType };
+      });
+      peerSync.sendTo(peerId, { type: 'full_sync', blockMods, players: [] });
+    });
+    peerSync.broadcast({ type: 'player_joined', playerId: peerId, name }, peerId);
+    hud.showToast(`${name} entrou no mundo!`);
+  };
+  peerSync.onPeerDisconnected = (peerId) => {
+    const p = remotePlayers.get(peerId);
+    remotePlayers.delete(peerId);
+    if (peerSync.role === 'host' && p) peerSync.broadcast({ type: 'player_left', playerId: peerId });
+  };
+  peerSync.onHostClosed = () => {
+    chatOverlay.receiveWorldChatMessage('', 'O anfitrião encerrou a sessão. Você voltou a jogar localmente.', true);
+  };
+  peerSync.onReconnecting = (attempt, max) => {
+    hud.showToast(`Conexão caiu — tentando reconectar (${attempt}/${max})...`);
+  };
+
+  mcpExecutors.onBlocksChanged = (mods) => {
+    if (peerSync.role !== 'host') return;
+    for (const m of mods) peerSync.broadcast({ type: 'block_update', x: m.x, y: m.y, z: m.z, blockType: m.blockType });
+  };
+  inter.onBlockChange = (x, y, z, blockType) => {
+    if (peerSync.role === 'host') peerSync.broadcast({ type: 'block_update', x, y, z, blockType });
+  };
+
+  // --- Modos de Jogo ---
+  gameModeManager.onModeChanged = (mode) => {
+    inter.survivalMode = mode === 'survival';
+    hud.setSurvivalVisible(mode === 'survival');
+    if (mode === 'survival') survivalSystem.reset();
+    hud.showToast(`Modo de jogo: ${mode}`);
+    schedulePlayerSave();
+  };
+  inventoryModal.gateOpen = () => gameModeManager.rules.hasCreativeInventory;
+  inventoryModal.onBlockedByMode = () => hud.showToast('Inventário criativo indisponível neste modo de jogo.');
+
+  survivalSystem.onDeath = () => {
+    hud.showToast('💀 Você morreu! Renascendo no spawn...');
+    player.pos.copy(findSpawn());
+    player.vel.set(0, 0, 0);
+    survivalSystem.reset();
+  };
+  survivalSystem.onDamage = (amount, cause) => {
+    if (amount > 1) hud.showToast(`-${amount.toFixed(0)} de vida (${cause})`);
+  };
 
   chatOverlay.getLocationContext = () => {
     const p = player.pos;
     const px = Math.round(p.x);
     const pz = Math.round(p.z);
 
-    // Encontrar a altitude real da superfície do solo no ponto (px, pz)
     let groundY = 4;
     for (let y = 120; y >= 0; y--) {
       const b = world.getBlock(px, y, pz);
@@ -243,8 +425,37 @@ async function bootstrap() {
       const frontZ = Math.round(p.z + dir.z * 5);
       str += `, Posição em Frente no Solo ("aqui") = (X: ${frontX}, Y: ${groundY}, Z: ${frontZ})`;
     }
+    str += `. Modo de jogo atual: ${gameModeManager.mode}. Rede: ${peerSync.role === 'offline' ? 'local (sem multiplayer)' : peerSync.role === 'host' ? `anfitrião com ${peerSync.peerCount} jogador(es) conectado(s)` : 'conectado como visitante'}. Você é OP: ${localIsOp ? 'sim' : 'não'}.`;
+    const nearbyEntities = entitySystem.listEntities().filter((e) => Math.hypot(e.position.x - p.x, e.position.z - p.z) <= 32);
+    if (nearbyEntities.length > 0) {
+      str += ` Entidades próximas (raio 32): ${nearbyEntities.map((e) => `${e.name}(id:${e.id}, tipo:${e.type})`).join(', ')}.`;
+    }
     return str;
   };
+
+  // --- Autosave do jogador (posição, vida, fome, modo, inventário) ---
+  function savePlayerNow(): void {
+    if (!currentWorld.id) return;
+    WorldRepository.savePlayer({
+      worldId: currentWorld.id,
+      playerId: localPlayerId,
+      name: localPlayerName,
+      x: player.pos.x, y: player.pos.y, z: player.pos.z,
+      yaw: player.yaw, pitch: player.pitch,
+      health: survivalSystem.health,
+      hunger: survivalSystem.hunger,
+      gameMode: gameModeManager.mode,
+      inventory: inter.hotbar.map((s) => ({ label: s.label, block: s.block, count: s.count, infinite: s.infinite, toolTier: s.toolTier })),
+      isOp: localIsOp,
+      updatedAt: Date.now(),
+    }).catch(() => {});
+  }
+  let saveDebounce: number | null = null;
+  function schedulePlayerSave(): void {
+    if (saveDebounce) clearTimeout(saveDebounce);
+    saveDebounce = window.setTimeout(savePlayerNow, 600);
+  }
+  inter.onChanged = () => { inventoryModal.renderHotbar(); schedulePlayerSave(); };
 
   const loadWorldById = async (worldId: string) => {
     console.log(`🌍 [main.ts] Carregando e inicializando mundo ID: "${worldId}"`);
@@ -255,24 +466,19 @@ async function bootstrap() {
     mcpExecutors.setWorldId(worldId);
     eventSystem.setWorldId(worldId);
     entitySystem.clearAll();
+    itemDropSystem.clearAll();
     await chatOverlay.setWorldId(worldId);
 
-    // 1. Descartar todas as malhas 3D de chunks anteriores da cena
-    for (const key of Array.from(meshes.keys())) {
-      disposeChunkMesh(key);
-    }
+    for (const key of Array.from(meshes.keys())) disposeChunkMesh(key);
     meshes.clear();
 
-    // 2. Limpar estruturas de dados dos chunks
     world.chunks.clear();
     world.pending.clear();
     savedChunks.clear();
 
-    // 3. Reinicializar o Web Worker de terreno com a semente (seed) do novo mundo
     seed = wRecord.seed || (Math.random() * 0xffffffff) >>> 0;
     worker.postMessage({ type: 'init', seed });
 
-    // 4. Carregar e aplicar modificações de blocos salvas especificamente para este mundo
     const mods = await WorldRepository.getBlockModsForWorld(worldId);
     console.log(`🧱 [main.ts] Carregadas ${mods.size} modificações de blocos salvas para "${wRecord.name}"`);
     for (const [key, blockType] of mods.entries()) {
@@ -280,44 +486,137 @@ async function bootstrap() {
       world.setBlock(x, y, z, blockType);
     }
 
-    // 5. Reposicionar jogador em spawn seguro no novo mundo
-    player.pos.copy(findSpawn());
-    player.vel.set(0, 0, 0);
+    gameModeManager.setMode(wRecord.defaultGameMode || 'classic');
+    survivalSystem.reset();
+    await mcpExecutors.uiExecutors.reapplyPersisted();
 
-    cameraManager.setMode(wRecord.cameraMode || 'topdown');
-    hud.updateCameraMode(wRecord.cameraMode || 'topdown');
+    const savedPlayer = await WorldRepository.getPlayer(worldId, localPlayerId);
+    if (savedPlayer) {
+      player.pos.set(savedPlayer.x, savedPlayer.y, savedPlayer.z);
+      player.vel.set(0, 0, 0);
+      player.yaw = savedPlayer.yaw;
+      player.pitch = savedPlayer.pitch;
+      survivalSystem.health = savedPlayer.health;
+      survivalSystem.hunger = savedPlayer.hunger;
+      if (savedPlayer.inventory?.length) {
+        for (let i = 0; i < inter.hotbar.length && i < savedPlayer.inventory.length; i++) {
+          inter.hotbar[i] = { ...savedPlayer.inventory[i] };
+        }
+      }
+      localIsOp = peerSync.role === 'guest' ? savedPlayer.isOp : true;
+      inventoryModal.renderHotbar();
+    } else {
+      player.pos.copy(findSpawn());
+      player.vel.set(0, 0, 0);
+    }
+
+    localStorage.setItem(LAST_WORLD_KEY, worldId);
 
     console.log(`✅ [main.ts] Mundo "${wRecord.name}" carregado do zero com sucesso!`);
   };
 
-  const settingsModal = new SettingsModal(
+  // --- Gerenciador central de UI (Pause / Inventário bloqueantes; Chat flutuante) ---
+  const uiManager = new UIManager();
+  uiManager.configureLock(gs.renderer.domElement, () => cameraManager.mode === 'fps' || cameraManager.mode === 'ghost');
+  uiManager.registerBlocking(inventoryModal);
+  uiManager.registerFloating(chatOverlay);
+
+  const pauseMenu = new PauseMenu({
     cameraManager,
-    null as any,
-    player,
-    (newWorldId) => loadWorldById(newWorldId)
-  );
+    playerController: player,
+    gameModeManager,
+    peerSync,
+    signaling,
+    onWorldChange: (worldId) => loadWorldById(worldId),
+    getCurrentWorldName: () => currentWorld.name,
+    listPlayers: listAllPlayers,
+    setOp: setPlayerOp,
+  });
+  uiManager.registerBlocking(pauseMenu);
+  inventoryModal.blockOpen = () => pauseMenu.isOpen;
 
-  player.attachInput(gs.renderer.domElement);
+  // --- Menu Principal & Wizard de Criação de Mundo ---
+  let gameStarted = false;
+  async function startGame(worldId: string): Promise<void> {
+    await loadWorldById(worldId);
+    if (!gameStarted) {
+      gameStarted = true;
+      hud.setVisible(true);
+      inventoryModal.setHotbarVisible(true);
+      player.attachInput(gs.renderer.domElement);
+      tick();
+    }
+  }
 
-  let breaking = false, placing = false;
-  const isLocked = () => document.pointerLockElement === gs.renderer.domElement;
+  function extractRoomId(link: string): string {
+    try {
+      const url = new URL(link, location.href);
+      return url.searchParams.get('join') || link;
+    } catch {
+      return link;
+    }
+  }
+  function extractRelayFromLink(link: string): string | null {
+    try {
+      const url = new URL(link, location.href);
+      const relay = url.searchParams.get('relay');
+      return relay ? decodeURIComponent(relay) : null;
+    } catch {
+      return null;
+    }
+  }
 
-  const menu = document.getElementById('menu');
-  if (menu) {
-    menu.addEventListener('click', () => {
-      menu.style.display = 'none';
-      if (cameraManager.mode === 'fps' || cameraManager.mode === 'ghost') {
-        try { gs.renderer.domElement.requestPointerLock(); } catch {}
-      }
-    });
+  async function handleJoinLink(link: string): Promise<void> {
+    const roomId = extractRoomId(link);
+    const relayUrl = extractRelayFromLink(link);
+    const guestWorld: WorldRecord = {
+      id: `guest-${roomId}`,
+      name: `Visitante de ${roomId}`,
+      seed: Math.floor(Math.random() * 1000000),
+      groundHeight: 4, fov: 75, cameraMode: 'fps',
+      defaultGameMode: 'adventure', onlineEnabled: false,
+      saveVersion: CURRENT_SAVE_VERSION,
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    await WorldRepository.saveWorld(guestWorld);
+    await startGame(guestWorld.id);
+
+    if (relayUrl) signaling.configure(relayUrl);
+    if (!signaling.isConfigured()) {
+      hud.showToast('Link sem relay configurado — não é possível conectar automaticamente.');
+      return;
+    }
+    const ok = await peerSync.joinRoom(roomId);
+    hud.showToast(ok ? 'Conectando ao anfitrião...' : 'Não foi possível conectar ao relay.');
+  }
+
+  const wizard = new WorldCreationWizard((worldRecord) => startGame(worldRecord.id));
+
+  const mainMenu = new MainMenu({
+    onContinue: (worldId) => startGame(worldId),
+    onOpenWorld: (worldId) => startGame(worldId),
+    onOpenWizard: () => wizard.open(),
+    onJoinLink: (link) => { void handleJoinLink(link); },
+    onOpenGlobalSettings: () => { mainMenu.close(); uiManager.openBlocking('pause'); },
+    listOnlineWorlds: () => signaling.listRooms(),
+  });
+
+  // Entrada direta via link de convite (?join=roomId&relay=...)
+  const joinParam = new URLSearchParams(location.search).get('join');
+  if (joinParam) {
+    mainMenu.close();
+    void handleJoinLink(location.href);
   }
 
   // Pointer & Keyboard Event Handling
+  let breaking = false, placing = false;
+  const isLocked = () => document.pointerLockElement === gs.renderer.domElement;
+
   gs.renderer.domElement.addEventListener('click', () => {
     const activeEl = document.activeElement;
     const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
 
-    if (!isTyping && !settingsModal.isOpen) {
+    if (!isTyping && !uiManager.isAnyBlockingOpen() && gameStarted) {
       if (cameraManager.mode === 'fps' || cameraManager.mode === 'ghost') {
         if (!isLocked()) {
           try { gs.renderer.domElement.requestPointerLock(); } catch {}
@@ -350,42 +649,36 @@ async function bootstrap() {
 
     if (!isTyping) {
       if (e.code === 'KeyT') {
-        console.log('⌨️ [Atalho] Tecla T: Alternando Chatbot IA');
         e.preventDefault();
         if (document.pointerLockElement) document.exitPointerLock();
-        chatOverlay.toggle();
+        uiManager.toggleFloating('chat');
         return;
       }
       if (e.code === 'Escape') {
-        console.log('⌨️ [Atalho] Tecla ESC: Alternando Menu de Configurações');
         e.preventDefault();
         if (document.pointerLockElement) document.exitPointerLock();
-        if (settingsModal.isOpen) settingsModal.close();
-        else settingsModal.open();
+        if (!uiManager.handleEscape()) uiManager.openBlocking('pause');
         return;
       }
       if (e.ctrlKey && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) {
-        if (e.shiftKey) {
-          console.log('⌨️ [Atalho] Ctrl+Shift+Z: Refazer');
-          e.preventDefault();
-          undoManager.redo();
-        } else {
-          console.log('⌨️ [Atalho] Ctrl+Z: Desfazer');
-          e.preventDefault();
-          undoManager.undo();
-        }
+        if (e.shiftKey) { e.preventDefault(); undoManager.redo(); }
+        else { e.preventDefault(); undoManager.undo(); }
         return;
       }
       if (e.ctrlKey && (e.code === 'KeyY' || e.key === 'y' || e.key === 'Y')) {
-        console.log('⌨️ [Atalho] Ctrl+Y: Refazer');
         e.preventDefault();
         undoManager.redo();
         return;
       }
 
-      if (e.ctrlKey && e.code === 'Digit1') { console.log('⌨️ [Atalho] Ctrl+1: Câmera Top-Down'); e.preventDefault(); cameraManager.setMode('topdown'); return; }
-      if (e.ctrlKey && e.code === 'Digit2') { console.log('⌨️ [Atalho] Ctrl+2: Câmera FPS (Minecraft)'); e.preventDefault(); cameraManager.setMode('fps'); return; }
-      if (e.ctrlKey && e.code === 'Digit3') { console.log('⌨️ [Atalho] Ctrl+3: Câmera Ghost (Fly)'); e.preventDefault(); cameraManager.setMode('ghost'); return; }
+      if (e.ctrlKey && e.code === 'Digit1') {
+        e.preventDefault();
+        if (gameModeManager.mode === 'creative') cameraManager.setMode('topdown');
+        else hud.showToast('Visão Top-Down só é acessível no Modo Criativo.');
+        return;
+      }
+      if (e.ctrlKey && e.code === 'Digit2') { e.preventDefault(); cameraManager.setMode('fps'); return; }
+      if (e.ctrlKey && e.code === 'Digit3') { e.preventDefault(); cameraManager.setMode('ghost'); return; }
 
       if (!e.ctrlKey && e.code.startsWith('Digit')) {
         const num = parseInt(e.code.replace('Digit', ''), 10);
@@ -397,19 +690,18 @@ async function bootstrap() {
       }
 
       if (isLocked()) {
-        if (e.code === 'KeyE') inter.cycleBuildMode();
         if (e.code === 'KeyX') inter.cycleBoxH();
         if (e.code === 'KeyV') inter.cycleBoxW();
         if (e.code === 'KeyC') inter.toggleDetail();
+        if (e.code === 'KeyB' && gameModeManager.rules.canBreak && gameModeManager.rules.canPlace) inter.cycleBuildMode();
       }
     }
   });
 
-  await loadWorldById(currentWorld.id);
-
-  // Main Render Loop
+  // Main Render Loop (só inicia depois que o jogador escolhe algo no MainMenu/Wizard)
   const clock = new THREE.Clock();
   let streamAccum = 0;
+  let saveAccum = 0;
 
   function tick(): void {
     requestAnimationFrame(tick);
@@ -418,28 +710,36 @@ async function bootstrap() {
     streamAccum += dt;
     if (streamAccum > 0.05) { streamAccum = 0; streamChunks(); }
 
+    const rules = gameModeManager.rules;
     if (cameraManager.mode === 'fps') {
       player.update(dt);
       inter.update(dt, gs.camera);
-      if (breaking) inter.tryBreak(gs.camera);
-      if (placing) inter.tryPlace(gs.camera);
+      if (breaking && rules.canBreak) inter.tryBreak(gs.camera);
+      if (placing && rules.canPlace) inter.tryPlace(gs.camera);
     } else {
       player.update(dt);
     }
+
+    if (rules.hasSurvival) survivalSystem.update(dt);
+    itemDropSystem.update(dt);
 
     cameraManager.update();
     physics.update(dt);
     entitySystem.update(dt);
     gs.updateSun(player.pos.x, player.pos.z);
-    
+
     hud.updateCoords(player.pos.x, player.pos.y, player.pos.z);
     hud.updateCameraMode(cameraManager.mode);
+    hud.updateNetworkStatus(peerSync.role, peerSync.peerCount);
+    if (rules.hasSurvival) hud.updateSurvival(survivalSystem.health, survivalSystem.maxHealth, survivalSystem.hunger, survivalSystem.maxHunger);
+
+    saveAccum += dt;
+    if (saveAccum > 5) { saveAccum = 0; savePlayerNow(); }
 
     gs.renderer.render(gs.scene, cameraManager.activeCamera);
   }
 
-  tick();
-  console.log('✅ Crom Planebox (Base Crom Quadrado) iniciado com sucesso!');
+  console.log('✅ Crom Planebox (Base Crom Quadrado) pronto — aguardando seleção no Menu Principal.');
 }
 
 window.addEventListener('DOMContentLoaded', () => {

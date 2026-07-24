@@ -18,7 +18,8 @@ export class OpenRouterClient {
   public async sendMessage(
     worldId: string,
     userText: string,
-    onPartialText?: (chunkText: string) => void
+    onPartialText?: (chunkText: string) => void,
+    threadId?: string
   ): Promise<OpenRouterResponse> {
     const settings = await WorldRepository.getSettings();
 
@@ -36,13 +37,17 @@ export class OpenRouterClient {
     // Save user message to IndexedDB
     await WorldRepository.addChatMessage({
       worldId,
+      threadId,
       role: 'user',
       content: userText,
       timestamp: Date.now()
     });
 
-    // Load full conversation history for this world
-    const historyRecords = await WorldRepository.getChatMessages(worldId);
+    // Carrega o histórico desta conversa específica (não do mundo inteiro — cada thread é isolado).
+    // BUG CORRIGIDO 24/07/2026: antes nenhuma mensagem salva aqui levava threadId, então assim que
+    // o ChatOverlay filtrava por thread pra exibir, a conversa "sumia" (a UI achava que a thread
+    // estava vazia e mostrava a tela de boas-vindas, mesmo com as mensagens existindo no mundo).
+    const historyRecords = await WorldRepository.getChatMessages(worldId, threadId);
     const apiMessages: any[] = [
       { role: 'system', content: settings.systemPrompt }
     ];
@@ -136,6 +141,7 @@ export class OpenRouterClient {
           // Save assistant message with tool calls to IndexedDB
           await WorldRepository.addChatMessage({
             worldId,
+            threadId,
             role: 'assistant',
             content: message.content || '',
             tool_calls: message.tool_calls,
@@ -178,6 +184,7 @@ export class OpenRouterClient {
 
             await WorldRepository.addChatMessage({
               worldId,
+              threadId,
               role: 'tool',
               tool_call_id: toolCall.id,
               name: toolName,
@@ -202,6 +209,7 @@ export class OpenRouterClient {
           // No more tool calls, save final assistant text message
           await WorldRepository.addChatMessage({
             worldId,
+            threadId,
             role: 'assistant',
             content: finalContent,
             timestamp: Date.now(),
@@ -221,6 +229,7 @@ export class OpenRouterClient {
       const errorMessage = `❌ Erro ao comunicar com ${providerName}: ${err.message || err}`;
       await WorldRepository.addChatMessage({
         worldId,
+        threadId,
         role: 'assistant',
         content: errorMessage,
         timestamp: Date.now()

@@ -7,6 +7,9 @@ import { WorldPerception } from './WorldPerception';
 import { EntitySystem } from '../entities/EntitySystem';
 import { EventSystem } from '../events/EventSystem';
 import { UndoManager, BlockChange } from '../storage/UndoManager';
+import { UIExecutors } from './UIExecutors';
+import { getStructureTemplate } from '../crafting/StructureTemplates';
+import { SCALE } from '../world/chunk';
 
 function parseBlockType(name: string): number {
   const upper = (name || '').toUpperCase().trim();
@@ -34,7 +37,21 @@ function parseBlockType(name: string): number {
   if (upper === 'GLOWSTONE' || upper === 'LUMINOSA') return B.GLOWSTONE;
   if (upper === 'OBSIDIAN' || upper === 'OBSIDIANA') return B.OBSIDIAN;
   if (upper === 'DARK_STONE' || upper === 'PEDRA_ESCURA') return B.DARK_STONE;
+  // Auditoria 24/07/2026: estes três nomes eram anunciados nas descrições das ferramentas MCP
+  // (set_block/fill_box) mas nunca tinham alias aqui — pedir "COBBLESTONE" ou "LAVA" caía
+  // silenciosamente no fallback B.STONE em vez do bloco certo. Corrigido.
+  if (upper === 'COBBLE' || upper === 'COBBLESTONE' || upper === 'PEDREGULHO') return B.COBBLE;
+  if (upper === 'LAVA') return B.LAVA;
+  if (upper === 'GRAVEL' || upper === 'CASCALHO') return B.GRAVEL;
+  if (upper === 'PATH' || upper === 'CAMINHO') return B.PATH;
+  if (upper === 'SNOW' || upper === 'NEVE') return B.SNOW;
   return B.STONE;
+}
+
+export interface ScriptErrorLog {
+  timestamp: number;
+  code: string;
+  message: string;
 }
 
 export class MCPExecutors {
@@ -47,6 +64,11 @@ export class MCPExecutors {
   public entitySystem?: EntitySystem;
   public eventSystem?: EventSystem;
   public undoManager?: UndoManager;
+  public uiExecutors: UIExecutors;
+  /** Log das últimas falhas de execute_voxel_script, para a IA se autocorrigir sem o usuário colar erros manualmente. */
+  private recentErrors: ScriptErrorLog[] = [];
+  /** Notifica blocos alterados pela IA — usado pelo host para retransmitir via PeerSync. */
+  public onBlocksChanged: (mods: { x: number; y: number; z: number; blockType: number }[]) => void = () => {};
 
   constructor(
     world: World,
@@ -67,14 +89,35 @@ export class MCPExecutors {
     this.entitySystem = entitySystem;
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
+    this.uiExecutors = new UIExecutors(currentWorldId);
   }
 
   public setWorldId(worldId: string): void {
     this.currentWorldId = worldId;
+    this.uiExecutors.setWorldId(worldId);
+  }
+
+  private snapshotFrom(cx: number, cy: number, cz: number, tx: number, ty: number, tz: number): string {
+    const snapCam = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 1000);
+    snapCam.position.set(cx, cy, cz);
+    snapCam.lookAt(tx, ty, tz);
+    this.renderer.render(this.scene, snapCam);
+    return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  private logScriptError(code: string, message: string): void {
+    this.recentErrors.push({ timestamp: Date.now(), code: code.slice(0, 400), message });
+    if (this.recentErrors.length > 20) this.recentErrors.shift();
   }
 
   public async executeTool(name: string, args: any): Promise<{ result: any; snapshotImage?: string }> {
     console.log(`🛠️ [MCPExecutors] Executando ferramenta "${name}" com os argumentos:`, args);
+
+    if (UIExecutors.isUITool(name)) {
+      const uiResult = await this.uiExecutors.execute(name, args);
+      if (uiResult) return uiResult;
+    }
+
     switch (name) {
       case 'set_block': {
         const type = parseBlockType(args.block_type);
@@ -83,6 +126,7 @@ export class MCPExecutors {
         const z = Number(args.z) || 0;
         this.world.setBlock(x, y, z, type);
         await WorldRepository.saveBlockMod(this.currentWorldId, x, y, z, type);
+        this.onBlocksChanged([{ x, y, z, blockType: type }]);
         return { result: `Bloco ${BLOCKS[type]?.name || type} colocado em (${x}, ${y}, ${z}).` };
       }
 
@@ -112,6 +156,7 @@ export class MCPExecutors {
         }
 
         await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
+        this.onBlocksChanged(mods);
         return { result: `Caixa preenchida com ${mods.length} blocos de ${BLOCKS[type]?.name || type}.` };
       }
 
@@ -123,16 +168,88 @@ export class MCPExecutors {
         const ty = Number(args.targetY) || 0;
         const tz = Number(args.targetZ) || 0;
 
-        const snapCam = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 1000);
-        snapCam.position.set(cx, cy, cz);
-        snapCam.lookAt(tx, ty, tz);
-
-        this.renderer.render(this.scene, snapCam);
-        const dataUrl = this.renderer.domElement.toDataURL('image/png');
+        const dataUrl = this.snapshotFrom(cx, cy, cz, tx, ty, tz);
 
         return {
           result: `Snapshot visual capturado de (${cx}, ${cy}, ${cz}) olhando para (${tx}, ${ty}, ${tz}).`,
           snapshotImage: dataUrl
+        };
+      }
+
+      case 'capture_multi_angle': {
+        // Tira 4 fotos automáticas (frente, direita, trás, esquerda, todas em diagonal de cima)
+        // ao redor de um ponto central, para a IA validar visualmente uma construção de uma vez,
+        // sem precisar lembrar de chamar capture_snapshot várias vezes manualmente.
+        const tx = Number(args.targetX) || 0;
+        const ty = Number(args.targetY) || 0;
+        const tz = Number(args.targetZ) || 0;
+        const dist = Number(args.distance) || 18;
+        const height = Number(args.height) || 12;
+
+        const angles = [0, 90, 180, 270];
+        const images: string[] = [];
+        for (const deg of angles) {
+          const rad = (deg * Math.PI) / 180;
+          const cx = tx + Math.sin(rad) * dist;
+          const cz = tz + Math.cos(rad) * dist;
+          images.push(this.snapshotFrom(cx, ty + height, cz, tx, ty, tz));
+        }
+
+        return {
+          result: `4 fotos capturadas ao redor de (${tx}, ${ty}, ${tz}) (frente/direita/trás/esquerda). Analise todas antes de decidir se precisa corrigir algo.`,
+          snapshotImage: images[0],
+          multiSnapshotImages: images
+        } as any;
+      }
+
+      case 'possess_entity': {
+        // Caminho alternativo ao spawn_entity/execute_voxel_script->createEntity: em vez de gerar
+        // um NPC decorativo, transforma o PRÓPRIO jogador na entidade indicada (teleporta até ela
+        // e remove o NPC decorativo, já que a câmera do jogador passa a fazer o papel dela).
+        if (!this.entitySystem) return { result: 'Sistema de entidades indisponível.' };
+        const id = String(args.entity_id || '');
+        const taken = this.entitySystem.takeControlOf(id);
+        if (!taken) return { result: `Entidade '${id}' não encontrada.` };
+        this.player.pos.set(taken.x, taken.y, taken.z);
+        this.player.vel.set(0, 0, 0);
+        return { result: `Jogador agora está controlando/assumiu o lugar de '${taken.name}' em (${taken.x.toFixed(1)}, ${taken.y.toFixed(1)}, ${taken.z.toFixed(1)}).` };
+      }
+
+      case 'list_recent_errors': {
+        if (this.recentErrors.length === 0) {
+          return { result: 'Nenhum erro registrado nesta sessão.' };
+        }
+        return { result: this.recentErrors.slice(-10) };
+      }
+
+      case 'stamp_structure': {
+        const templateId = String(args.template_id || '');
+        const template = getStructureTemplate(templateId);
+        if (!template) {
+          return { result: `Template de estrutura '${templateId}' não encontrado. Use 'tree', 'small_house', 'tower' ou 'wall'.` };
+        }
+        const bx = Math.floor((Number(args.x) || 0) / SCALE) * SCALE;
+        const by = Math.floor((Number(args.y) || 0) / SCALE) * SCALE;
+        const bz = Math.floor((Number(args.z) || 0) / SCALE) * SCALE;
+
+        const mods: { x: number; y: number; z: number; blockType: number }[] = [];
+        for (const b of template.blocks) {
+          const ox = bx + b.dx * SCALE, oy = by + b.dy * SCALE, oz = bz + b.dz * SCALE;
+          for (let x = ox; x < ox + SCALE; x++) {
+            for (let y = oy; y < oy + SCALE; y++) {
+              for (let z = oz; z < oz + SCALE; z++) {
+                if (this.world.setBlock(x, y, z, b.block)) mods.push({ x, y, z, blockType: b.block });
+              }
+            }
+          }
+        }
+        await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
+        this.onBlocksChanged(mods);
+
+        const snapDataUrl = this.snapshotFrom(bx + SCALE * 8, by + SCALE * 6, bz + SCALE * 8, bx, by, bz);
+        return {
+          result: `Estrutura '${template.name}' carimbada em (${bx}, ${by}, ${bz}) com ${mods.length} mini-blocos.`,
+          snapshotImage: snapDataUrl,
         };
       }
 
@@ -232,6 +349,7 @@ export class MCPExecutors {
         }
 
         await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
+        this.onBlocksChanged(mods);
         return { result: `Construção livre personalizada realizada com sucesso (${mods.length} blocos alterados em tempo real nas coordenadas especificadas)!` };
       }
 
@@ -241,8 +359,27 @@ export class MCPExecutors {
 
         const mods: { x: number; y: number; z: number; blockType: number }[] = [];
         const undoChanges: BlockChange[] = [];
+        const subScriptErrors: string[] = [];
+
+        // Guarda de tempo: scripts gerados pela IA rodam em new Function() sem preempção real,
+        // então um loop mal formado pode travar a aba. Como não dá para interromper JS síncrono
+        // no meio, a defesa prática é abortar futuras escritas de bloco (o caso comum de "loop
+        // infinito" aqui é um laço chamando setBlock repetidamente) assim que o orçamento estourar.
+        const deadline = Date.now() + 4000;
+        let deadlineHit = false;
+        const checkDeadline = (): boolean => {
+          if (Date.now() > deadline) {
+            if (!deadlineHit) {
+              deadlineHit = true;
+              subScriptErrors.push('Execução interrompida: tempo limite de 4s excedido (possível loop com muitas iterações). Divida a construção em scripts menores.');
+            }
+            return true;
+          }
+          return false;
+        };
 
         const setBlock = (x: number, y: number, z: number, blockType: any) => {
+          if (checkDeadline()) return;
           const type = typeof blockType === 'number' ? blockType : parseBlockType(String(blockType));
           const oldBlock = this.world.getBlock(x, y, z);
           if (oldBlock !== type) {
@@ -291,7 +428,7 @@ export class MCPExecutors {
           PINE_LEAVES: B.PINE_LEAVES, REED: B.REED, COBBLE: B.COBBLE,
           GLASS: B.GLASS, IRON_BLOCK: B.IRON_BLOCK, GOLD_BLOCK: B.GOLD_BLOCK,
           DIAMOND_BLOCK: B.DIAMOND_BLOCK, GLOWSTONE: B.GLOWSTONE, OBSIDIAN: B.OBSIDIAN,
-          BRICK: B.BRICK, DARK_STONE: B.DARK_STONE, WOOD: B.LOG
+          BRICK: B.BRICK, DARK_STONE: B.DARK_STONE, WOOD: B.LOG, LAVA: B.LAVA
         };
 
         const breakBlock = (x: number, y: number, z: number) => {
@@ -339,8 +476,11 @@ export class MCPExecutors {
             try {
               const subFunc = new Function('setBlock', 'breakBlock', 'fillBox', 'clearArea', 'flattenArea', 'getBlock', 'getGroundY', 'createEntity', 'registerCustomBlock', 'B', 'Math', 'console', 'executeVoxelScript', subCode);
               subFunc(setBlock, breakBlock, fillBox, clearArea, flattenArea, getBlock, getGroundY, createEntity, registerCustomBlock, BLOCK_ENUM, Math, console, executeVoxelScript);
-            } catch (e) {
+            } catch (e: any) {
+              const msg = e?.message || String(e);
               console.error(`❌ [MCPExecutors] Erro ao executar subCode em executeVoxelScript:`, e);
+              subScriptErrors.push(`Sub-script: ${msg}`);
+              this.logScriptError(subCode, msg);
             }
           }
         };
@@ -350,6 +490,7 @@ export class MCPExecutors {
           scriptFunc(setBlock, breakBlock, fillBox, clearArea, flattenArea, getBlock, getGroundY, createEntity, registerCustomBlock, BLOCK_ENUM, Math, console, executeVoxelScript);
 
           await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
+          this.onBlocksChanged(mods);
 
           // Capturar snapshot visual automático do centro da construção para a IA ver a foto
           let snapDataUrl: string | undefined = undefined;
@@ -359,21 +500,22 @@ export class MCPExecutors {
             avgX = Math.round(avgX / mods.length);
             avgY = Math.round(avgY / mods.length);
             avgZ = Math.round(avgZ / mods.length);
-
-            const snapCam = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 1000);
-            snapCam.position.set(avgX + 15, avgY + 12, avgZ + 15);
-            snapCam.lookAt(avgX, avgY, avgZ);
-            this.renderer.render(this.scene, snapCam);
-            snapDataUrl = this.renderer.domElement.toDataURL('image/png');
+            snapDataUrl = this.snapshotFrom(avgX + 15, avgY + 12, avgZ + 15, avgX, avgY, avgZ);
           }
 
+          const errorSuffix = subScriptErrors.length > 0
+            ? `\n⚠️ Erros durante a execução (verifique e corrija): ${subScriptErrors.join(' | ')}`
+            : '';
+
           return {
-            result: `Script executado com sucesso! ${mods.length} blocos gerados pela IA e aplicados no mundo 3D em tempo real.`,
+            result: `Script executado! ${mods.length} blocos gerados pela IA e aplicados no mundo 3D em tempo real.${errorSuffix}`,
             snapshotImage: snapDataUrl
           };
         } catch (err: any) {
+          const msg = err?.message || String(err);
           console.error(`❌ [MCPExecutors] Erro na execução do script de código da IA:`, err);
-          return { result: `Erro ao executar script de código da IA: ${err?.message || err}` };
+          this.logScriptError(rawCode, msg);
+          return { result: `Erro ao executar script de código da IA: ${msg}\nUse a ferramenta 'list_recent_errors' se precisar consultar novamente este e outros erros recentes.` };
         }
       }
 

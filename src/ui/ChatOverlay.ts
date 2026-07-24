@@ -1,10 +1,20 @@
 import { OpenRouterClient } from '../ai/OpenRouterClient';
 import { WorldRepository } from '../storage/WorldRepository';
 import { ChatMessageRecord, ChatThreadRecord } from '../storage/Database';
+import { CommandSystem } from '../commands/CommandSystem';
+
+type MainTab = 'ai' | 'world';
+
+interface FloatingEntry {
+  el: HTMLDivElement;
+  expiresAt: number;
+}
 
 export class ChatOverlay {
+  public readonly id = 'chat';
   private container: HTMLDivElement;
   private headerTitleSpan: HTMLSpanElement;
+  private tabsRow: HTMLDivElement;
   private messageList: HTMLDivElement;
   private threadsListArea: HTMLDivElement;
   private inputArea: HTMLDivElement;
@@ -14,8 +24,21 @@ export class ChatOverlay {
   private currentWorldId: string = 'default-world';
   private currentThreadId: string | null = null;
   private isShowingThreadsList: boolean = false;
-  private isOpen: boolean = false;
+  public isOpen: boolean = false;
   public getLocationContext?: () => string;
+
+  // --- Chat do Mundo (estilo Minecraft) ---
+  private activeTab: MainTab = 'ai';
+  private worldChatList: HTMLDivElement;
+  private worldChatInputArea: HTMLDivElement;
+  private worldChatInputField: HTMLInputElement;
+  private floatingLog: HTMLDivElement;
+  private floatingEntries: FloatingEntry[] = [];
+  public localPlayerName = 'Você';
+  /** Envia para os outros peers (via PeerSync) — main.ts injeta a implementação real. */
+  public onWorldChatSend: (text: string) => void = () => {};
+  /** Executa um comando de barra (via CommandSystem) — main.ts injeta a implementação real. */
+  public onCommand: (raw: string) => Promise<{ ok: boolean; message: string }> = async () => ({ ok: false, message: 'Sistema de comandos indisponível.' });
 
   constructor(openRouterClient: OpenRouterClient) {
     this.openRouterClient = openRouterClient;
@@ -85,6 +108,12 @@ export class ChatOverlay {
     header.appendChild(actionsArea);
     this.container.appendChild(header);
 
+    // Abas principais: Assistente IA vs. Chat do Mundo (estilo Minecraft)
+    this.tabsRow = document.createElement('div');
+    this.tabsRow.style.cssText = 'display:flex; gap:6px; padding:8px 16px 0; background: rgba(30,41,59,0.5);';
+    this.container.appendChild(this.tabsRow);
+    this.renderMainTabs();
+
     // View 1: Message List Area
     this.messageList = document.createElement('div');
     this.messageList.style.cssText = `
@@ -109,7 +138,19 @@ export class ChatOverlay {
     `;
     this.container.appendChild(this.threadsListArea);
 
-    // Input Bar
+    // View 3: Chat do Mundo (mensagens entre jogadores conectados via P2P + comandos)
+    this.worldChatList = document.createElement('div');
+    this.worldChatList.style.cssText = `
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    `;
+    this.container.appendChild(this.worldChatList);
+
+    // Input Bar (Assistente IA)
     this.inputArea = document.createElement('div');
     this.inputArea.style.cssText = `
       padding: 12px 16px;
@@ -156,9 +197,152 @@ export class ChatOverlay {
     this.inputArea.appendChild(this.sendBtn);
     this.container.appendChild(this.inputArea);
 
+    // Input Bar (Chat do Mundo) — suporta comandos com "/"
+    this.worldChatInputArea = document.createElement('div');
+    this.worldChatInputArea.style.cssText = `
+      padding: 12px 16px;
+      background: rgba(30, 41, 59, 0.4);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: none;
+      gap: 8px;
+    `;
+    this.worldChatInputField = document.createElement('input');
+    this.worldChatInputField.type = 'text';
+    this.worldChatInputField.autocomplete = 'off';
+    this.worldChatInputField.placeholder = 'Mensagem para o mundo, ou /comando...';
+    this.worldChatInputField.style.cssText = this.inputField.style.cssText;
+    const worldSendBtn = document.createElement('button');
+    worldSendBtn.textContent = 'Enviar';
+    worldSendBtn.style.cssText = this.sendBtn.style.cssText;
+    worldSendBtn.onclick = () => this.handleWorldChatSend();
+    this.worldChatInputField.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') this.handleWorldChatSend();
+    };
+    this.worldChatInputArea.appendChild(this.worldChatInputField);
+    this.worldChatInputArea.appendChild(worldSendBtn);
+    this.container.appendChild(this.worldChatInputArea);
+
     document.body.appendChild(this.container);
 
+    // Log flutuante estilo Minecraft: fica fora do container principal, então continua
+    // visível (com mensagens sumindo sozinhas) mesmo com a janela de chat fechada.
+    this.floatingLog = document.createElement('div');
+    this.floatingLog.style.cssText = `
+      position: absolute;
+      bottom: 88px;
+      left: 24px;
+      width: 380px;
+      max-width: calc(100vw - 48px);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+      z-index: 90;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    `;
+    document.body.appendChild(this.floatingLog);
+
     this.setupListeners();
+  }
+
+  private renderMainTabs(): void {
+    this.tabsRow.innerHTML = '';
+    const defs: { id: MainTab; label: string }[] = [
+      { id: 'ai', label: '🤖 Assistente IA' },
+      { id: 'world', label: '💬 Chat do Mundo' },
+    ];
+    for (const d of defs) {
+      const btn = document.createElement('button');
+      const active = this.activeTab === d.id;
+      btn.textContent = d.label;
+      btn.style.cssText = `
+        background: ${active ? 'rgba(56,189,248,0.15)' : 'transparent'};
+        border: 1px solid ${active ? '#38bdf8' : 'transparent'};
+        color: ${active ? '#38bdf8' : '#94a3b8'};
+        border-radius: 6px 6px 0 0; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+      `;
+      btn.onclick = (e) => { e.stopPropagation(); this.setMainTab(d.id); };
+      this.tabsRow.appendChild(btn);
+    }
+  }
+
+  private setMainTab(tab: MainTab): void {
+    this.activeTab = tab;
+    this.renderMainTabs();
+    const showAi = tab === 'ai';
+    this.messageList.style.display = showAi && !this.isShowingThreadsList ? 'flex' : 'none';
+    this.threadsListArea.style.display = showAi && this.isShowingThreadsList ? 'flex' : 'none';
+    this.inputArea.style.display = showAi ? 'flex' : 'none';
+    this.worldChatList.style.display = showAi ? 'none' : 'flex';
+    this.worldChatInputArea.style.display = showAi ? 'none' : 'flex';
+    if (!showAi) this.worldChatInputField.focus();
+  }
+
+  private addFloatingEntry(text: string, color = '#f8fafc'): void {
+    const entry = document.createElement('div');
+    entry.style.cssText = `
+      background: rgba(15, 23, 42, 0.6);
+      color: ${color};
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+      transition: opacity 0.6s ease;
+    `;
+    entry.textContent = text;
+    this.floatingLog.appendChild(entry);
+    const expiresAt = Date.now() + 6000;
+    this.floatingEntries.push({ el: entry, expiresAt });
+    while (this.floatingLog.children.length > 8) {
+      this.floatingLog.removeChild(this.floatingLog.firstChild!);
+    }
+    this.pruneFloatingEntries();
+  }
+
+  private pruneFloatingEntries(): void {
+    const now = Date.now();
+    this.floatingEntries = this.floatingEntries.filter((entry) => {
+      const remaining = entry.expiresAt - now;
+      if (this.isOpen && this.activeTab === 'world') return true; // com o chat aberto na aba certa, não some
+      if (remaining <= 0) {
+        entry.el.style.opacity = '0';
+        setTimeout(() => entry.el.remove(), 600);
+        return false;
+      }
+      if (remaining < 1000) entry.el.style.opacity = '0.3';
+      setTimeout(() => this.pruneFloatingEntries(), Math.min(remaining, 1000));
+      return true;
+    });
+  }
+
+  /** Chamado pelo main.ts quando uma mensagem chega de outro peer (ou é um aviso do sistema/comando). */
+  public receiveWorldChatMessage(name: string, text: string, isSystem = false): void {
+    const row = document.createElement('div');
+    row.style.cssText = 'font-size: 13px; color: #f8fafc; line-height: 1.5; white-space: pre-line;';
+    if (isSystem) {
+      row.innerHTML = `<span style="color:#facc15;">⚙ ${text}</span>`;
+    } else {
+      row.innerHTML = `<strong style="color:#38bdf8;">${name}:</strong> ${text}`;
+    }
+    this.worldChatList.appendChild(row);
+    this.worldChatList.scrollTop = this.worldChatList.scrollHeight;
+    this.addFloatingEntry(isSystem ? `⚙ ${text}` : `${name}: ${text}`, isSystem ? '#facc15' : '#f8fafc');
+  }
+
+  private async handleWorldChatSend(): Promise<void> {
+    const text = this.worldChatInputField.value.trim();
+    if (!text) return;
+    this.worldChatInputField.value = '';
+
+    if (CommandSystem.isCommand(text)) {
+      const result = await this.onCommand(text);
+      this.receiveWorldChatMessage('', result.message, true);
+      return;
+    }
+
+    this.receiveWorldChatMessage(this.localPlayerName, text);
+    this.onWorldChatSend(text);
   }
 
   private createHeaderBtn(label: string, color: string, onClick: () => void): HTMLButtonElement {
@@ -195,6 +379,7 @@ export class ChatOverlay {
   public async setWorldId(worldId: string): Promise<void> {
     console.log(`🌐 [ChatOverlay] Alternando para o mundo ID: "${worldId}"`);
     this.currentWorldId = worldId;
+    await WorldRepository.repairOrphanedChatMessages(worldId);
     const threads = await WorldRepository.getChatThreads(this.currentWorldId);
     if (threads.length > 0) {
       this.currentThreadId = threads[0].id;
@@ -455,7 +640,8 @@ export class ChatOverlay {
       (partialText) => {
         loadingBubble.textContent = partialText;
         this.scrollToBottom();
-      }
+      },
+      this.currentThreadId || undefined
     );
 
     console.log(`🤖 [ChatOverlay] Resposta recebida:`, response);
@@ -471,7 +657,14 @@ export class ChatOverlay {
     this.container.style.display = 'flex';
     this.container.style.opacity = '1';
     this.container.style.pointerEvents = 'auto';
-    this.inputField.focus();
+    if (this.activeTab === 'ai') this.inputField.focus();
+    else this.worldChatInputField.focus();
+  }
+
+  /** Abre já na aba de Chat do Mundo — usado pelo atalho de abertura direta (ex.: tecla "/"). */
+  public focusWorldChat(): void {
+    this.setMainTab('world');
+    this.focus();
   }
 
   public blur(): void {
@@ -495,6 +688,10 @@ export class ChatOverlay {
       this.focus();
     }
   }
+
+  /** Aliases open()/close() para satisfazer a interface UIScreen do UIManager. */
+  public open(): void { this.focus(); }
+  public close(): void { this.hide(); }
 
   private scrollToBottom(): void {
     this.messageList.scrollTop = this.messageList.scrollHeight;

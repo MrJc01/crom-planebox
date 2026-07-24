@@ -4,7 +4,11 @@ export class HUD {
   private container: HTMLDivElement;
   private cameraBadge: HTMLDivElement;
   private coordsBadge: HTMLDivElement;
+  private networkBadge: HTMLDivElement;
   private cameraManager: CameraManager | null = null;
+  private survivalBar: HTMLDivElement;
+  private healthEl: HTMLDivElement;
+  private hungerEl: HTMLDivElement;
 
   constructor(cameraManager?: CameraManager) {
     if (cameraManager) this.cameraManager = cameraManager;
@@ -88,6 +92,19 @@ export class HUD {
     this.coordsBadge.textContent = 'XYZ: 0, 0, 0';
     topRightPanel.appendChild(this.coordsBadge);
 
+    this.networkBadge = document.createElement('div');
+    this.networkBadge.style.cssText = `
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #94a3b8;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+    `;
+    this.networkBadge.textContent = '⚪ Offline (local)';
+    topRightPanel.appendChild(this.networkBadge);
+
     this.container.appendChild(topRightPanel);
 
     // Controls hint bottom-right
@@ -111,18 +128,71 @@ export class HUD {
     `;
     this.container.appendChild(hint);
 
+    // Barra de vida/fome (Modo Sobrevivência), estilo Minecraft — oculta nos outros modos.
+    this.survivalBar = document.createElement('div');
+    this.survivalBar.style.cssText = `
+      position: absolute;
+      bottom: 84px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    `;
+    this.healthEl = document.createElement('div');
+    this.healthEl.style.cssText = 'display: flex; gap: 3px; font-size: 18px; text-shadow: 0 2px 3px rgba(0,0,0,0.6);';
+    this.hungerEl = document.createElement('div');
+    this.hungerEl.style.cssText = 'display: flex; gap: 3px; font-size: 18px; text-shadow: 0 2px 3px rgba(0,0,0,0.6);';
+    this.survivalBar.appendChild(this.healthEl);
+    this.survivalBar.appendChild(this.hungerEl);
+    this.container.appendChild(this.survivalBar);
+
     document.body.appendChild(this.container);
+  }
+
+  public setSurvivalVisible(visible: boolean): void {
+    this.survivalBar.style.display = visible ? 'flex' : 'none';
+  }
+
+  /** Oculta o HUD inteiro enquanto o MainMenu/Wizard ainda estão na tela (antes do jogo começar). */
+  public setVisible(visible: boolean): void {
+    this.container.style.display = visible ? 'block' : 'none';
+  }
+
+  public updateSurvival(health: number, maxHealth: number, hunger: number, maxHunger: number): void {
+    const totalHearts = 10;
+    const healthPerHeart = maxHealth / totalHearts;
+    let heartsHtml = '';
+    for (let i = 0; i < totalHearts; i++) {
+      const remaining = health - i * healthPerHeart;
+      heartsHtml += remaining >= healthPerHeart * 0.999 ? '❤️' : remaining > 0 ? '🧡' : '🖤';
+    }
+    this.healthEl.innerHTML = heartsHtml;
+
+    const totalDrumsticks = 10;
+    const hungerPerIcon = maxHunger / totalDrumsticks;
+    let hungerHtml = '';
+    for (let i = 0; i < totalDrumsticks; i++) {
+      const remaining = hunger - i * hungerPerIcon;
+      hungerHtml += remaining >= hungerPerIcon * 0.999 ? '🍗' : remaining > 0 ? '🍖' : '⬛';
+    }
+    this.hungerEl.innerHTML = hungerHtml;
   }
 
   public setCameraManager(cameraManager: CameraManager): void {
     this.cameraManager = cameraManager;
   }
 
+  /** Câmera Top-Down é uma visão de construção — só liberada quando este callback devolve true (Modo Criativo). */
+  public canUseTopdown: () => boolean = () => true;
+
   private cycleCameraMode(): void {
     if (!this.cameraManager) return;
-    const modes: CameraMode[] = ['topdown', 'fps', 'ghost'];
+    const allModes: CameraMode[] = ['topdown', 'fps', 'ghost'];
+    const modes = this.canUseTopdown() ? allModes : allModes.filter((m) => m !== 'topdown');
     const currentIdx = modes.indexOf(this.cameraManager.mode);
-    const nextMode = modes[(currentIdx + 1) % modes.length];
+    const nextMode = modes[(currentIdx + 1 + modes.length) % modes.length];
     this.cameraManager.setMode(nextMode);
     this.updateCameraMode(nextMode);
   }
@@ -138,6 +208,20 @@ export class HUD {
 
   public updateCoords(x: number, y: number, z: number): void {
     this.coordsBadge.textContent = `XYZ: ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`;
+  }
+
+  /** Indicador persistente de rede (Host/Peer/Offline) — pedido explícito, antes só existia em toasts pontuais. */
+  public updateNetworkStatus(role: 'offline' | 'host' | 'guest', peerCount: number): void {
+    if (role === 'host') {
+      this.networkBadge.textContent = `🟢 Anfitrião · ${peerCount} jogador(es)`;
+      this.networkBadge.style.color = '#4ade80';
+    } else if (role === 'guest') {
+      this.networkBadge.textContent = '🟡 Conectado como visitante';
+      this.networkBadge.style.color = '#facc15';
+    } else {
+      this.networkBadge.textContent = '⚪ Offline (local)';
+      this.networkBadge.style.color = '#94a3b8';
+    }
   }
 
   public showToast(msg: string): void {
