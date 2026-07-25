@@ -571,7 +571,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [ ] 439 `P2` Contraste alto no HUD
 - [ ] 440 `P2` Navegação por teclado em todos os menus
 - [ ] 441 `P2` Rótulos ARIA nos elementos interativos
-- [ ] 442 `P2` Tela de configurações unificada
+- [~] 442 `P2` **Tela de configurações unificada — áudio e atalhos no hub**
 - [ ] 443 `P2` Minimapa
 - [ ] 444 `P2` Bússola e coordenadas opcionais
 - [ ] 445 `P2` Tela de morte com resumo
@@ -1356,7 +1356,7 @@ de quem nunca abre o editor.*
 - [ ] 870 `P2` **Página de Blocos**: navegar a paleta, ver propriedades, ir até um bloco no mundo
 - [ ] 871 `P2` **Página de Entidades**: listar, seguir, remover, editar espécie
 - [ ] 872 `P2` **Página de Rede**: peers, latência, o que está sendo sincronizado
-- [ ] 873 `P2` Navegação unificada entre as páginas, com atalho único
+- [~] 873 `P2` **Navegação unificada entre as páginas, com atalho único (ESC)**
 - [~] 874 `P2` **Páginas registradas no `UIManager` como telas bloqueantes (F6 e F7)**
 - [ ] 875 `P2` Páginas acessíveis por teclado, com foco visível
 - [ ] 876 `P2` Tema claro/escuro consistente entre as páginas
@@ -1834,6 +1834,17 @@ mesher chamava `Math.pow` uma vez por face.*
 
 ## 37 — Interface: separação de telas e controle de câmera
 
+### Estado após a rodada de correção
+
+Entregue: **hub de navegação** (`GameMenu`) como destino do ESC, com todos os destinos, os
+atalhos visíveis ao lado de cada um, volume por canal e saída para a tela inicial. E um
+**tema compartilhado** (`theme.ts`), porque cada tela escrevia o próprio `cssText` — a mesma cor
+de fundo aparecia com três valores diferentes e o mesmo botão tinha quatro paddings.
+
+Ainda pendente: a **página inicial separada da cena 3D** (item 982). O `MainMenu` existe e
+funciona, mas continua sendo um overlay sobre o canvas, não uma página própria.
+
+
 *Parecer: o `MainMenu` existe, mas o jogo não tem uma **página inicial** de verdade — as telas
 foram nascendo como overlays sobre a cena, e hoje há sete delas competindo pelo mesmo espaço sem
 navegação comum. E o bug do ponteiro é o pior tipo: o jogador perde o controle da câmera e não
@@ -1847,15 +1858,15 @@ e nada mais tentava — o mouse ficava solto para sempre.*
 - [~] 980 `P0` **Dica "clique para voltar ao jogo"** quando o controle está solto
 - [~] 981 `P0` **`pointerlockchange` detecta perda inesperada** e avisa, em vez de deixar o jogador sem saber
 - [ ] 982 `P0` Página inicial de verdade, separada da cena 3D
-- [ ] 983 `P0` Navegação comum entre as telas (mods, editor, personagem, mundo, opções)
-- [ ] 984 `P0` Uma barra ou menu único, em vez de sete atalhos de tecla soltos (F4, F5, F6, F7…)
+- [~] 983 `P0` **Navegação comum entre as telas — hub em `src/ui/GameMenu.ts`, aberto pelo ESC**
+- [~] 984 `P0` **Porta única em vez de sete atalhos soltos; os atalhos viraram atalhos, não o único caminho**
 - [ ] 985 `P1` Tela de opções unificada: vídeo, áudio, controles, acessibilidade
-- [ ] 986 `P1` Volume por canal exposto na interface (o sistema já suporta)
-- [ ] 987 `P1` Lista de atalhos visível dentro do jogo
-- [ ] 988 `P1` Menu de pausa com as mesmas entradas da página inicial
-- [ ] 989 `P1` Estilo compartilhado entre as telas, em vez de CSS repetido em cada arquivo
+- [~] 986 `P1` **Volume por canal exposto na interface (o sistema já suportava, nada expunha)**
+- [~] 987 `P1` **Lista de atalhos visível dentro do jogo, ao lado de cada destino**
+- [~] 988 `P1` **Menu de pausa virou uma entrada do hub ("Mundo e rede"), em vez da única porta**
+- [~] 989 `P1` **Estilo compartilhado em `src/ui/theme.ts` — tokens e construtores no lugar de CSS repetido**
 - [ ] 990 `P1` Transição clara entre "no menu" e "jogando", com o ponteiro sempre coerente
-- [ ] 991 `P2` Voltar de qualquer tela sempre para o mesmo lugar
+- [~] 991 `P2` **Voltar sempre para o hub, e do hub para o jogo**
 - [ ] 992 `P2` Indicador de qual tela está aberta
 - [ ] 993 `P2` As telas herdam a customização de UI feita pela IA
 - [ ] 994 `P2` Navegação por teclado e foco visível em todas as telas

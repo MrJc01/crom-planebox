@@ -30,6 +30,7 @@ import { WorldCreationWizard } from './ui/WorldCreationWizard';
 import { UIManager } from './ui/UIManager';
 import { CharacterCreator } from './ui/CharacterCreator';
 import { ModsPage } from './ui/ModsPage';
+import { GameMenu } from './ui/GameMenu';
 import { CodeEditorPage } from './ui/CodeEditorPage';
 import { PlayerModel } from './player/PlayerModel';
 import { AvatarManager } from './player/AvatarManager';
@@ -388,6 +389,42 @@ async function bootstrap() {
   };
   modsPage.onChanged = recarregarTelas;
   codeEditor.onChanged = recarregarTelas;
+
+  // --- Hub de navegação ---------------------------------------------------------------------
+  // Antes, cada tela só era alcançável por um atalho de tecla próprio — quem não leu a
+  // documentação não descobria nenhuma. O hub dá uma porta única e mostra os atalhos.
+  const gameMenu = new GameMenu(audio);
+  gameMenu.onRetomar = () => uiManager.closeBlocking('game-menu');
+  gameMenu.registrar({
+    id: 'personagem', icone: '🧍', titulo: 'Personagem', atalho: 'F4',
+    descricao: 'Aparência, cores e porte. É o visual que os outros veem online.',
+    acao: () => uiManager.openBlocking('character-creator'),
+  });
+  gameMenu.registrar({
+    id: 'mods', icone: '🧩', titulo: 'Mods', atalho: 'F6',
+    descricao: 'O que cada modificação adicionou, histórico de versões e exportar.',
+    acao: () => uiManager.openBlocking('mods-page'),
+  });
+  gameMenu.registrar({
+    id: 'editor', icone: '📝', titulo: 'Editor de código', atalho: 'F7',
+    descricao: 'Editar o comportamento dos mods com o mundo aberto.',
+    acao: () => uiManager.openBlocking('code-editor'),
+  });
+  gameMenu.registrar({
+    id: 'inventario', icone: '🎒', titulo: 'Inventário', atalho: 'E',
+    descricao: 'Blocos, ferramentas e bancada de criação.',
+    acao: () => uiManager.openBlocking('inventory'),
+  });
+  gameMenu.registrar({
+    id: 'mundo', icone: '⚙️', titulo: 'Mundo e rede', atalho: '',
+    descricao: 'Câmera, modo de jogo, multiplayer e jogadores conectados.',
+    acao: () => uiManager.openBlocking('pause'),
+  });
+  gameMenu.registrar({
+    id: 'ia', icone: '💬', titulo: 'Conversar com a IA', atalho: 'T',
+    descricao: 'Criar mods, construir e modificar o jogo pela conversa.',
+    acao: () => { uiManager.closeBlocking('game-menu'); uiManager.openFloating('chat'); },
+  });
 
   // HUD & UI Overlays (ficam ocultos até o jogo realmente começar, para o MainMenu não competir com eles)
   const hud = new HUD(cameraManager);
@@ -972,6 +1009,7 @@ async function bootstrap() {
   uiManager.registerBlocking(characterCreator);
   uiManager.registerBlocking(modsPage);
   uiManager.registerBlocking(codeEditor);
+  uiManager.registerBlocking(gameMenu);
   uiManager.registerFloating(chatOverlay);
 
   const pauseMenu = new PauseMenu({
@@ -1059,6 +1097,16 @@ async function bootstrap() {
     listOnlineWorlds: () => signaling.listRooms(),
   });
 
+  // Sair da partida pelo hub: fecha tudo, solta o ponteiro e volta à tela inicial. O mundo é
+  // salvo continuamente, então não há nada a descartar aqui.
+  gameMenu.onSairParaMenuInicial = () => {
+    uiManager.closeBlocking('game-menu');
+    if (document.pointerLockElement) document.exitPointerLock();
+    savePlayerNow();
+    chatOverlay.hide();
+    mainMenu.open();
+  };
+
   // Entrada direta via link de convite (?join=roomId&relay=...)
   const joinParam = new URLSearchParams(location.search).get('join');
   if (joinParam) {
@@ -1115,7 +1163,9 @@ async function bootstrap() {
       if (e.code === 'Escape') {
         e.preventDefault();
         if (document.pointerLockElement) document.exitPointerLock();
-        if (!uiManager.handleEscape()) uiManager.openBlocking('pause');
+        // O hub é o destino do ESC. O menu de pausa continua existindo, agora como uma das
+        // entradas dele ("Mundo e rede"), em vez de ser a única porta.
+        if (!uiManager.handleEscape()) uiManager.openBlocking('game-menu');
         return;
       }
       if (e.ctrlKey && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) {
