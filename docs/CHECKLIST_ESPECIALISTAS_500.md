@@ -2000,3 +2000,56 @@ depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se
 usuário descreveu e o que muda a experiência. O *fade* de chunk (1001–1003) depois, porque mexe
 em material e profundidade, e um erro ali degrada o desempenho do mundo inteiro.
 
+---
+
+# Adendo — Curvatura do Mundo (itens 1032–1042)
+
+> Pedido: registrar a **Curvatura do Mundo** (*World Curvature*), o efeito em que o cenário
+> distante se dobra para baixo no horizonte, implementado por um *Curvature Shader*.
+>
+> **Achado ao verificar o código antes de registrar: já estava implementado — e desligado.**
+
+## 40 — Auditoria da curvatura
+
+O `applyCurvature` em `src/render/scene.ts` já injetava a curvatura no *vertex shader* de todos os
+materiais de terreno, água e vidro, com a matemática correta:
+
+```glsl
+float cqDist = distance(cqWorld.xz, cameraPosition.xz);
+float cqDrop = max(0.0, cqDist - uCurvStart);
+cqWorld.y -= cqDrop * cqDrop * uCurvInvR;   // afunda com o QUADRADO da distância
+```
+
+Só que **nunca funcionou**, por dois motivos somados:
+
+1. `invR` valia **0** — e o comentário ao lado dizia literalmente *"0 = mundo 100% plano e reto"*.
+   Nada no projeto inteiro alterava esse valor.
+2. `start` valia **500 voxels**, enquanto a distância de render são ~192 (6 chunks × 32). A
+   curvatura começaria além do que existe desenhado. Mesmo que `invR` fosse ligado, não
+   apareceria nada.
+
+É o terceiro trecho assim encontrado nesta série: `UndoManager.recordBatch` nunca era chamado
+(nenhuma construção da IA era reversível), `setViewRange` ajustava uma névoa que não existia, e
+agora a curvatura. Vale como padrão a observar: **código presente não é código ativo.**
+
+### Correção aplicada
+
+- [~] 1032 `P0` **Curvatura ligada por padrão**, com `invR` derivado em vez de fixo
+- [~] 1033 `P0` **Início e intensidade derivados da distância de render** — `start` fixo em 500 ficava fora do alcance desenhado
+- [~] 1034 `P0` **A intensidade é expressa como "quanto o horizonte afunda no limite da visão"** e o `invR` sai daí. Com `invR` fixo, aumentar a distância dobraria o mundo ao absurdo, porque a queda cresce com o quadrado
+- [~] 1035 `P1` **`setCurvature` acompanha a mudança de distância de render**, como a névoa
+
+### Pendente
+
+- [ ] 1036 `P1` Expor a intensidade nas opções, com `queda = 0` deixando o mundo plano
+- [ ] 1037 `P1` Conciliar curvatura e neblina: o ponto onde o mundo dobra deve estar dentro da névoa, não além dela
+- [ ] 1038 `P1` A curvatura é só visual — verificar que colisão, raycast e A\* continuam no mundo plano
+- [ ] 1039 `P2` Aplicar a mesma curvatura às entidades e ao personagem, que hoje ficam retos sobre terreno curvo
+- [ ] 1040 `P2` Aplicar às partículas e aos destroços de física
+- [ ] 1041 `P2` Curvatura no eixo vertical também, para o efeito "planeta" completo
+- [ ] 1042 `P2` Teste de que `queda = 0` restaura o mundo plano exatamente
+
+**Ressalva honesta:** a correção foi verificada por tipos, testes e build, mas o efeito visual em
+si **não foi conferido numa tela** — o valor padrão de 26 voxels de queda no limite da visão é um
+palpite calibrado, não uma medição. Pode precisar de ajuste ao ver.
+

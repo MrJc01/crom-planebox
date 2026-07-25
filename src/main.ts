@@ -1067,8 +1067,15 @@ async function bootstrap() {
 
   // A névoa acompanha a distância de render. `setViewRange` existia mas nunca era chamado —
   // e, antes desta rodada, também não teria efeito, porque a cena não tinha névoa nenhuma.
-  cameraManager.onRenderDistanceChanged = (chunks) => gs.setViewRange(chunks * CX);
+  // Névoa e curvatura acompanham a distância de render. Ambas existiam no código e não eram
+  // aplicadas: `setViewRange` mexia numa névoa nula, e a curvatura tinha intensidade 0 com
+  // início além do alcance desenhado.
+  cameraManager.onRenderDistanceChanged = (chunks) => {
+    gs.setViewRange(chunks * CX);
+    gs.setCurvature(chunks * CX);
+  };
   gs.setViewRange(cameraManager.renderDistance * CX);
+  gs.setCurvature(cameraManager.renderDistance * CX);
 
   // Retomar o controle da câmera depois do ESC exige um gesto do usuário — o navegador recusa
   // o pedido automático. O clique no canvas é esse gesto.

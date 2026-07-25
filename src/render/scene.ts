@@ -4,11 +4,24 @@
 // baixo na borda, como na vida real.
 import * as THREE from 'three';
 
-/** uniforms compartilhados por todos os materiais de terreno/água/LOD */
+/**
+ * Uniforms da curvatura do mundo, compartilhados por terreno, água e vidro.
+ *
+ * O shader estava completo, mas **inerte**: `invR` era 0 (mundo plano) e nada no projeto o
+ * alterava. Além disso `start` era 500 voxels, enquanto a distância de render são ~192 — a
+ * curvatura começaria além do que existe desenhado, e não apareceria nem se fosse ligada.
+ *
+ * Agora os dois são derivados da distância de render por `setCurvature`.
+ */
 export const curvature = {
-  start: { value: 500 },        // voxels a partir dos quais começa a curvar
-  invR: { value: 0 },           // 0 = mundo 100% plano e reto
+  /** Voxels a partir dos quais o mundo começa a dobrar. */
+  start: { value: 60 },
+  /** Intensidade. 0 = plano; o afundamento cresce com o quadrado da distância. */
+  invR: { value: 0.00035 },
 };
+
+/** Quanto o horizonte afunda, em voxels, no limite da distância de render. */
+export const CURVATURA_QUEDA_PADRAO = 26;
 
 /** Injeta a curvatura no vertex shader de um material three.js. */
 export function applyCurvature(mat: THREE.Material): void {
@@ -41,6 +54,8 @@ export interface GameScene {
   updateSun(px: number, pz: number): void;
   /** ajusta a névoa ao alcance de render do LOD */
   setViewRange(voxels: number): void;
+  /** Curvatura do horizonte. `queda = 0` deixa o mundo plano. */
+  setCurvature(voxels: number, queda?: number): void;
   /** Aplica a hora do dia (0 = meia-noite, 0.5 = meio-dia) ao céu, ao sol e à luz ambiente. */
   setTimeOfDay(t: number): void;
   /** Intensidade atual da luz solar, 0..1 — o mesher usa para escurecer a luz de céu à noite. */
@@ -172,6 +187,22 @@ export function createScene(container: HTMLElement): GameScene {
    * Este método existia e não fazia nada, porque `scene.fog` era `null` — a checagem `if (f)`
    * sempre falhava em silêncio. Agora que a névoa existe, ele funciona de fato.
    */
+  /**
+   * Ajusta a curvatura à distância de render.
+   *
+   * `queda` é o quanto o horizonte afunda no limite do que se enxerga. Derivar daí, em vez de
+   * fixar `invR`, é o que mantém o efeito com a mesma intensidade visual quando o jogador muda
+   * a distância — com valor fixo, aumentar o alcance dobraria o mundo ao ponto do absurdo,
+   * porque a queda cresce com o quadrado.
+   */
+  function setCurvature(voxels: number, queda = CURVATURA_QUEDA_PADRAO): void {
+    if (queda <= 0) { curvature.invR.value = 0; return; }
+    const inicio = voxels * 0.3;
+    const alcance = Math.max(1, voxels - inicio);
+    curvature.start.value = inicio;
+    curvature.invR.value = queda / (alcance * alcance);
+  }
+
   function setViewRange(voxels: number): void {
     const f = scene.fog as THREE.Fog | null;
     if (f) {
@@ -184,5 +215,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setTimeOfDay, getSunScale };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setTimeOfDay, getSunScale };
 }
