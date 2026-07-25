@@ -2068,3 +2068,168 @@ agora a curvatura. Vale como padrão a observar: **código presente não é cód
 si **não foi conferido numa tela** — o valor padrão de 26 voxels de queda no limite da visão é um
 palpite calibrado, não uma medição. Pode precisar de ajuste ao ver.
 
+
+---
+
+## 41. Especialista em Estado de Interface e Retomada de Controle (itens 1043–1062)
+
+Relato do usuário: *"as vezes buga e nao consigo clicar para voltar ao jogo"*, com a dica
+"Clique para voltar ao jogo" na tela e o clique sem efeito.
+
+### Causa encontrada — estado duplicado
+
+O `UIManager` mantinha uma pilha de ids (`blockingStack`) **e** cada tela mantinha o próprio
+`isOpen`. Dois donos da mesma verdade. Como todo botão de fechar chama `close()` direto
+(`CodeEditorPage`, `ModsPage`, `InventoryModal`, `PauseMenu`), e `closeBlocking` saía antes da
+hora quando a tela já estava fechada, **o id ficava na pilha para sempre**. A partir dali
+`isAnyBlockingOpen()` valia `true` eternamente e o ouvinte de clique desistia na primeira linha.
+
+Um agravante: a dica tinha `pointer-events: none` e `z-index: 40` — mandava clicar sem ser
+clicável, e ficava **abaixo** de qualquer overlay que tivesse sobrado.
+
+### Entregue
+
+- [~] 1043 `P0` **A pilha deixou de ser a verdade**: `isOpen` de cada tela é a fonte, a pilha guarda só a ordem do ESC
+- [~] 1044 `P0` **`podarPilha()` reconcilia antes de qualquer leitura** — remove quem se fechou sozinho e adota quem se abriu sozinho
+- [~] 1045 `P0` **`closeBlocking` não desiste mais quando a tela já está fechada** — é exatamente aí que precisa limpar e destravar
+- [~] 1046 `P0` **A dica virou botão**: recebe o clique diretamente, com o maior z-index da interface
+- [~] 1047 `P0` **Teclado como gesto alternativo** (W/A/S/D/espaço/enter) — se o clique estiver sendo engolido, andar devolve a câmera
+- [~] 1048 `P0` **Ouvinte de clique no `document` em captura**, não no canvas: overlay esquecido por cima não engole mais o gesto
+- [~] 1049 `P0` **Segundo ouvinte de relock removido do `main.ts`** — tinha lista de modos desatualizada, sem `thirdperson`, e a câmera não voltava em terceira pessoa
+- [~] 1050 `P0` **`pointerlockerror` e `blur` tratados** — toda falha rearma a dica em vez de sumir em silêncio
+- [~] 1051 `P1` **`shouldRelock` exige partida em curso** — a dica aparecia sobre o menu inicial
+- [~] 1052 `P1` **Teste de regressão do vazamento da pilha** (`tests/unit/uiManager.test.ts`, 8 casos)
+
+### Pendente
+
+- [ ] 1053 `P1` Pausar de fato a simulação com qualquer bloqueante aberto (hoje só o menu inicial para o mundo)
+- [ ] 1054 `P1` Indicador visível de "pausado" — o jogador não sabe se o mundo continua andando
+- [ ] 1055 `P1` Pausa não deve pausar o P2P: em multiplayer o mundo do anfitrião continua
+- [ ] 1056 `P1` Sair do lock por troca de aba deve pausar, não deixar o personagem andando com a tecla presa
+- [ ] 1057 `P1` Zerar teclas pressionadas ao perder o foco — hoje uma tecla presa na troca de aba continua valendo
+- [ ] 1058 `P2` Remapeamento de teclas, com o ESC configurável (ver item 432)
+- [ ] 1059 `P2` `UIScreen` com evento `onClose` para as telas avisarem, tornando a poda desnecessária
+- [ ] 1060 `P2` Teste de integração com DOM real (jsdom) cobrindo o caminho de pointer lock
+- [ ] 1061 `P2` Tela de diagnóstico de estado de UI no F3 — quais telas o gerenciador acha que estão abertas
+- [ ] 1062 `P2` Foco de teclado preso dentro do overlay aberto (armadilha de foco), por acessibilidade
+
+---
+
+## 42. Especialista em Atmosfera, Clima e Estações (itens 1063–1130)
+
+Pedido do usuário: *"melhorar o ambiente efeito de clima, fog, cor, estilo Biome Blending, Color
+Grading e Fog Interpolation, mudança de clima, o bioma quero que seja facil configurar as estações
+do ano, que muda o comportamento do bioma"* — e, textualmente, **"que funcione"**, que é o
+lembrete de que a seção 41 acabou de mostrar o custo de escrever código que nunca roda.
+
+### 42.1 Biome Blending — transição entre biomas
+
+Hoje o bioma é decidido por ponto e aplicado direto: a fronteira entre deserto e floresta é uma
+linha reta visível. A mistura precisa acontecer em três lugares distintos, e confundi-los é o erro
+clássico — misturar a *cor* é barato, misturar a *altura do terreno* muda a geração.
+
+- [ ] 1063 `P0` Peso de bioma contínuo (`{bioma: peso}[]` por coluna) em vez de um único bioma vencedor
+- [ ] 1064 `P0` Amostragem dos vizinhos num raio configurável, com pesos normalizados
+- [ ] 1065 `P0` Mistura da **cor** de grama/folhagem pelos pesos — é o que mais se vê e o mais barato
+- [ ] 1066 `P0` Mistura da **altura** do terreno pelos pesos, para não haver degrau na fronteira
+- [ ] 1067 `P1` Mistura só na cor por padrão; mistura de altura como opção, por custo de geração
+- [ ] 1068 `P1` Ruído na fronteira, para a transição não ser um círculo perfeito
+- [ ] 1069 `P1` Cache do resultado por coluna — a amostragem de vizinhos é o custo dominante
+- [ ] 1070 `P1` A escolha de blocos (areia × grama) segue o bioma dominante, não a mistura: bloco não tem meio-termo
+- [ ] 1071 `P1` Fauna e flora seguem o dominante, com chance proporcional ao peso na faixa de transição
+- [ ] 1072 `P2` Bioma de transição explícito (praia, orla de floresta) como caso especial
+- [ ] 1073 `P2` Teste de que a fronteira não tem degrau maior que N blocos
+- [ ] 1074 `P2` Teste de que a soma dos pesos é sempre 1
+
+### 42.2 Color Grading — a paleta do *Lay of the Land*
+
+O visual de referência não vem da geometria, vem da **cor**: paleta dessaturada, sombras
+azuladas, luz quente. Sem gradação, mini-blocos e AO entregam só metade do resultado.
+
+- [ ] 1075 `P0` Passe de pós-processamento com LUT (tabela de cor), aplicado depois do render
+- [ ] 1076 `P0` Curva de exposição e contraste separada por hora do dia
+- [ ] 1077 `P0` Mapeamento de tom (ACES ou Reinhard) — sem ele o céu estoura em branco
+- [ ] 1078 `P1` Sombras puxadas para o azul e luzes para o âmbar, que é a assinatura da referência
+- [ ] 1079 `P1` Saturação por bioma: deserto lavado, selva saturada, tundra quase cinza
+- [ ] 1080 `P1` Interpolação da gradação entre biomas, pelos mesmos pesos do item 1063
+- [ ] 1081 `P1` Vinheta sutil e aberração cromática mínima nas bordas — desligáveis
+- [ ] 1082 `P1` Predefinições de gradação selecionáveis nas opções ("natural", "cinema", "vívido", "nenhuma")
+- [ ] 1083 `P2` LUT carregável por mod, para um mod poder dar identidade visual própria
+- [ ] 1084 `P2` Custo medido no F3: a gradação é um passe de tela cheia e precisa aparecer no orçamento
+- [ ] 1085 `P2` Desligar automaticamente a gradação quando o FPS cair de um limiar
+- [ ] 1086 `P2` Teste de que a gradação preserva preto em preto e branco em branco (sem desvio de faixa)
+
+### 42.3 Fog Interpolation — a névoa que reage
+
+A névoa hoje é uma cor só, derivada da distância de render. Ela deveria ser o principal veículo
+de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite escurece.
+
+- [ ] 1087 `P0` Cor da névoa interpolada com a hora do dia, e não fixa
+- [ ] 1088 `P0` Cor e densidade da névoa por bioma, misturadas pelos pesos do item 1063
+- [ ] 1089 `P0` Interpolação temporal suave — mudar de bioma não pode trocar a névoa de um quadro para o outro
+- [ ] 1090 `P1` Névoa exponencial ao quadrado (`FogExp2`) como opção, mais natural que a linear
+- [ ] 1091 `P1` A cor do céu no horizonte e a cor da névoa precisam casar, senão o mundo termina numa borda
+- [ ] 1092 `P1` Névoa mais densa em altitude baixa (vale com neblina, pico limpo)
+- [ ] 1093 `P1` Névoa densa dentro de caverna, independente do bioma da superfície
+- [ ] 1094 `P2` Névoa volumétrica barata por camadas, para os raios de luz do amanhecer
+- [ ] 1095 `P2` Teste de que a densidade nunca esconde o bloco em que o jogador está mirando
+
+### 42.4 Clima — chuva, neve, tempestade
+
+- [ ] 1096 `P0` Máquina de estados de clima por mundo (limpo, nublado, chuva, tempestade, neve, névoa)
+- [ ] 1097 `P0` Transição gradual entre estados, com duração sorteada e determinística pela semente
+- [ ] 1098 `P0` Clima válido por bioma: não neva no deserto, não chove na tundra (vira neve)
+- [ ] 1099 `P0` Estado do clima salvo, e **sincronizado no P2P a partir do anfitrião** — o clima precisa ser o mesmo para todos
+- [ ] 1100 `P1` Partículas de chuva e neve, presas à câmera como as estrelas, com orçamento fixo
+- [ ] 1101 `P1` Chuva não cai dentro de construção — teste de céu aberto por coluna
+- [ ] 1102 `P1` Som de chuva e trovão pelo sintetizador (ruído filtrado), sem arquivo de áudio
+- [ ] 1103 `P1` Raio: clarão que altera a luz global por alguns quadros, e trovão atrasado pela distância
+- [ ] 1104 `P1` Chuva escurece e satura a cor do terreno enquanto molha
+- [ ] 1105 `P1` Neve acumulando como bloco fino, e derretendo quando o clima muda
+- [ ] 1106 `P1` Clima influencia a névoa (1087) e a gradação (1075) — é o que faz "parecer" chuva
+- [ ] 1107 `P2` Chuva enche recipientes e alimenta os fluidos finitos existentes
+- [ ] 1108 `P2` Raio incendeia e pode converter areia em vidro, com chance baixa
+- [ ] 1109 `P2` Clima afeta o surgimento de criaturas e a agressividade
+- [ ] 1110 `P2` `api.weather` para mods: ler, forçar, registrar clima novo
+- [ ] 1111 `P2` Ferramenta MCP `set_weather` / `get_weather`
+- [ ] 1112 `P2` Teste de que a máquina de estados nunca fica presa e sempre termina numa transição válida
+
+### 42.5 Estações do ano — configuráveis por bioma
+
+Requisito textual do usuário: *"o bioma quero que seja facil configurar as estações do ano, que
+muda o comportamento do bioma"*. O ponto central é **configuração declarativa**: uma estação não
+deve exigir código, e sim uma tabela que o bioma preenche — é o que permite a IA criar um bioma
+com estações próprias sem escrever lógica.
+
+- [ ] 1113 `P0` Calendário do mundo: dias por estação, quatro estações, derivado do `worldDay` que a lua já usa
+- [ ] 1114 `P0` `BiomeSeasonProfile` declarativo por bioma: cor de folhagem, cor de grama, temperatura, umidade, clima provável, taxa de crescimento
+- [ ] 1115 `P0` Interpolação **entre estações**, não degrau: o outono chega ao longo de dias
+- [ ] 1116 `P0` Estação atual no save e sincronizada no P2P, junto com o clima (1099)
+- [ ] 1117 `P1` Folhagem mudando de cor no outono e caindo, sem regerar o chunk (só a cor do vértice)
+- [ ] 1118 `P1` Inverno cobre de neve e congela a superfície da água — com os fluidos finitos já existentes
+- [ ] 1119 `P1` Primavera acelera o crescimento de plantas; inverno o interrompe
+- [ ] 1120 `P1` Duração do dia varia com a estação — inverno com noite mais longa
+- [ ] 1121 `P1` Bioma pode declarar que **ignora** estações (selva, deserto, o Nether de um mod)
+- [ ] 1122 `P1` Estação influencia o clima provável (1096), fechando o laço entre os dois sistemas
+- [ ] 1123 `P1` Painel de configuração de estações por bioma na página de mods, sem escrever código
+- [ ] 1124 `P2` `api.season` e `api.biome.defineSeasonProfile` para mods
+- [ ] 1125 `P2` Ferramenta MCP `configure_biome_seasons`, documentada em `ModAPIReference`
+- [ ] 1126 `P2` Estação afeta o surgimento de criaturas e o que os aldeões produzem
+- [ ] 1127 `P2` Evento sazonal raro (aurora no inverno, tempestade de areia no verão do deserto)
+- [ ] 1128 `P2` Teste de que o ciclo de estações fecha e volta ao início, como o teste da lua
+- [ ] 1129 `P2` Teste de que um bioma sem perfil de estação não quebra nada — o padrão precisa existir
+- [ ] 1130 `P2` Teste de que a interpolação entre estações nunca produz cor fora da faixa
+
+### Ordem recomendada desta seção
+
+**1063–1066 primeiro** (pesos de bioma): tanto a gradação por bioma quanto a névoa por bioma
+quanto as estações dependem de saber "quanto de cada bioma tem aqui". Sem isso, os três viram
+degraus na fronteira. **1087–1089 em seguida** (névoa interpolada), que é a maior mudança visual
+por linha de código e não depende de pós-processamento. **1096–1099** (máquina de clima) antes de
+qualquer partícula: o estado precisa existir e sincronizar antes de ser desenhado. As estações
+por último, porque consomem tudo o que veio antes.
+
+**Uma nota de método, à luz da seção 41:** cada um destes itens tem um caminho que só existe se
+alguém o chamar. `setViewRange`, `applyCurvature` e `recordBatch` foram escritos, comentados e
+nunca executados. Antes de marcar qualquer item aqui, a pergunta é "quem chama isto, e num teste
+que falharia se ninguém chamasse?".

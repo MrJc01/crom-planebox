@@ -1066,9 +1066,15 @@ async function bootstrap() {
 
   // --- Gerenciador central de UI (Pause / Inventário bloqueantes; Chat flutuante) ---
   const uiManager = new UIManager();
+  // Quando o pointer lock faz sentido: modo de câmera em primeira/terceira pessoa **e** a partida
+  // em curso. Sem a checagem do menu inicial, a dica "clique para voltar ao jogo" aparecia por
+  // cima da tela inicial — onde não há jogo para voltar.
   uiManager.configureLock(
     gs.renderer.domElement,
-    () => cameraManager.mode === 'fps' || cameraManager.mode === 'thirdperson' || cameraManager.mode === 'ghost',
+    () =>
+      gameStarted &&
+      !noMenuInicial &&
+      (cameraManager.mode === 'fps' || cameraManager.mode === 'thirdperson' || cameraManager.mode === 'ghost'),
   );
   cameraManager.isSolidAt = (x, y, z) => isSolid(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
 
@@ -1088,14 +1094,24 @@ async function bootstrap() {
   // o pedido automático. O clique no canvas é esse gesto.
   uiManager.configureRelockOnClick(gs.renderer.domElement);
 
-  const dicaClique = document.createElement('div');
-  dicaClique.textContent = 'Clique para voltar ao jogo';
+  // A dica é o **botão** de retomada, não um aviso.
+  //
+  // Antes ela era um `div` com `pointer-events: none` e z-index baixo: dizia "clique para voltar"
+  // sem ser clicável, e qualquer overlay que tivesse sobrado ficava por cima dela engolindo o
+  // clique no canvas. O jogador via a instrução e nada acontecia. Agora ela recebe o clique
+  // diretamente, com o maior z-index da interface — é o caminho que não pode falhar.
+  const dicaClique = document.createElement('button');
+  dicaClique.innerHTML = 'Clique para voltar ao jogo<br><span style="opacity:.6;font-size:12px">ou pressione W / espaço</span>';
   dicaClique.style.cssText = `
     position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    background: rgba(2,6,23,0.82); color: #e2e8f0; font-family: system-ui, sans-serif;
-    font-size: 15px; padding: 12px 22px; border-radius: 10px; border: 1px solid #334155;
-    pointer-events: none; z-index: 40; display: none;
+    background: rgba(2,6,23,0.9); color: #e2e8f0; font-family: system-ui, sans-serif;
+    font-size: 15px; line-height: 1.5; padding: 14px 26px; border-radius: 10px;
+    border: 1px solid #334155; cursor: pointer; z-index: 2147483000; display: none;
   `;
+  dicaClique.onclick = (e) => {
+    e.stopPropagation();
+    uiManager.retomarControle();
+  };
   document.body.appendChild(dicaClique);
   uiManager.onPointerLockPendente = (pendente) => {
     dicaClique.style.display = pendente && gameStarted ? 'block' : 'none';
@@ -1231,18 +1247,10 @@ async function bootstrap() {
   let breaking = false, placing = false;
   const isLocked = () => document.pointerLockElement === gs.renderer.domElement;
 
-  gs.renderer.domElement.addEventListener('click', () => {
-    const activeEl = document.activeElement;
-    const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
-
-    if (!isTyping && !uiManager.isAnyBlockingOpen() && gameStarted) {
-      if (cameraManager.mode === 'fps' || cameraManager.mode === 'ghost') {
-        if (!isLocked()) {
-          try { gs.renderer.domElement.requestPointerLock(); } catch {}
-        }
-      }
-    }
-  });
+  // O clique que retoma o pointer lock é do `UIManager` (`configureRelockOnClick`), e só dele.
+  // Havia aqui um segundo ouvinte fazendo a mesma coisa com uma lista de modos DESATUALIZADA —
+  // sem `thirdperson` —, então em terceira pessoa o clique não devolvia a câmera. Dois donos do
+  // mesmo comportamento é como um deles fica para trás; agora existe um só.
 
   window.addEventListener('mousedown', (e) => {
     if (!isLocked()) return;
