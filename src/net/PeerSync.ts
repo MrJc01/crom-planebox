@@ -3,6 +3,7 @@
 // Depende do SignalingClient só para o handshake inicial (offer/answer/ICE) — depois
 // disso, todo o tráfego de jogo vai direto pelo RTCDataChannel, sem tocar o relay.
 import { SignalingClient } from './SignalingClient';
+import { Reassembler, decodeFrame, decodePayload, encodeMessage } from './wire';
 import { NetMessage } from './protocol';
 
 const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -22,6 +23,8 @@ export class PeerSync {
   private signaling: SignalingClient;
 
   public onMessage: (msg: NetMessage, fromPeerId: string) => void = () => {};
+  /** Remontador de mensagens fragmentadas, um por peer. */
+  private reassemblers = new Map<string, Reassembler>();
   public onPeerConnected: (peerId: string) => void = () => {};
   public onPeerDisconnected: (peerId: string) => void = () => {};
   public onHostClosed: () => void = () => {};
@@ -77,25 +80,49 @@ export class PeerSync {
     this.reconnectAttempts = 0;
   }
 
+  /**
+   * Entrega uma mensagem num canal, comprimindo e fragmentando quando ela é grande.
+   *
+   * Mensagem pequena continua indo como texto puro — é o caso de quase todo o tráfego (posição
+   * de jogador, um bloco alterado) e mantém compatibilidade com peers de versão anterior.
+   */
+  private async deliver(channel: RTCDataChannel, msg: NetMessage): Promise<void> {
+    if (channel.readyState !== 'open') return;
+    try {
+      const wire = await encodeMessage(msg);
+      if (typeof wire === 'string') {
+        channel.send(wire);
+        return;
+      }
+      // Fragmentado: enfileira os quadros na ordem. O DataChannel é ordenado por padrão,
+      // então a remontagem do outro lado não depende de reordenação.
+      for (const frame of wire) {
+        if (channel.readyState !== 'open') return;
+        channel.send(frame);
+      }
+    } catch (err) {
+      console.warn('[PeerSync] Falha ao enviar mensagem:', err);
+    }
+  }
+
   /** Host: retransmite para todos os peers exceto o remetente original (broadcast de estado). */
   public broadcast(msg: NetMessage, exceptPeerId?: string): void {
-    const json = JSON.stringify(msg);
     for (const [id, p] of this.peers) {
       if (id === exceptPeerId) continue;
-      if (p.channel?.readyState === 'open') p.channel.send(json);
+      if (p.channel) void this.deliver(p.channel, msg);
     }
   }
 
   /** Guest: envia uma intenção para o host (único peer conectado). */
   public sendToHost(msg: NetMessage): void {
     const [first] = this.peers.values();
-    if (first?.channel?.readyState === 'open') first.channel.send(JSON.stringify(msg));
+    if (first?.channel) void this.deliver(first.channel, msg);
   }
 
   /** Host: envia para um peer específico (ex.: full_sync só para quem acabou de entrar). */
   public sendTo(peerId: string, msg: NetMessage): void {
     const p = this.peers.get(peerId);
-    if (p?.channel?.readyState === 'open') p.channel.send(JSON.stringify(msg));
+    if (p?.channel) void this.deliver(p.channel, msg);
   }
 
   private newConnection(peerId: string): RTCPeerConnection {
@@ -108,6 +135,9 @@ export class PeerSync {
     conn.onconnectionstatechange = () => {
       if (conn.connectionState === 'disconnected' || conn.connectionState === 'failed' || conn.connectionState === 'closed') {
         this.peers.delete(peerId);
+        // Sem isto, os fragmentos pendentes de um peer que caiu no meio de um full_sync
+        // ficariam retidos até o timeout de remontagem.
+        this.reassemblers.delete(peerId);
         this.onPeerDisconnected(peerId);
         if (this.role === 'guest') void this.attemptReconnect();
       }
@@ -140,12 +170,42 @@ export class PeerSync {
     const link = this.peers.get(peerId);
     if (link) link.channel = channel;
     channel.onopen = () => { this.reconnectAttempts = 0; this.onPeerConnected(peerId); };
+    channel.binaryType = 'arraybuffer';
     channel.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data) as NetMessage;
-        this.onMessage(msg, peerId);
-      } catch { /* mensagem malformada de um peer: ignora */ }
+      // Texto = mensagem pequena, direto. Binário = quadro de mensagem grande, remontar antes.
+      if (typeof e.data === 'string') {
+        try {
+          this.onMessage(JSON.parse(e.data) as NetMessage, peerId);
+        } catch { /* mensagem malformada de um peer: ignora */ }
+        return;
+      }
+      void this.receiveFrame(e.data as ArrayBuffer, peerId);
     };
+  }
+
+  /**
+   * Recebe um quadro binário e entrega a mensagem quando ela estiver completa.
+   * Cada peer tem seu próprio remontador: ids de mensagem são gerados localmente por quem
+   * envia, então dois peers podem usar o mesmo id sem se atrapalhar.
+   */
+  private async receiveFrame(data: ArrayBuffer, peerId: string): Promise<void> {
+    const frame = decodeFrame(data);
+    if (!frame) return; // não é do nosso formato: ignora em silêncio
+
+    let reassembler = this.reassemblers.get(peerId);
+    if (!reassembler) {
+      reassembler = new Reassembler();
+      this.reassemblers.set(peerId, reassembler);
+    }
+
+    const completo = reassembler.accept(frame.header, frame.payload);
+    if (!completo) return;
+
+    try {
+      this.onMessage((await decodePayload(completo)) as NetMessage, peerId);
+    } catch (err) {
+      console.warn('[PeerSync] Mensagem fragmentada inválida de', peerId, err);
+    }
   }
 
   private async createOfferTo(peerId: string): Promise<void> {

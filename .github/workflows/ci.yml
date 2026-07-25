@@ -1,0 +1,31 @@
+name: CI
+
+# Item 514 do checklist. Havia 285 testes e nada os executava automaticamente:
+# uma regressão só apareceria quando alguém lembrasse de rodar a suíte à mão.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Os três portões, do mais barato para o mais caro.
+      - name: Tipos
+        run: npx tsc --noEmit
+
+      - name: Testes
+        run: npm test
+
+      - name: Build de produção
+        run: npx vite build

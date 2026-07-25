@@ -373,8 +373,8 @@ ids de bloco que **não existiam mais** depois do reload — resolvido nesta rod
 - [~] 273 `P0` **Instâncias de entidade persistidas e restauradas no load**
 - [~] 274 `P0` **Ids de bloco customizado estáveis entre sessões**
 - [~] 275 `P1` **Mods incluídos no export/import de mundo**
-- [ ] 276 `P0` Migração versionada de save com `saveVersion` realmente aplicada
-- [ ] 277 `P1` Backup automático rotativo antes de migração
+- [~] 276 `P0` **Migração de save versionada e idempotente — `src/storage/SaveMigration.ts`**
+- [~] 277 `P1` **Backup automático antes de migrar (mundo + mods, no localStorage)**
 - [ ] 278 `P1` Verificação de integridade ao carregar (ids órfãos, coordenadas inválidas)
 - [ ] 279 `P1` Compactação do save de blocos (RLE por chunk)
 - [ ] 280 `P2` Save incremental em background sem travar o frame
@@ -508,7 +508,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [ ] 383 `P1` Interpolação de posição de jogadores remotos
 - [ ] 384 `P1` Reconexão automática com re-sync incremental
 - [ ] 385 `P1` Delta sync em vez de mundo inteiro ao reconectar
-- [ ] 386 `P1` Compressão das mensagens de bloco
+- [~] 386 `P1` **Compressão das mensagens de bloco — gzip nativo no `full_sync`**
 - [ ] 387 `P1` Validação de permissão (OP) no host antes de aplicar edição do convidado
 - [ ] 388 `P2` Chat multiplayer separado do chat da IA
 - [ ] 389 `P2` Lista de jogadores com latência
@@ -516,7 +516,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [ ] 391 `P2` Migração de host quando o host sai
 - [ ] 392 `P2` Limite de convidados configurável
 - [ ] 393 `P2` Indicador de estado de conexão no HUD
-- [ ] 394 `P2` Fila de mensagens com backpressure
+- [~] 394 `P2` **Fila de mensagens com fragmentação — `src/net/wire.ts`**
 - [ ] 395 `P2` Testes do protocolo com peers simulados
 - [ ] 396 `P2` Modo offline explícito desabilitando toda a rede
 - [ ] 397 `P3` Servidor dedicado opcional
@@ -658,7 +658,7 @@ precisava nascer com teste, porque a falha dele é silenciosa e corrompe o save.
 ## 22 — DevOps & Build
 
 - [x] 513 `P1` Vite + TypeScript com `npm run build` e `npm test`
-- [ ] 514 `P0` CI rodando `tsc --noEmit` e `vitest run` a cada push
+- [~] 514 `P0` **CI rodando `tsc --noEmit`, `vitest run` e build a cada push — `.github/workflows/ci.yml`**
 - [ ] 515 `P1` Lint (ESLint) e formatação (Prettier) padronizados
 - [ ] 516 `P1` `strict` do TypeScript revisado e sem `any` implícito nas APIs públicas
 - [ ] 517 `P1` Versionamento semântico com CHANGELOG gerado
@@ -1474,4 +1474,102 @@ encontrar. Falta a razão de andar até o horizonte.*
 **Onda 0 inteira** — CI e migração de save. São as duas coisas que, se continuarem faltando,
 transformam qualquer avanço futuro em risco: a primeira deixa regressão passar, a segunda deixa
 mundo de usuário quebrar a cada mudança de schema.
+
+---
+
+# Anexo — Avaliação do `crompressor.wasm`
+
+> Pedido: avaliar se o `crompressor` ajuda em desempenho e segurança, inclusive na troca de
+> dados P2P — e se a deduplicação ajudaria também em blocos e outras áreas.
+>
+> **Resposta curta: nos dados deste jogo, não.** O gzip nativo do navegador venceu em todos os
+> cenários medidos, inclusive no cenário que o crompressor foi desenhado para atacar. Abaixo o
+> que foi medido, o porquê provável, e o que fazer com essa informação.
+
+## O que o binário é
+
+`github.com/MrJc01/crompressor`, Go 1.25.7, **10,9 MB**. Arquitetura interna:
+
+| Componente | Função |
+|---|---|
+| `pkg/cromlib` | `PackBytes` / `UnpackBytes` / `Metrics` |
+| `internal/chunker` | fatiamento em blocos de conteúdo |
+| `internal/codebook` | dicionário compartilhado (`OpenFromBytes`, `ParseHeader`) |
+| `internal/search` | LSH, distância de Hamming (com caminho SIMD), similaridade |
+| `internal/delta` | `XOR`, `ApplyPatch`, pools zstd |
+| `internal/crypto` | `Decrypt`, `DeriveKey` |
+| `internal/entropy`, `internal/fractal` | Shannon, polinômios |
+
+API exposta ao JS: **`cromPack(bytes)` e `cromUnpack(bytes)`**, ambas sem parâmetros extras,
+retornando `{ ok, data }`.
+
+## Medições
+
+Todas com round-trip verificado (`unpack(pack(x)) === x`). Comparadas com gzip, que no navegador
+é `CompressionStream` — **nativo, zero byte de download**.
+
+| Cenário | gzip | crompressor |
+|---|---|---|
+| `full_sync` JSON, 40k blocos (1,5 MB) | **10,8x** · 20 ms | 4,0x · 292 ms |
+| 1 chunk de terreno (128 KB) | **780x** · 1 ms | 2,7x · 41 ms |
+| 16 chunks vizinhos quase iguais (2 MB) | **246x** · 6 ms | 2,7x · 204 ms |
+| 48 chunks realistas, separados (6 MB) | **15,3x** · 103 ms | 2,3x · 1780 ms |
+| 48 chunks realistas, juntos (6 MB) | **15,4x** · 91 ms | 2,3x · 1146 ms |
+| 24 versões quase idênticas (9,4 MB) | **30,1x** · 56 ms | 20,4x · 2424 ms |
+
+## Os dois números que explicam tudo
+
+**1. Ganho de deduplicação entre chunks: 1,00x — para os dois compressores.**
+
+Chunks de terreno **não são duplicatas uns dos outros**. Cada um tem coordenada diferente, logo
+relevo diferente. A redundância dos dados voxel é *local* — sequências longas do mesmo bloco
+dentro do chunk — e isso é exatamente o que LZ77/gzip explora. Deduplicação vence quando os
+**mesmos bytes** se repetem por um acervo (backups, versões de arquivo), não aqui.
+
+Isso não é ajuste fino: é incompatibilidade de regime entre a técnica e o dado.
+
+**2. A API exposta não recebe codebook.**
+
+O binário contém `packbytes: open codebook`, `search: nil codebook`, `search: empty codebook` —
+o dicionário compartilhado é central no desenho. Mas `cromPack(bytes)` não tem parâmetro por
+onde recebê-lo. **A hipótese mais provável para os números acima é que o motor de dedup/LSH
+esteja inerte nesta build**, caindo para zstd por chunk com o custo do fatiamento por cima.
+
+Se essa hipótese estiver certa, o problema é da API do WASM, não do algoritmo — e o teste
+decisivo seria expor `cromPack(bytes, codebook)` e repetir a medição com um codebook treinado
+sobre chunks do próprio jogo.
+
+## Sobre segurança
+
+O `crompressor` tem `Decrypt`/`DeriveKey`, mas **o canal P2P já é cifrado**: o DataChannel do
+WebRTC exige DTLS, sem modo em claro. Cifrar de novo por cima não acrescenta confidencialidade
+no transporte.
+
+E há um risco a registrar para quando os segredos da seção 29 existirem: **comprimir dados
+influenciáveis por terceiro no mesmo fluxo que um segredo permite ataques de oráculo por
+compressão (família CRIME/BREACH)**, em que o tamanho do resultado vaza informação sobre o
+segredo. Para blocos do mundo o risco é irrelevante; no dia em que chave de `mod.env` trafegar,
+segredo e dado de terceiro não podem compartilhar o mesmo fluxo comprimido.
+
+## Decisão tomada nesta rodada
+
+Implementado com **gzip nativo** (`CompressionStream`), não com o WASM:
+
+- 10,9 MB de WASM é **13x o bundle inteiro do jogo** (853 KB). Para um ganho negativo, o custo
+  de download não se justifica em nenhuma hipótese.
+- O gzip nativo roda em C++ dentro do navegador, sem custo de download e sem GC do Go.
+
+- [~] 901 `P0` **Compressão do `full_sync` com `CompressionStream` nativo**
+- [~] 902 `P0` **Fragmentação de mensagem grande no P2P** — `src/net/wire.ts`
+- [~] 903 `P0` **Correção: mensagem acima de ~256 KB derrubava o DataChannel** — quanto mais o anfitrião construía, menor a chance de um convidado conseguir entrar
+- [~] 904 `P1` **Remontagem por peer, com descarte de conjunto abandonado**
+- [~] 905 `P1` **Mensagem pequena segue como texto puro** (compatível com peer antigo)
+- [~] 906 `P1` **21 testes de enquadramento, fragmentação e remontagem**
+- [ ] 907 `P1` Medir o ganho real de banda numa sessão P2P de verdade, e registrar
+- [ ] 908 `P2` Comprimir também o save de blocos no IndexedDB (mesma função, outro consumidor)
+- [ ] 909 `P2` Comprimir o export de mundo e de mod
+- [ ] 910 `P2` Delta entre revisões de mod, em vez de snapshot inteiro (ver item 645)
+- [ ] 911 `P3` **Reavaliar o crompressor se a API passar a aceitar codebook** — treinar um sobre chunks reais e repetir a tabela acima
+- [ ] 912 `P2` Isolar segredo de dado de terceiro em fluxos comprimidos distintos (CRIME/BREACH)
+- [ ] 913 `P2` Documentar em `docs/NETWORK_PROTOCOL.md` o formato de quadro e o limiar de fragmentação
 

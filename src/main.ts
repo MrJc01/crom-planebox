@@ -13,6 +13,7 @@ import { foodValueOf, isEdible } from './game/SurvivalSystem';
 import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
+import { prepareWorld } from './storage/SaveMigration';
 import { MCPExecutors } from './ai/MCPExecutors';
 import { OpenRouterClient } from './ai/OpenRouterClient';
 import { CameraManager } from './engine/CameraManager';
@@ -680,6 +681,16 @@ async function bootstrap() {
 
   const loadWorldById = async (worldId: string) => {
     console.log(`🌍 [main.ts] Carregando e inicializando mundo ID: "${worldId}"`);
+    // Migração antes de qualquer leitura: os passos normalizam mods e campos do mundo, e o
+    // resto do carregamento assume esse formato. Rodar depois seria ler dados meio migrados.
+    const migracao = await prepareWorld(worldId);
+    if (migracao) {
+      hud.showToast(`💾 Mundo atualizado (v${migracao.from} → v${migracao.to})`);
+      if (migracao.failures.length > 0) {
+        hud.showToast(`⚠️ Migração incompleta: ${migracao.failures[0]}`);
+      }
+    }
+
     const wRecord = await WorldRepository.getWorld(worldId);
     if (!wRecord) return;
 
