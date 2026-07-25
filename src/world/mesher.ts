@@ -1,11 +1,15 @@
-// Mesher: converte o chunk (com borda de 1) em geometria.
+// Mesher: converte o chunk (com borda de 1) em geometria — **sem depender do Three.js**.
+//
+// A ausência do Three.js aqui é deliberada: este módulo roda dentro do Web Worker, e importar a
+// biblioteca inteira lá dentro inflava o bundle do worker em ~100 KB sem nenhum uso. A ponte
+// para `BufferGeometry` mora em `meshGeometry.ts`, que só a thread principal carrega.
+//
 //  - culling de faces (só faces expostas)
 //  - ambient occlusion por vértice (algoritmo clássico side1/side2/corner)
 //  - cores por vértice com leve jitter posicional (visual estilizado sem texturas)
 //  - água em geometria separada (transparente)
 //  - decoração (capim/flores/junco) como caixinhas menores
 
-import * as THREE from 'three';
 import { B, getBlockDef, isOpaque, isDecor, isFluid } from './blocks';
 import { buildLightTable } from './lighting';
 import { CX, CY, CZ } from './chunk';
@@ -80,14 +84,19 @@ class GeoBuffer {
     this.vcount += 4;
   }
 
-  build(): THREE.BufferGeometry | null {
+  /**
+   * Arrays crus, sem depender do Three.js.
+   *
+   * É este formato que atravessa a fronteira do Web Worker: `BufferGeometry` não é
+   * transferível, mas `Float32Array` e `Uint32Array` são — e transferidos custam zero cópia.
+   */
+  buildRaw(): RawGeometry | null {
     if (this.vcount === 0) return null;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    g.setIndex(this.idx);
-    g.computeVertexNormals();
-    return g;
+    return {
+      pos: new Float32Array(this.pos),
+      col: new Float32Array(this.col),
+      idx: new Uint32Array(this.idx),
+    };
   }
 }
 
@@ -99,10 +108,27 @@ function vertexAO(side1: boolean, side2: boolean, corner: boolean): number {
   return AO_LEVELS[(side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0)];
 }
 
-export interface ChunkGeometry {
-  solid: THREE.BufferGeometry | null;
-  water: THREE.BufferGeometry | null;
-  glass: THREE.BufferGeometry | null;
+/** Geometria em arrays crus — o que trafega entre o worker e a thread principal. */
+export interface RawGeometry {
+  pos: Float32Array;
+  col: Float32Array;
+  idx: Uint32Array;
+}
+
+export interface ChunkGeometryRaw {
+  solid: RawGeometry | null;
+  water: RawGeometry | null;
+  glass: RawGeometry | null;
+}
+
+/** Todos os buffers de uma geometria de chunk, para transferir sem cópia. */
+export function transferablesOf(g: ChunkGeometryRaw): Transferable[] {
+  const out: Transferable[] = [];
+  for (const parte of [g.solid, g.water, g.glass]) {
+    if (!parte) continue;
+    out.push(parte.pos.buffer as ArrayBuffer, parte.col.buffer as ArrayBuffer, parte.idx.buffer as ArrayBuffer);
+  }
+  return out;
 }
 
 /**
@@ -110,7 +136,8 @@ export interface ChunkGeometry {
  * utilizável em teste e evita um flash preto se a malha for pedida antes da luz ficar pronta.
  * `sunScale` é a intensidade do dia (1 = meio-dia, ~0.12 = madrugada).
  */
-export function meshChunk(padded: Uint8Array, cx: number, cz: number, light?: Uint8Array, sunScale = 1): ChunkGeometry {
+/** Geração propriamente dita. Compartilhada pela versão com Three.js e pela versão crua. */
+function meshChunkBuffers(padded: Uint8Array, cx: number, cz: number, light?: Uint8Array, sunScale = 1): { solid: GeoBuffer; water: GeoBuffer; glass: GeoBuffer } {
   // Tabela de 256 entradas em vez de `Math.pow` por face. `lightAt` roda dezenas de milhares de
   // vezes por chunk, e a potência dentro dela dominava o custo de gerar a malha.
   const tabelaLuz = light ? buildLightTable(sunScale) : null;
@@ -209,7 +236,16 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number, light?: Ui
     }
   }
 
-  return { solid: solid.build(), water: water.build(), glass: glass.build() };
+  return { solid, water, glass };
+}
+
+/**
+ * Mesma geração, devolvendo arrays crus em vez de `BufferGeometry`.
+ * É a entrada usada pelo Web Worker — o Three.js nem é carregado lá.
+ */
+export function meshChunkRaw(padded: Uint8Array, cx: number, cz: number, light?: Uint8Array, sunScale = 1): ChunkGeometryRaw {
+  const g = meshChunkBuffers(padded, cx, cz, light, sunScale);
+  return { solid: g.solid.buildRaw(), water: g.water.buildRaw(), glass: g.glass.buildRaw() };
 }
 
 /** Capim/flores/junco: na escala mini-voxel viram cubinhos quase cheios,

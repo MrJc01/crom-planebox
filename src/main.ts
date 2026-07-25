@@ -3,7 +3,8 @@ import { createScene } from './render/scene';
 import { World } from './world/world';
 import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
 import { WorldGen } from './world/worldgen';
-import { meshChunk } from './world/mesher';
+import { ChunkGeometryRaw } from './world/mesher';
+import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
 import { isSolid } from './world/blocks';
 import { AudioSystem } from './audio/AudioSystem';
@@ -215,7 +216,7 @@ async function bootstrap() {
       // A luz é calculada aqui, e não quando o chunk chega do worker, porque precisa dos
       // vizinhos prontos — o mesmo pré-requisito que o mesh já espera.
       if (c.lightDirty) computeChunkLight(c);
-      remeshChunk(c);
+      pedirMesh(c);
     }
 
     for (const [key, c] of world.chunks) {
@@ -230,38 +231,74 @@ async function bootstrap() {
     }
   }
 
-  function remeshChunk(c: Chunk): void {
+  // --- Malha em Web Worker -------------------------------------------------------------------
+  //
+  // Depois da luz corrigida, gerar a malha era o maior custo de frame restante: percorrer 131 mil
+  // voxels e montar dezenas de milhares de faces, na mesma thread que desenha.
+  //
+  // Os buffers são TRANSFERIDOS nos dois sentidos, então o custo de atravessar a fronteira é
+  // zero — o que sobra na thread principal é só montar a `BufferGeometry`.
+  const meshWorker = new Worker(new URL('./world/meshWorker.ts', import.meta.url), { type: 'module' });
+  let proximoJob = 1;
+  /** Job em voo por chunk. Se o chunk mudar de novo, o resultado antigo é descartado. */
+  const jobsEmVoo = new Map<string, number>();
+  const MAX_MESH_EM_VOO = 3;
+
+  function pedirMesh(c: Chunk): void {
     const key = chunkKey(c.cx, c.cz);
-    disposeChunkMesh(key);
+    if (jobsEmVoo.size >= MAX_MESH_EM_VOO && !jobsEmVoo.has(key)) return;
+
+    const jobId = proximoJob++;
+    jobsEmVoo.set(key, jobId);
+    c.dirty = false; // marcado agora: se mudar durante a geração, vira dirty de novo e refaz
+
     const padded = world.padChunk(c.cx, c.cz);
-    const geo = meshChunk(padded, c.cx, c.cz, world.padLight(c.cx, c.cz), gs.getSunScale());
-    const entry: ChunkMeshes = { solid: null, water: null, glass: null };
-    if (geo.solid) {
-      const mesh = new THREE.Mesh(geo.solid, gs.solidMaterial);
-      mesh.position.set(c.cx * CX, 0, c.cz * CZ);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      gs.scene.add(mesh);
-      entry.solid = mesh;
-    }
-    if (geo.water) {
-      const mesh = new THREE.Mesh(geo.water, gs.waterMaterial);
-      mesh.position.set(c.cx * CX, 0, c.cz * CZ);
-      mesh.receiveShadow = true;
-      gs.scene.add(mesh);
-      entry.water = mesh;
-    }
-    if (geo.glass) {
-      const mesh = new THREE.Mesh(geo.glass, gs.glassMaterial);
-      mesh.position.set(c.cx * CX, 0, c.cz * CZ);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      gs.scene.add(mesh);
-      entry.glass = mesh;
-    }
-    meshes.set(key, entry);
-    c.dirty = false;
+    const light = world.padLight(c.cx, c.cz);
+    meshWorker.postMessage(
+      { type: 'mesh', jobId, cx: c.cx, cz: c.cz, padded: padded.buffer, light: light.buffer, sunScale: gs.getSunScale() },
+      [padded.buffer, light.buffer],
+    );
   }
+
+  meshWorker.onmessage = (ev: MessageEvent) => {
+    const { type, jobId, cx, cz, geo } = ev.data as { type: string; jobId: number; cx: number; cz: number; geo: ChunkGeometryRaw };
+    if (type !== 'meshed') return;
+
+    const key = chunkKey(cx, cz);
+    // Resultado obsoleto: o chunk foi alterado e um job mais novo já está a caminho.
+    if (jobsEmVoo.get(key) !== jobId) return;
+    jobsEmVoo.delete(key);
+
+    // O chunk pode ter sido descarregado enquanto a malha era gerada.
+    if (!world.chunks.has(key)) return;
+
+    aplicarMesh(cx, cz, geo);
+  };
+
+  function aplicarMesh(cx: number, cz: number, geo: ChunkGeometryRaw): void {
+    const key = chunkKey(cx, cz);
+    disposeChunkMesh(key);
+
+    const entry: ChunkMeshes = { solid: null, water: null, glass: null };
+    const partes: [keyof ChunkMeshes, typeof geo.solid, THREE.Material, boolean][] = [
+      ['solid', geo.solid, gs.solidMaterial, true],
+      ['water', geo.water, gs.waterMaterial, false],
+      ['glass', geo.glass, gs.glassMaterial, true],
+    ];
+
+    for (const [nome, bruto, material, projetaSombra] of partes) {
+      if (!bruto) continue;
+      const mesh = new THREE.Mesh(geometryFromRaw(bruto), material);
+      mesh.position.set(cx * CX, 0, cz * CZ);
+      mesh.castShadow = projetaSombra;
+      mesh.receiveShadow = true;
+      gs.scene.add(mesh);
+      entry[nome] = mesh;
+    }
+
+    meshes.set(key, entry);
+  }
+
 
   // Nenhum mundo é criado/carregado automaticamente — o MainMenu decide isso (seção 2 do checklist).
   let currentWorld: WorldRecord = {

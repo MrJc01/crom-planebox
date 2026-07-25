@@ -529,9 +529,9 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 401 `P0` Geração de chunk fora da thread principal
 - [x] 401b `P0` Save de blocos em lote (era 2N round-trips, virou 2 escritas)
 - [ ] 402 `P0` Orçamento de frame: limitar chunks re-meshados por frame
-- [ ] 403 `P0` Mesh em worker além da geração
+- [~] 403 `P0` **Mesh em Web Worker — `src/world/meshWorker.ts`, com buffers transferidos nos dois sentidos**
 - [ ] 404 `P1` Pool de geometrias reaproveitadas em vez de realocar
-- [ ] 405 `P1` `dispose()` consistente de geometria e material ao descarregar chunk
+- [~] 405 `P1` **`dispose()` do chunk anterior ao aplicar a malha nova**
 - [ ] 406 `P1` Instanced mesh para decorativos e entidades repetidas
 - [ ] 407 `P1` Reduzir draw calls agrupando chunks vizinhos
 - [~] 408 `P1` **Contadores de tráfego e vozes expostos para diagnóstico**
@@ -1823,7 +1823,7 @@ mesher chamava `Math.pow` uma vez por face.*
 - [~] 968 `P0` **BFS de remoção de luz** — apagar propagava valor velho de volta e a caverna nunca escurecia
 - [~] 969 `P0` **Fontes independentes revalidadas** contra o estado final, não o do momento em que foram vistas
 - [ ] 970 `P0` Medir o frame real no navegador com o painel de diagnóstico, não só em bancada
-- [ ] 971 `P0` Mesh em Web Worker (item 403) — é o próximo maior custo depois da luz
+- [~] 971 `P0` **Mesh em Web Worker: era o maior custo de frame depois da luz corrigida**
 - [ ] 972 `P1` Reaproveitar os buffers de `padChunk`/`padLight` em vez de alocar 300 KB por re-mesh
 - [ ] 973 `P1` Orçamento de re-mesh por frame também no ciclo dia/noite (hoje marca tudo de uma vez)
 - [ ] 974 `P1` Painel F3 com FPS, chunks, entidades, vozes de áudio e custo por mod
