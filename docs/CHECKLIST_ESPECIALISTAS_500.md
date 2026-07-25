@@ -1215,3 +1215,263 @@ O caminho seguro é o inverso do intuitivo: **não comece pelo `fetch`.**
 | 4 | 763, 766–770 | Consentimento e auditoria, antes da primeira integração real |
 | 5 | 785–787 | Só então os exemplos pedidos: clima, voz, cidade reativa |
 
+---
+
+# Adendo — Rodada 5 de requisitos (itens 801–880)
+
+> Requisito: **mods precisam poder executar funções**, não só declarar dados. E o jogo precisa de
+> **novas páginas GUI**, entre elas um **editor de código estilo VSCode** que permita manter o
+> jogo em tempo real — com os mods e a base do mundo modificáveis com facilidade.
+
+| # | Especialista | Itens | Foco |
+|---|---|---|---|
+| 31 | Engenheiro de Runtime de Mod | 801–844 | API de funções, hooks, isolamento de erro |
+| 32 | Designer de Ferramentas Internas | 845–880 | Páginas GUI e editor de código |
+
+## 31 — Engenheiro de Runtime de Mod
+
+*Parecer: hoje um mod é **só dados** — blocos, entidades, estruturas. Ele descreve o que existe,
+nunca o que acontece. Dar comportamento a ele é o que falta para "a IA modificar todo o jogo"
+deixar de significar "a IA coloca blocos".*
+
+*Três decisões precisam vir antes do primeiro `eval`:*
+
+*1. **API injetada, não global.** O script recebe um objeto `api` e não enxerga `window`,
+`fetch` nem `document`. Hoje `execute_voxel_script` usa `new Function` com o escopo global
+vazando (itens 358–359) — repetir isso no runtime de mod multiplicaria o problema por N mods.
+A superfície precisa ser uma lista fechada, auditável lendo um arquivo só.*
+
+*2. **Erro de mod não derruba o jogo.** Um erro dentro de `tick` é lançado 60 vezes por segundo:
+sem desligamento automático, ele enche o log e come o frame. O script que falhar N vezes sai de
+cena sozinho, e o mundo continua.*
+
+*3. **Escrita escopada e atribuída.** Toda alteração feita por script fica registrada como
+pertencente àquele mod — é o que faltava nos itens 704–705 para desfazer um mod com precisão.*
+
+**Esboço da superfície** (o que não estiver na lista, o mod não alcança):
+
+```js
+api.on('tick', (dt) => { ... })              // load, unload, tick, blockPlaced,
+api.on('blockBroken', ({ x, y, z, block }) => { ... })  // blockBroken, playerDamaged,
+                                              // entityDeath, dayPhase
+api.world.setBlock(x, y, z, 'meu_cristal')   // aceita id, chave do mod ou nome da paleta
+api.world.fillBox(x1,y1,z1, x2,y2,z2, 'pedra', true)
+api.world.findNearest('diamante', 24)
+api.entities.spawn('guardiao', x, y, z)
+api.player.position() / .teleport() / .give()
+api.ui.toast('...')
+api.storage.get/set                           // chave-valor do mod
+api.console.log(...)                          // vai para o painel, não para o console do navegador
+api.B                                         // paleta base, sem decorar ids
+```
+
+- [ ] 801 `P0` Campo `scripts: ModScript[]` no `ModPackage`, versionado junto do resto
+- [ ] 802 `P0` API injetada como objeto — sem `window`, `fetch`, `document` ou `eval` no escopo
+- [ ] 803 `P0` Lista fechada de eventos: load, unload, tick, blockPlaced, blockBroken, playerDamaged, entityDeath, dayPhase
+- [ ] 804 `P0` `api.on(evento, fn)` registrando handler na carga do script
+- [ ] 805 `P0` Cada handler roda protegido; exceção não escapa para o loop do jogo
+- [ ] 806 `P0` Script que falha N vezes é desligado sozinho, com o motivo no log
+- [ ] 807 `P0` Orçamento de blocos por chamada, para laço mal escrito não travar o frame
+- [ ] 808 `P0` Orçamento de tempo por `tick`, somado entre todos os mods
+- [ ] 809 `P0` Blocos alterados por script são atribuídos ao mod (fecha 704–705)
+- [ ] 810 `P0` Reverter um mod desfaz exatamente os blocos que ele colocou
+- [ ] 811 `P1` `api.world`: getBlock, setBlock, fillBox, getGroundY, findNearest
+- [ ] 812 `P1` Referência de bloco por id, chave do mod (`meu_cristal`) ou nome da paleta
+- [ ] 813 `P1` `api.entities`: spawn de espécie do próprio mod, list, damage
+- [ ] 814 `P1` `api.player`: position, teleport, health, give
+- [ ] 815 `P1` `api.ui.toast` com limite de tamanho e de frequência
+- [ ] 816 `P1` `api.storage` chave-valor por mod, isolado dos demais
+- [ ] 817 `P1` `api.console` direcionado ao painel do editor, com log limitado
+- [ ] 818 `P1` `api.B` com a paleta base, para não decorar ids
+- [ ] 819 `P1` Recarregar um script sem reiniciar o mundo (hot reload)
+- [ ] 820 `P1` `unload` chamado antes de recarregar, para o mod limpar o que criou
+- [ ] 821 `P1` Handlers de um script removidos ao recarregá-lo (sem duplicar)
+- [ ] 822 `P1` Ordem de execução previsível entre mods (por ordem de carga)
+- [ ] 823 `P1` Desabilitar um script sem desabilitar o mod inteiro
+- [ ] 824 `P1` Ferramenta MCP `define_mod_script` para o agente escrever comportamento
+- [ ] 825 `P1` Ferramenta MCP `run_mod_script` para testar sem instalar
+- [ ] 826 `P1` Erro de script vira mensagem acionável para o agente se autocorrigir
+- [ ] 827 `P2` `api.world.queryRegion` devolvendo histograma de blocos
+- [ ] 828 `P2` `api.time`: hora do mundo, fase do dia, agendar callback
+- [ ] 829 `P2` `api.random` semeado pelo mundo, para script determinístico
+- [ ] 830 `P2` `api.recipes` para registrar receita de crafting
+- [ ] 831 `P2` `api.biomes` para registrar bioma (liga com a seção 27)
+- [ ] 832 `P2` `api.scatter` para registrar construção espalhada
+- [ ] 833 `P2` `api.commands` para registrar comando de chat
+- [ ] 834 `P2` `api.hud` para desenhar indicador próprio
+- [ ] 835 `P2` Tipagem TypeScript da API publicada, para autocomplete no editor
+- [ ] 836 `P2` Documentação da API gerada a partir do próprio código
+- [ ] 837 `P2` Script rodando em Web Worker (junta com 358–359)
+- [ ] 838 `P2` Perfilador: quanto tempo cada mod consome por frame
+- [ ] 839 `P2` Desligar automaticamente o mod que estoura o orçamento de frame
+- [ ] 840 `P2` Multiplayer: script roda só no anfitrião, resultado replica
+- [ ] 841 `P2` Sandbox de permissões por script (liga com a seção 30)
+- [ ] 842 `P2` Testes do isolamento: mod que lança exceção não afeta os outros
+- [ ] 843 `P2` Testes do desligamento automático após N erros
+- [ ] 844 `P2` Testes de que a API não expõe nada além da lista declarada
+
+## 32 — Designer de Ferramentas Internas (páginas GUI)
+
+*Parecer: o jogo tem menu, pausa, inventário e chat — tudo voltado a **jogar**. Não há nenhuma
+tela voltada a **manter o jogo**. Hoje, ver o que um mod contém, voltar uma versão ou entender
+por que um mod foi isolado só é possível pedindo à IA, o que é um caminho indireto para uma
+informação que deveria estar à mão.*
+
+*Sobre o editor estilo VSCode: a escolha de biblioteca importa mais do que parece. Monaco é
+literalmente o editor do VSCode, mas pesa ~5 MB e é difícil de empacotar com Vite; num jogo que
+hoje entrega 853 KB, ele seria o maior componente do produto. **CodeMirror 6** dá o essencial —
+numeração de linha, destaque de sintaxe, dobra, autocomplete — em ~150 KB gzipado, com
+empacotamento limpo. Um editor feito à mão (textarea + overlay) evita a dependência e é
+coerente com o resto do projeto, que é todo artesanal, mas não entrega autocomplete nem
+diagnóstico, que é justamente o que torna a manutenção em tempo real viável.*
+
+*Recomendação: CodeMirror 6, carregado sob demanda (`import()` dinâmico) para não pesar no boot
+de quem nunca abre o editor.*
+
+- [ ] 845 `P0` **Página de Mods**: lista, conteúdo, ativar/desativar, quarentena com motivo
+- [ ] 846 `P0` Histórico de versões na página, com rollback em um clique (expõe 631–633)
+- [ ] 847 `P0` Exportar/importar mod pela página, sem passar pela IA
+- [ ] 848 `P1` Qual sessão de chat originou o mod, com link para abri-la
+- [ ] 849 `P1` Aviso visual de mod em quarentena, com o erro legível
+- [ ] 850 `P0` **Página de Editor de Código** com árvore de arquivos do mod à esquerda
+- [ ] 851 `P0` CodeMirror 6 com destaque de sintaxe JS, carregado sob demanda
+- [ ] 852 `P0` Salvar gera nova revisão do mod (integra com o versionamento)
+- [ ] 853 `P0` Executar/recarregar o script sem reiniciar o mundo
+- [ ] 854 `P0` Painel de console mostrando `api.console` e erros do script
+- [ ] 855 `P1` Erro aponta linha e coluna, com salto para o ponto no editor
+- [ ] 856 `P1` Autocomplete da API do mod (usa a tipagem do item 835)
+- [ ] 857 `P1` Editar também o `mod.env` pela mesma árvore (seção 29)
+- [ ] 858 `P1` Editar as definições de bloco/entidade/estrutura como JSON no editor
+- [ ] 859 `P1` Validação ao salvar, recusando JSON inválido antes de gravar
+- [ ] 860 `P1` Atalhos: salvar, executar, buscar, comentar linha
+- [ ] 861 `P1` Buscar e substituir dentro do arquivo
+- [ ] 862 `P1` Estado do editor preservado ao fechar e reabrir a página
+- [ ] 863 `P1` Editor não bloqueia o jogo: pausa opcional enquanto está aberto
+- [ ] 864 `P2` Diff entre a versão salva e a editada, antes de salvar
+- [ ] 865 `P2` Desfazer/refazer com histórico próprio do editor
+- [ ] 866 `P2` Modelos de script prontos (reagir a bloco, gerar estrutura, ciclo do dia)
+- [ ] 867 `P2` Snippet de exemplo inserido em todo mod novo
+- [ ] 868 `P2` **Página de Diagnóstico**: FPS, chunks, entidades, memória, custo por mod
+- [ ] 869 `P2` **Página de Mundo**: semente, hora, regras, distância de render, regenerar região
+- [ ] 870 `P2` **Página de Blocos**: navegar a paleta, ver propriedades, ir até um bloco no mundo
+- [ ] 871 `P2` **Página de Entidades**: listar, seguir, remover, editar espécie
+- [ ] 872 `P2` **Página de Rede**: peers, latência, o que está sendo sincronizado
+- [ ] 873 `P2` Navegação unificada entre as páginas, com atalho único
+- [ ] 874 `P2` Todas as páginas entram no `UIManager` como telas bloqueantes
+- [ ] 875 `P2` Páginas acessíveis por teclado, com foco visível
+- [ ] 876 `P2` Tema claro/escuro consistente entre as páginas
+- [ ] 877 `P2` As páginas respeitam a customização de UI feita pela IA
+- [ ] 878 `P2` Editor aberto em modo somente-leitura para mod importado de terceiro
+- [ ] 879 `P2` Aviso ao editar mod sincronizado no multiplayer
+- [ ] 880 `P2` Testes de que salvar no editor gera revisão e não corrompe o pacote
+## 33 — Redator Técnico do Agente (documentação da API para a IA)
+
+*Parecer: de nada adianta a API existir se o agente não souber que ela existe. E o agente não lê
+o repositório a cada mensagem — ele lê o **prompt do sistema** e as **descrições das ferramentas**.
+Toda capacidade que não aparecer nesses dois lugares é, na prática, inexistente para ele.*
+
+*Isso já aconteceu neste projeto: `registerCustomBlock` existia há tempos e a IA continuava
+gerando blocos efêmeros, porque nada no prompt dizia como usá-la corretamente. A documentação
+aqui não é cortesia — é o mecanismo de ativação da funcionalidade.*
+
+- [ ] 881 `P0` Seção da API de mods no prompt do sistema, com o ciclo completo de uso
+- [ ] 882 `P0` Cada evento documentado com o formato exato do payload
+- [ ] 883 `P0` Exemplo executável por evento, curto o bastante para o agente copiar e adaptar
+- [ ] 884 `P0` Deixar explícito que a sessão define o mod, e que a escrita é escopada a ele
+- [ ] 885 `P0` Deixar explícito o que **não** existe (sem `window`, sem `fetch`, sem `document`)
+- [ ] 886 `P0` Ferramenta `get_mod_api_reference` devolvendo a superfície completa sob demanda
+- [ ] 887 `P1` `docs/MOD_API.md` como fonte única, e o prompt referenciando-a
+- [ ] 888 `P1` Referência gerada a partir do código, para não divergir silenciosamente
+- [ ] 889 `P1` Teste que falha quando a API muda e a documentação não acompanha
+- [ ] 890 `P1` Erros do runtime citando a função correta da API na mensagem
+- [ ] 891 `P1` `get_session_context` incluindo o que o mod atual já registra (eventos, scripts)
+- [ ] 892 `P1` Receitas prontas: "reagir a bloco quebrado", "gerar estrutura", "ciclo do dia"
+- [ ] 893 `P1` Documentar o orçamento de blocos e de tempo, para o agente dividir a tarefa
+- [ ] 894 `P2` Documentar como ler outros mods sem poder alterá-los
+- [ ] 895 `P2` Changelog da API versionado, para mods antigos continuarem válidos
+- [ ] 896 `P2` Exemplos negativos: o que costuma dar errado e por quê
+- [ ] 897 `P2` Guia de arte e de escala junto da API (proporção do jogador em mini-voxels)
+- [ ] 898 `P2` Documentação em português, alinhada ao resto do projeto
+- [ ] 899 `P2` `list_recent_errors` correlacionando erro com a função da API envolvida
+- [ ] 900 `P2` Teste de que toda função pública da API aparece na documentação
+
+---
+
+# 🎯 Ordem de execução recomendada
+
+> Análise pedida: **o que precisa ser feito primeiro.** São 900 itens; a ordem abaixo é a que
+> maximiza o que fica protegido e utilizável a cada etapa, não a que entrega mais features.
+
+## Onda 0 — Proteger o que já existe `~1 rodada`
+
+*Barato, e sem isso todo o resto anda sobre areia.*
+
+| Item | Por quê agora |
+|---|---|
+| 514 CI (`tsc --noEmit` + `vitest run`) | Há **285 testes** e nada os executa automaticamente. Uma regressão passa despercebida até alguém rodar à mão |
+| 276 Migração de save versionada | O schema foi de v2 a **v6 em poucos dias**. Não existe caminho de migração: um usuário com mundo antigo é risco real de perda de dados |
+| 277 Backup antes de migrar | Consequência direta do anterior |
+| 278 Verificação de integridade no load | A quarentena de mod já cobre parte; falta o mesmo para blocos e entidades órfãos |
+
+## Onda 1 — Fechar a lacuna que o próprio objetivo declara `~2 rodadas`
+
+*O objetivo do projeto é "a IA modificar todo o jogo com save no mundo". Hoje um mod é só
+**dados**: descreve o que existe, nunca o que acontece. Esta é a lacuna central que sobrou.*
+
+| Item | Por quê agora |
+|---|---|
+| 801–810 Runtime de mod | API injetada, isolamento de erro, orçamento, atribuição de blocos |
+| 809–810 + 704–705 | Bloco alterado por script fica atribuído ao mod → reverter passa a ser exato |
+| 824–826 Ferramentas de script | Sem elas o agente não alcança o runtime |
+| **881–886 Documentação para o agente** | **Capacidade não documentada no prompt é capacidade inexistente.** Já aconteceu aqui: `registerCustomBlock` existia e a IA seguia gerando blocos efêmeros |
+
+## Onda 2 — Tornar o jogo mantenível `~2 rodadas`
+
+*Versionamento, rollback e quarentena existem, mas só a IA os alcança. O usuário não tem como
+ver o que um mod contém nem voltar uma versão sem pedir a ela.*
+
+| Item | Por quê agora |
+|---|---|
+| 845–849 Página de Mods | Expõe o que já foi construído: conteúdo, versões, rollback, quarentena |
+| 850–855 Editor de código | Viabiliza a manutenção em tempo real pedida |
+| 857 Editar `mod.env` na mesma árvore | Só depois da Onda 3 ter definido o formato |
+
+## Onda 3 — Segredos antes de integrações `~1 rodada`
+
+*A ordem aqui é contraintuitiva de propósito: **fechar o vazamento antes de existir o que vazar**.*
+
+| Item | Por quê nesta ordem |
+|---|---|
+| 721–728 `mod.env` + cofre | Sem cofre não há onde guardar chave |
+| 724–725, 735–737 | `export_mod` e `mod_sync` **já existem**: no dia em que um mod puder guardar valor de credencial, os dois viram vazamento automático |
+| 761–765 Manifesto + wrapper de rede | Substituir o `fetch` livre **antes** da primeira integração, não depois — retirar permissão concedida quebra mod existente |
+| 785–787 Exemplos (clima, voz, cidade) | Só aqui, com o cerco já fechado |
+
+## Onda 4 — Dar motivo para explorar `~2 rodadas`
+
+*O mundo tem cavernas, minérios e inimigos, mas a superfície é homogênea e não há nada para
+encontrar. Falta a razão de andar até o horizonte.*
+
+| Item | Por quê |
+|---|---|
+| 665–669 Biomas com recursos exclusivos | Desenho já registrado na seção 27; é o que obriga a expedição |
+| 681–684 Construções espalhadas | Hoje não existe nada para descobrir explorando |
+| 676–677, 689–690 | Biomas e espalhamento registráveis por mod — a base pedida para o agente |
+
+## Onda 5 — Pilares ausentes e desempenho `contínuo`
+
+| Item | Nota |
+|---|---|
+| 477–494 Áudio | **Pilar inteiro ausente.** O jogo é mudo: sem som de passo, de quebra ou de dano |
+| 403 Mesh em worker | O re-mesh do ciclo dia/noite tornou o custo visível |
+| 358–359 Sandbox em Worker | Junta com 837; pré-requisito para compartilhar mod de terceiro |
+| 609 Sync de entidades no P2P | Última lacuna grande do multiplayer |
+| 130, 148 Armadura e arco | Combate existe, mas defender-se e atacar à distância ainda não são decisão |
+| 053–054 AO por vértice e neblina | Os dois itens que faltam para fechar a estética alvo |
+
+## O próximo passo, em uma linha
+
+**Onda 0 inteira** — CI e migração de save. São as duas coisas que, se continuarem faltando,
+transformam qualquer avanço futuro em risco: a primeira deixa regressão passar, a segunda deixa
+mundo de usuário quebrar a cada mudança de schema.
+
