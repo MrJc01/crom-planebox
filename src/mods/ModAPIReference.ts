@@ -55,6 +55,8 @@ export const MOD_API_REFERENCE = {
     'api.time.isNight()': 'true se está de noite',
 
     'api.ui.toast(texto)': 'mensagem curta na tela',
+    'api.audio.play(nome, posicao?, volume?)': 'toca som do catálogo; veja api.audio.nomes',
+    'api.audio.nomes': 'catálogo de sons válidos (dano, acerto, pegarItem, craftar, splash…)',
     'api.storage.get/set/has/keys': 'chave-valor do mod, isolado dos outros, dura a sessão',
     'api.console.log/warn/error': 'vai para o log do mod — leia com get_mod_script_logs',
     'api.B': 'paleta base: B.STONE, B.TORCH, B.COAL_ORE, B.GLOWSTONE, B.WATER, B.LAVA…',

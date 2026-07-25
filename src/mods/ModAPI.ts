@@ -47,6 +47,8 @@ export interface ModHostBridge {
   giveItem(block: number, count: number): void;
   toast(message: string): void;
   timeOfDay(): number;
+  /** Toca um som do catálogo, opcionalmente posicionado no mundo. */
+  playSound(nome: string, posicao?: { x: number; y: number; z: number }, volume?: number): void;
 }
 
 /** Teto de blocos que um único handler altera, para um laço mal escrito não travar o frame. */
@@ -227,6 +229,21 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
 
     ui: {
       toast: (msg: string) => host.toast(String(msg).slice(0, 200)),
+    },
+
+    audio: {
+      /**
+       * Toca um som do catálogo do jogo. Nomes válidos em `api.audio.nomes`.
+       *
+       * O mod escolhe de um catálogo em vez de sintetizar livremente: som é a superfície mais
+       * fácil de tornar insuportável, e um catálogo mantém o jogo coerente.
+       */
+      play: (nome: string, posicao?: { x: number; y: number; z: number }, volume?: number) =>
+        host.playSound(String(nome), posicao, volume),
+      nomes: [
+        'dano', 'morte', 'acerto', 'mobMorte', 'pegarItem', 'craftar',
+        'uiClique', 'uiAbrir', 'queimadura', 'splash', 'ferramentaQuebrou',
+      ],
     },
 
     time: {

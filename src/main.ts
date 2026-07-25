@@ -6,6 +6,8 @@ import { WorldGen } from './world/worldgen';
 import { meshChunk } from './world/mesher';
 import { VoxelPhysics } from './world/physics';
 import { isSolid } from './world/blocks';
+import { AudioSystem } from './audio/AudioSystem';
+import { SOUNDS, soundForBreak, soundForFootstep, soundForPlace } from './audio/synth';
 import { LightEngine } from './world/lighting';
 import { invalidatePathCache } from './entities/Pathfinding';
 import { ModRuntime } from './mods/ModRuntime';
@@ -109,7 +111,10 @@ async function bootstrap() {
   const survivalSystem = new SurvivalSystem(player);
   const itemDropSystem = new ItemDropSystem(gs.scene, player);
 
-  itemDropSystem.onCollect = (blockType, count) => inter.grant(blockType, count);
+  itemDropSystem.onCollect = (blockType, count) => {
+    inter.grant(blockType, count);
+    audio.play(SOUNDS.pegarItem, { channel: 'ui', dedupeKey: 'pegarItem' });
+  };
   inter.onItemDrop = (blockType, count, x, y, z) => itemDropSystem.spawn(blockType, count, x, y, z);
 
   function findSpawn(): THREE.Vector3 {
@@ -277,6 +282,15 @@ async function bootstrap() {
 
   const avatars = new AvatarManager(gs.scene);
 
+  // --- Áudio ----------------------------------------------------------------------------------
+  // Tudo sintetizado: o projeto não tem asset de som, e trazê-los custaria megabytes num jogo
+  // que entrega 900 KB. O contexto nasce suspenso — navegador não deixa tocar antes de um gesto
+  // do usuário —, então é despertado no primeiro clique ou tecla.
+  const audio = new AudioSystem();
+  const despertarAudio = () => audio.despertar();
+  addEventListener('pointerdown', despertarAudio, { once: false });
+  addEventListener('keydown', despertarAudio, { once: false });
+
   // --- Combate --------------------------------------------------------------------------
   const mobSpawner = new MobSpawner();
   const playerCombat = new CombatTimers();
@@ -334,6 +348,11 @@ async function bootstrap() {
     giveItem: (block, count) => inter.grant(block, count),
     toast: (msg) => hud.showToast(msg),
     timeOfDay: () => timeOfDay,
+    playSound: (nome, posicao, volume) => {
+      const spec = SOUNDS[nome];
+      if (!spec) return; // nome inválido é ignorado, não quebra o script
+      audio.play(spec, { position: posicao, volume, dedupeKey: `mod:${nome}` });
+    },
   };
 
   const modRuntime = new ModRuntime(modBridge);
@@ -660,11 +679,12 @@ async function bootstrap() {
 
     playerCombat.markAttacked();
     entitySystem.damageEntity(melhor.id, damageForTier(tier), origin);
+    audio.play(SOUNDS.acerto, { volume: 0.9 });
     return true;
   };
 
   inter.onToolWear = (slot, broke) => {
-    if (broke) hud.showToast('⛏️ Sua ferramenta quebrou!');
+    if (broke) { hud.showToast('⛏️ Sua ferramenta quebrou!'); audio.play(SOUNDS.ferramentaQuebrou); }
     else if (slot.durability !== undefined && slot.durability <= 5) {
       hud.showToast(`Ferramenta quase quebrando (${slot.durability} usos)`);
     }
@@ -672,10 +692,14 @@ async function bootstrap() {
 
   survivalSystem.onDamage = (amount, cause) => {
     modRuntime.dispatch('playerDamaged', { amount, cause, health: survivalSystem.health });
+    // Dano contínuo (fome, queimadura) chega a cada frame: sem deduplicar, viraria um zumbido.
+    audio.play(cause === 'queimadura' ? SOUNDS.queimadura : SOUNDS.dano, { dedupeKey: `dano:${cause}`, volume: 0.9 });
   };
+  survivalSystem.onDeath = () => audio.play(SOUNDS.morte, { volume: 1 });
 
   entitySystem.onEntityDeath = (mob) => {
     modRuntime.dispatch('entityDeath', { id: mob.id, name: mob.name, x: mob.pos.x, y: mob.pos.y, z: mob.pos.z });
+    audio.play(SOUNDS.mobMorte, { position: { x: mob.pos.x, y: mob.pos.y, z: mob.pos.z } });
     hud.showToast(`${mob.name} derrotado!`);
     const drop = mob.profile?.drop ?? -1;
     if (drop >= 0 && (mob.profile?.dropCount ?? 0) > 0) {
@@ -683,9 +707,17 @@ async function bootstrap() {
     }
   };
 
-  inter.onBlockChange = (x, y, z, blockType) => {
+  inter.onBlockChange = (x, y, z, blockType, blocoAnterior) => {
     relight(x, y, z);
     modRuntime.dispatch(blockType === 0 ? 'blockBroken' : 'blockPlaced', { x, y, z, block: blockType });
+
+    // Quebrar soa como o bloco que SAIU; colocar, como o que entrou.
+    const semente = (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
+    const material = blockType === 0 ? (blocoAnterior ?? 3) : blockType;
+    audio.play(
+      blockType === 0 ? soundForBreak(material, semente) : soundForPlace(material, semente),
+      { position: { x, y, z }, dedupeKey: `bloco:${material}` },
+    );
     if (peerSync.role === 'host') peerSync.broadcast({ type: 'block_update', x, y, z, blockType });
   };
 
@@ -1117,6 +1149,8 @@ async function bootstrap() {
   let netAccum = 0;
   /** Hash da última aparência enviada, para reenviá-la só quando muda (item 923). */
   let ultimoHashAparencia = -1;
+  /** Última posição em que um passo soou, para a cadência seguir a distância andada. */
+  let ultimoPassoX = 0, ultimoPassoZ = 0;
 
   function tick(): void {
     requestAnimationFrame(tick);
@@ -1194,6 +1228,24 @@ async function bootstrap() {
     if (saveAccum > 5) { saveAccum = 0; savePlayerNow(); }
 
     // Estado do jogador para os outros: ~10 Hz é suficiente porque o AvatarManager interpola.
+    // A escuta acompanha a câmera, não a posição do corpo: é de onde o jogador "ouve".
+    audio.setListener(player.pos.x, player.pos.y, player.pos.z, player.yaw);
+
+    // Passos: disparados por distância percorrida, não por tempo — assim a cadência acompanha
+    // a velocidade real em vez de ficar dessincronizada ao correr.
+    if (player.onGround) {
+      const dist = Math.hypot(player.pos.x - ultimoPassoX, player.pos.z - ultimoPassoZ);
+      if (dist > 1.9) {
+        ultimoPassoX = player.pos.x;
+        ultimoPassoZ = player.pos.z;
+        const chao = world.getBlock(Math.floor(player.pos.x), Math.floor(player.pos.y) - 1, Math.floor(player.pos.z));
+        if (chao !== 0) audio.play(soundForFootstep(chao, Math.floor(player.pos.x) * 31 + Math.floor(player.pos.z)));
+      }
+    } else {
+      ultimoPassoX = player.pos.x;
+      ultimoPassoZ = player.pos.z;
+    }
+
     despacharBlocos();
 
     netAccum += dt;

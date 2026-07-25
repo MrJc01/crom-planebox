@@ -615,24 +615,24 @@ precisava nascer com teste, porque a falha dele é silenciosa e corrompe o save.
 
 ## 20 — Engenheiro de Áudio
 
-- [ ] 477 `P0` Sistema de áudio base com Web Audio API
-- [ ] 478 `P0` Som por material ao quebrar/colocar bloco
-- [ ] 479 `P1` Passos variando por bloco pisado
-- [ ] 480 `P1` Áudio posicional 3D para entidades
+- [~] 477 `P0` **Sistema de áudio com Web Audio API e síntese procedural — zero asset, zero download**
+- [~] 478 `P0` **Som por material ao quebrar/colocar, derivado da paleta (bloco de mod herda som coerente)**
+- [~] 479 `P1` **Passos variando por bloco pisado, com cadência por distância andada**
+- [~] 480 `P1` **Áudio posicional: atenuação por distância com corte, e panorâmica estéreo**
 - [ ] 481 `P1` Ambiência por bioma
 - [ ] 482 `P1` Música dinâmica por contexto (dia, noite, caverna, combate)
-- [ ] 483 `P1` Volume separado por canal (mestre, música, efeitos, ambiente)
-- [ ] 484 `P1` Som de dano e de morte
+- [~] 483 `P1` **Volume separado por canal (mestre, efeitos, ambiente, música, UI)**
+- [~] 484 `P1` **Som de dano, morte, acerto, queimadura e ferramenta quebrando**
 - [ ] 485 `P2` Som de água e lava por proximidade
 - [ ] 486 `P2` Reverb em cavernas
 - [ ] 487 `P2` Abafamento embaixo d'água
-- [ ] 488 `P2` Som de UI (clique, abrir inventário)
-- [ ] 489 `P2` Mods podem registrar sons próprios
-- [ ] 490 `P2` Pool de fontes de áudio com limite de vozes
-- [ ] 491 `P2` Pré-carregamento assíncrono sem travar o boot
+- [~] 488 `P2` **Som de UI (pegar item, abrir painel)**
+- [~] 489 `P2` **Mods podem tocar sons pelo catálogo — `api.audio.play`**
+- [~] 490 `P2` **Limite de vozes simultâneas com liberação garantida**
+- [~] 491 `P2` **Ruído gerado uma vez e reaproveitado, sem travar o boot**
 - [ ] 492 `P2` Silenciar ao perder o foco da aba
 - [ ] 493 `P3` Síntese procedural de som de bloco a partir do material
-- [ ] 494 `P2` Testes de que nenhum som toca com volume zero
+- [~] 494 `P2` **Testes de que todo som é válido e nenhum sai da faixa audível**
 
 ## 21 — Designer de Conteúdo Terraria-like
 
@@ -1486,7 +1486,21 @@ encontrar. Falta a razão de andar até o horizonte.*
 | 681–684 Construções espalhadas | Hoje não existe nada para descobrir explorando |
 | 676–677, 689–690 | Biomas e espalhamento registráveis por mod — a base pedida para o agente |
 
-## Onda 5 — Pilares ausentes e desempenho `contínuo`
+## Onda 5 — em andamento
+
+**Áudio (477–494): entregue.** O jogo deixou de ser mudo. Tudo sintetizado via Web Audio —
+o projeto não tem asset de som, e trazê-los custaria megabytes num bundle de 900 KB.
+
+Duas decisões que valem registrar:
+
+- **`materialOf` deriva o som das propriedades do bloco**, não de uma tabela por id. Um bloco
+  criado por mod herda som coerente sem declarar nada; sem isso, todo bloco novo soaria como pedra.
+- **A especificação é pura** (`synth.ts` devolve parâmetros, não toca nada). Dá para testar que
+  vidro é mais brilhante que terra sem abrir navegador.
+
+Falta: ambiência por bioma (481), música por contexto (482), reverb em caverna (486).
+
+## Onda 5 (registro original) — Pilares ausentes e desempenho
 
 | Item | Nota |
 |---|---|
@@ -1699,4 +1713,78 @@ ter o problema que ele resolve. Os itens 918-921 registram o que mudaria essa co
 - [ ] 921 `P2` Documentar que o `full_sync` já elimina a redundância por regeneração via semente (o dicionário custa 4 bytes)
 - [ ] 912 `P2` Isolar segredo de dado de terceiro em fluxos comprimidos distintos (CRIME/BREACH)
 - [ ] 913 `P2` Documentar em `docs/NETWORK_PROTOCOL.md` o formato de quadro e o limiar de fragmentação
+
+---
+
+# Adendo — Rodada 6 de requisitos (itens 927–960)
+
+> Duas lacunas levantadas por pergunta direta, e ambas confirmadas ausentes:
+> **voz nativa entre jogadores** (o microfone só existia como capacidade de mod) e **ver o
+> próprio corpo em primeira pessoa** (havia só "braços na tela", item 594, ainda pendente).
+
+## 34 — Engenheiro de Voz P2P
+
+*Parecer: esta é a feature com a melhor relação entre valor e esforço de todo o checklist, e
+estava faltando. O motivo é que metade do trabalho já está feito: o `RTCPeerConnection` do
+`PeerSync` existe, e o WebRTC transporta **áudio nativamente** — foi para isso que ele nasceu.
+Não é preciso codec, nem servidor, nem buffer de jitter: basta acrescentar uma track à conexão
+que já está aberta.*
+
+*Duas coisas precisam ser bem feitas, porém, e nenhuma é técnica:*
+
+*1. **Microfone é privacidade, não feature.** O padrão tem de ser desligado, com indicador
+visível de que está captando. "Sempre ligado" numa sessão com estranhos é inaceitável, e
+push-to-talk resolve isso melhor que qualquer configuração.*
+
+*2. **A permissão é do navegador, e é uma vez só.** Pedir `getUserMedia` no momento errado (no
+boot, por exemplo) queima a chance: o usuário nega, e o navegador lembra da negativa. Só pedir
+quando ele clicar no botão.*
+
+- [ ] 927 `P0` Botão de microfone no HUD, **desligado por padrão**
+- [ ] 928 `P0` Push-to-talk numa tecla dedicada, além do modo alternado
+- [ ] 929 `P0` Indicador visível enquanto está captando — nunca captar sem sinal na tela
+- [ ] 930 `P0` `getUserMedia` pedido só ao clicar no botão, nunca no boot
+- [ ] 931 `P0` Track de áudio adicionada à `RTCPeerConnection` já existente (sem servidor)
+- [ ] 932 `P0` Renegociação da conexão ao ligar/desligar o microfone no meio da partida
+- [ ] 933 `P1` Mensagem clara quando a permissão é negada, com como reverter
+- [ ] 934 `P1` Volume por jogador, e silenciar um jogador específico
+- [ ] 935 `P1` Indicador de quem está falando na lista de jogadores
+- [ ] 936 `P1` Voz atenuada por distância no mundo (áudio posicional entre jogadores)
+- [ ] 937 `P1` Canal de volume próprio para voz, separado de efeitos e música
+- [ ] 938 `P1` Supressão de ruído e cancelamento de eco (`echoCancellation`, `noiseSuppression`)
+- [ ] 939 `P1` Detecção de silêncio para não transmitir quando ninguém fala
+- [ ] 940 `P2` Voz continua funcionando se o anfitrião sair (junta com migração de host)
+- [ ] 941 `P2` Silenciar a si mesmo com atalho único, sempre disponível
+- [ ] 942 `P2` Indicador de nível de entrada, para o jogador saber se o microfone pegou
+- [ ] 943 `P2` Aviso no HUD de que a voz é P2P direta, sem passar por servidor
+- [ ] 944 `P2` Limite de participantes com voz simultânea
+- [ ] 945 `P2` Testes do ciclo ligar/renegociar/desligar sem derrubar a conexão de dados
+
+## 35 — Diretor de Presença em Primeira Pessoa
+
+*Parecer: o jogo começa em primeira pessoa (item 567) e o modelo do personagem existe e é
+completo (557–566), mas em primeira pessoa ele é **totalmente ocultado**. A razão foi correta na
+época — a câmera fica dentro da cabeça, e o modelo apareceria como uma parede de textura na
+tela. Mas a solução usada é grosseira: esconder tudo. O resultado é que o jogador não tem corpo.*
+
+*O que se faz de verdade: esconder **só a cabeça**, e manter o resto. Aí olhar para baixo mostra
+tronco, pernas e pés — que é o que dá presença física. Braços e ferramenta na tela (item 594) são
+um problema separado, porque em primeira pessoa eles usam poses exageradas que não correspondem
+ao esqueleto real.*
+
+- [ ] 946 `P0` Em primeira pessoa, ocultar **apenas a cabeça** em vez do modelo inteiro
+- [ ] 947 `P0` Olhar para baixo mostra tronco, pernas e botas do próprio personagem
+- [ ] 948 `P0` A cabeça oculta não deixa buraco visível no pescoço
+- [ ] 949 `P1` Braços em primeira pessoa com pose própria, não a do esqueleto de terceira pessoa
+- [ ] 950 `P1` Ferramenta equipada visível na mão, acompanhando a hotbar
+- [ ] 951 `P1` Animação de golpe e de quebrar bloco na visão de primeira pessoa
+- [ ] 952 `P1` Balanço sutil ao caminhar, com opção de desligar (junta com o redutor de movimento, item 438)
+- [ ] 953 `P1` A cor do corpo em primeira pessoa é a mesma da customização — sem divergir
+- [ ] 954 `P2` Sombra do próprio personagem visível no chão
+- [ ] 955 `P2` Modo fantasma mantém o corpo translúcido, distinguindo-se da primeira pessoa normal
+- [ ] 956 `P2` Braço direito e esquerdo distintos, conforme o item na mão
+- [ ] 957 `P2` Reação visual ao levar dano na primeira pessoa
+- [ ] 958 `P2` Ver o corpo dentro da água com a distorção do fluido
+- [ ] 959 `P2` Opção de esconder o corpo, para quem preferir a visão limpa
+- [ ] 960 `P2` Testes de que a cabeça está oculta em 1ª pessoa e visível em 3ª
 

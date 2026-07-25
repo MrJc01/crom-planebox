@@ -67,7 +67,11 @@ export class Interaction {
   survivalMode = false;
   onItemDrop: (blockType: number, count: number, x: number, y: number, z: number) => void = () => {};
   /** Notifica cada bloco quebrado/colocado localmente — usado pelo host para retransmitir via PeerSync. */
-  onBlockChange: (x: number, y: number, z: number, blockType: number) => void = () => {};
+  /**
+   * `blocoAnterior` existe para o áudio: quebrar precisa soar como o bloco que SAIU, não como o
+   * ar que ficou. Opcional para não obrigar quem só quer a notificação.
+   */
+  onBlockChange: (x: number, y: number, z: number, blockType: number, blocoAnterior?: number) => void = () => {};
 
   constructor(
     private world: World,
@@ -318,7 +322,7 @@ export class Interaction {
     // cortar tronco → derruba a árvore inteira (independente do modo)
     if (isLog(hit.type) && !BLOCKS[hit.type].structural) {
       this.world.setBlock(hit.x, hit.y, hit.z, B.AIR);
-      this.onBlockChange(hit.x, hit.y, hit.z, B.AIR);
+      this.onBlockChange(hit.x, hit.y, hit.z, B.AIR, hit.type);
       const push = new THREE.Vector3(dir.x, 0, dir.z).normalize();
       this.physics.fellTree(hit.x, hit.y + 1, hit.z, push.x, push.z);
       this.physics.onBlockChanged(hit.x, hit.y, hit.z);
@@ -335,7 +339,7 @@ export class Interaction {
       if (t === B.AIR || t === B.WATER) continue;
       if (isLog(t)) continue; // troncos só caem via corte direto
       this.world.setBlock(x, y, z, B.AIR);
-      this.onBlockChange(x, y, z, B.AIR);
+      this.onBlockChange(x, y, z, B.AIR, t);
       const def = BLOCKS[t];
       if (def.drops >= 0) this.awardDrop(def.drops, def.minToolTier ?? 0, x, y, z);
       broke++;
