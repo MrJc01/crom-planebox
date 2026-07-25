@@ -345,7 +345,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [~] 247 `P1` **Tochas colocáveis emitindo luz (bloco `TORCH`, craftável com carvão)**
 - [~] 248 `P1` **Recalcular luz incrementalmente com **remoção correta** e enfileirado por frame**
 - [~] 249 `P2` **Luz atravessando blocos translúcidos com atenuação (água, folhagem, vidro)**
-- [ ] 250 `P2` Luz da lua com intensidade por fase
+- [~] 250 `P2` **Luz da lua com intensidade por fase**
 - [ ] 251 `P2` Luz colorida por bloco emissivo
 - [~] 252 `P1` **Mods podem definir nível de luz emitido pelo bloco** (`lightLevel`) — na rodada 3 era só metadado; agora o motor de luz realmente o consome
 - [ ] 253 `P2` Sombra projetada por entidades
@@ -1964,17 +1964,17 @@ conforme a noite. É o tipo de variação que faz o jogador olhar para o céu an
 contínuo, então a claridade variável entra sem recalcular nada — basta o `sunScale` noturno
 depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se quer.*
 
-- [ ] 1012 `P0` Lua desenhada no céu, com posição oposta à do sol
-- [ ] 1013 `P0` Oito fases lunares, avançando uma por dia
-- [ ] 1014 `P0` Fase persistida no save, junto de `timeOfDay`
-- [ ] 1015 `P0` **Claridade da noite variando com a fase** — lua nova quase preta, cheia navegável
-- [ ] 1016 `P0` Estrelas por padrão, visíveis só à noite
-- [ ] 1017 `P1` Estrelas surgindo no anoitecer e sumindo no amanhecer, com transição suave
-- [ ] 1018 `P1` Posição das estrelas determinística pela semente do mundo
-- [ ] 1019 `P1` Brilho das estrelas reduzido nas noites de lua cheia
+- [~] 1012 `P0` **Lua desenhada no céu, oposta ao sol — `src/render/sky.ts`**
+- [~] 1013 `P0` **Oito fases lunares, avançando uma por amanhecer**
+- [~] 1014 `P0` **Fase persistida no save (`WorldRecord.worldDay`)**
+- [~] 1015 `P0` **Claridade da noite varia com a fase — lua nova quase preta, cheia navegável**
+- [~] 1016 `P0` **Estrelas por padrão, visíveis só à noite**
+- [~] 1017 `P1` **Estrelas surgindo no anoitecer com transição suave**
+- [~] 1018 `P1` **Posição das estrelas determinística — o mesmo mundo tem o mesmo céu**
+- [~] 1019 `P1` **Brilho das estrelas reduzido nas noites de lua cheia**
 - [ ] 1020 `P1` A lua projeta luz direcional fraca, com sombra suave própria
-- [ ] 1021 `P1` Piso de luminosidade que nunca chega ao preto absoluto, para a silhueta continuar legível
-- [ ] 1022 `P1` `api.time` expõe a fase lunar aos mods
+- [~] 1021 `P1` **Piso de luminosidade que nunca chega ao preto absoluto**
+- [~] 1022 `P1` **`api.time.moonPhase` e `api.time.isDarkNight` expostos aos mods**
 - [ ] 1023 `P1` A fase aparece no painel de diagnóstico e em `get_world_summary`
 - [ ] 1024 `P2` Spawn de hostis mais intenso em noite escura — liga a fase à mecânica (ver item 255)
 - [ ] 1025 `P2` Céu com gradiente noturno próprio, não só o diurno escurecido
@@ -1982,8 +1982,8 @@ depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se
 - [ ] 1027 `P2` Nuvens escurecidas à noite, recortando o céu estrelado
 - [ ] 1028 `P2` Eclipse raro como evento de mundo
 - [ ] 1029 `P2` Ferramenta MCP para consultar e ajustar a fase lunar
-- [ ] 1030 `P2` Teste de que a fase avança uma vez por dia e volta ao ciclo após oito
-- [ ] 1031 `P2` Teste de que a lua nova é mais escura que a cheia, e que nenhuma é preto absoluto
+- [~] 1030 `P2` **Teste de que a fase avança uma vez por dia e volta ao ciclo após oito**
+- [~] 1031 `P2` **Teste de que a lua nova é mais escura que a cheia, e nenhuma é preto absoluto**
 
 ## Como isso conversa com o que já existe
 
@@ -1999,6 +1999,21 @@ depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se
 **Ordem recomendada:** 1012–1016 primeiro (lua, fases, claridade variável, estrelas) — é o que o
 usuário descreveu e o que muda a experiência. O *fade* de chunk (1001–1003) depois, porque mexe
 em material e profundidade, e um erro ali degrada o desempenho do mundo inteiro.
+
+### Céu noturno: entregue
+
+Lua com oito fases, estrelas determinísticas pela semente, e a claridade da noite governada pela
+fase — lua nova quase preta, cheia navegável. O `sunScale` noturno deixou de ser fixo em 0,12 e
+passa a sair de `claridadeNoturna(fase)`; como o motor separa luz de céu de luz de bloco, **a
+tocha mantém o mesmo valor em todas as noites**, que é exatamente o comportamento desejado.
+
+Um ajuste que os testes forçaram: o limiar de "noite escura" estava no meio da faixa de brilho,
+mas a curva usa raiz e sobe rápido — só a lua nova classificava como escura, e sete das oito
+noites seriam "claras". O limiar passou para a **iluminação** do disco, e agora as três noites em
+torno da lua nova são as escuras.
+
+Falta desta seção: sombra própria da lua (1020), gradiente noturno dedicado (1025), e ligar a
+fase ao spawn de hostis (1024) — que é o que transformaria a lua nova em noite perigosa.
 
 ---
 

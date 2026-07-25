@@ -16,6 +16,7 @@
 
 import { B, BLOCKS } from '../world/blocks';
 import { ModPackage } from './ModTypes';
+import { noiteEscura } from '../world/moon';
 
 export type ModEvent =
   | 'load'          // o mod acabou de ser carregado — payload: {}
@@ -47,6 +48,7 @@ export interface ModHostBridge {
   giveItem(block: number, count: number): void;
   toast(message: string): void;
   timeOfDay(): number;
+  moonPhase(): number;
   /** Toca um som do catálogo, opcionalmente posicionado no mundo. */
   playSound(nome: string, posicao?: { x: number; y: number; z: number }, volume?: number): void;
 }
@@ -253,6 +255,10 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
         const t = host.timeOfDay();
         return t < 0.25 || t > 0.75;
       },
+      /** Fase da lua: 0 = nova (noite escura), 4 = cheia (noite clara). */
+      moonPhase: () => host.moonPhase(),
+      /** A noite de hoje é das escuras? Útil para o mod reagir sem decorar a tabela de fases. */
+      isDarkNight: () => noiteEscura(host.moonPhase()),
     },
 
     /** Chave-valor do mod, isolado dos demais. Dura a sessão. */

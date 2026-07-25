@@ -3,6 +3,8 @@
 // os vértices afundam com o quadrado da distância — o mundo dobra para
 // baixo na borda, como na vida real.
 import * as THREE from 'three';
+import { Sky } from './sky';
+import { claridadeNoturna } from '../world/moon';
 
 /**
  * Uniforms da curvatura do mundo, compartilhados por terreno, água e vidro.
@@ -56,6 +58,9 @@ export interface GameScene {
   setViewRange(voxels: number): void;
   /** Curvatura do horizonte. `queda = 0` deixa o mundo plano. */
   setCurvature(voxels: number, queda?: number): void;
+  /** Fase lunar (0 = nova, 4 = cheia). Governa a claridade da noite e o desenho da lua. */
+  setMoonPhase(fase: number): void;
+  getMoonPhase(): number;
   /** Aplica a hora do dia (0 = meia-noite, 0.5 = meio-dia) ao céu, ao sol e à luz ambiente. */
   setTimeOfDay(t: number): void;
   /** Intensidade atual da luz solar, 0..1 — o mesher usa para escurecer a luz de céu à noite. */
@@ -108,6 +113,10 @@ export function createScene(container: HTMLElement): GameScene {
   const hemi = new THREE.HemisphereLight(0xbdd9f2, 0x5a6b46, 0.75);
   scene.add(hemi);
 
+  // Céu noturno: estrelas por padrão e lua com fases. A semente vem depois, via `setSkySeed`.
+  const sky = new Sky(0x5eed);
+  scene.add(sky.grupo);
+
   const solidMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
   const waterMaterial = new THREE.MeshLambertMaterial({
     vertexColors: true,
@@ -145,13 +154,23 @@ export function createScene(container: HTMLElement): GameScene {
   const DUSK_SKY = new THREE.Color(0xe8956b);
   const tmpSky = new THREE.Color();
 
+  /** Fase lunar atual, definida pelo `main` a cada novo dia. */
+  let fasaLunar = 0;
+  function setMoonPhase(fase: number): void { fasaLunar = fase; }
+  function getMoonPhase(): number { return fasaLunar; }
+
   function setTimeOfDay(t: number): void {
     const frac = ((t % 1) + 1) % 1;
     sunAngle = frac * Math.PI * 2;
 
     // Altura do sol: -1 (meia-noite) a 1 (meio-dia).
     const elevation = -Math.cos(frac * Math.PI * 2);
-    sunScale = Math.max(0.12, Math.min(1, elevation * 1.5 + 0.35));
+
+    // O piso noturno vem da FASE DA LUA, e não é mais fixo em 0.12. É o que faz a lua nova ser
+    // uma noite realmente escura e a cheia uma noite navegável — e, como o motor separa luz de
+    // céu de luz de bloco, a tocha mantém o mesmo valor nas duas.
+    const pisoNoturno = claridadeNoturna(fasaLunar);
+    sunScale = Math.max(pisoNoturno, Math.min(1, elevation * 1.5 + 0.35));
 
     // Céu: azul de dia, laranja rasante no nascer/pôr, azul-escuro à noite.
     const duskAmount = Math.max(0, 1 - Math.abs(elevation) * 3.2);
@@ -164,6 +183,8 @@ export function createScene(container: HTMLElement): GameScene {
 
     sun.intensity = 2.2 * sunScale;
     hemi.intensity = 0.75 * Math.max(0.25, sunScale);
+
+    sky.update(camera, sunAngle, elevation, fasaLunar);
   }
 
   function getSunScale(): number {
@@ -215,5 +236,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setTimeOfDay, getSunScale };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

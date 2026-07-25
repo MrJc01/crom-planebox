@@ -10,6 +10,7 @@ import { isSolid } from './world/blocks';
 import { AudioSystem } from './audio/AudioSystem';
 import { SOUNDS, soundForBreak, soundForFootstep, soundForPlace } from './audio/synth';
 import { LightEngine } from './world/lighting';
+import { faseDoDia, nomeDaFase, noiteEscura } from './world/moon';
 import { invalidatePathCache } from './entities/Pathfinding';
 import { ModRuntime } from './mods/ModRuntime';
 import { ModHostBridge } from './mods/ModAPI';
@@ -79,6 +80,8 @@ async function bootstrap() {
 
   /** Hora do mundo em fração de dia (0 = meia-noite, 0.5 = meio-dia). */
   let timeOfDay = 0.35;
+  /** Dias completos desde a criação do mundo. É o que faz a lua mudar de fase. */
+  let worldDay = 0;
   /** Um dia completo em segundos reais. */
   const DAY_LENGTH = 900;
   // A luz de céu é assada na cor dos vértices, então mudar `sunScale` exige re-meshar. Refazer
@@ -411,6 +414,7 @@ async function bootstrap() {
     giveItem: (block, count) => inter.grant(block, count),
     toast: (msg) => hud.showToast(msg),
     timeOfDay: () => timeOfDay,
+    moonPhase: () => faseDoDia(worldDay),
     playSound: (nome, posicao, volume) => {
       const spec = SOUNDS[nome];
       if (!spec) return; // nome inválido é ignorado, não quebra o script
@@ -947,6 +951,7 @@ async function bootstrap() {
   function savePlayerNow(): void {
     if (!currentWorld.id) return;
     currentWorld.timeOfDay = timeOfDay;
+    currentWorld.worldDay = worldDay;
     WorldRepository.saveWorld(currentWorld);
     WorldRepository.savePlayer({
       worldId: currentWorld.id,
@@ -1025,6 +1030,8 @@ async function bootstrap() {
 
     // A hora do mundo faz parte do save: voltar sempre às 8h apagaria o progresso da noite.
     timeOfDay = typeof wRecord.timeOfDay === 'number' ? wRecord.timeOfDay : 0.35;
+    worldDay = typeof wRecord.worldDay === 'number' ? wRecord.worldDay : 0;
+    gs.setMoonPhase(faseDoDia(worldDay));
     gs.setTimeOfDay(timeOfDay);
     lastBakedSun = -1;
 
@@ -1411,7 +1418,14 @@ async function bootstrap() {
     // re-meshado quando `sunScale` muda o suficiente para ser perceptível — algumas vezes por
     // dia de jogo, e não a cada frame.
     const faseAnterior = fasesDoDia(timeOfDay);
+    const anterior = timeOfDay;
     timeOfDay = (timeOfDay + dt / DAY_LENGTH) % 1;
+    // Virou o dia: a lua avança uma fase, como no Minecraft (uma por amanhecer).
+    if (timeOfDay < anterior) {
+      worldDay++;
+      gs.setMoonPhase(faseDoDia(worldDay));
+      hud.showToast(`🌙 Noite de lua ${nomeDaFase(worldDay)}`);
+    }
     gs.setTimeOfDay(timeOfDay);
     const faseAtual = fasesDoDia(timeOfDay);
     if (faseAtual !== faseAnterior) modRuntime.dispatch('dayPhase', { phase: faseAtual, timeOfDay });
