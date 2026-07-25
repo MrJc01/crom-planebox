@@ -1580,36 +1580,63 @@ redundância de dado voxel é *local* — sequências longas do mesmo bloco dent
 é o que LZ77/gzip explora. Deduplicação vence quando os **mesmos bytes** se repetem por um
 acervo, que não é o caso aqui nem com um codebook treinado.
 
-### Esclarecimento do autor, e o que ele muda na avaliação
+### Correção maior: eu medi o modo errado
 
-> *"O crompressor só funciona com dados médios/grandes, para passar apenas os vetores de
-> instrução na comunicação."*
+O artigo *"A ilusão da compressão: por que o Crompressor não é o novo gzip, e sim um Git para
+dados"* deixa explícito que **a comparação que fiz não é a que o projeto propõe**. O próprio
+autor afirma que, em uso isolado, o crompressor chega a **inflar o arquivo (125% do original)** —
+e que o ganho aparece quando ele opera como **motor de deduplicação de borda com codebook
+compartilhado**, onde reduz *"até 99,4% do tráfego de rede"*.
 
-Isso aponta um cenário que **a medição acima não cobriu**, e é justo registrar:
+Os números do artigo, no modo pretendido:
 
-Nos testes, cada payload foi empacotado de forma autônoma — o resultado precisa conter tudo que
-a reconstrução exige. O uso pretendido é outro: **os dois lados compartilham o mesmo codebook
-treinado, e o que trafega são só os índices** (os "vetores de instrução"). Nesse regime a conta
-muda de natureza, porque o dicionário deixa de ser custo de transmissão.
+| Benchmark | Resultado |
+|---|---|
+| V5 (chunks de 128 B) | 80,5% de redução de tráfego — o limite dado o overhead de 24 B por chunk |
+| V6 (chunks de 4 KB) | 460,81 MB → **2,81 MB (99,38%)** em projetos reais |
 
-O que seria necessário para medir isso de verdade, e que fica registrado como tarefa:
+O modelo é o do Git, e a analogia é precisa: **não se transmite o que o outro lado já tem.**
+Treina-se um `.cromdb` sobre dados históricos, distribui-se esse dicionário aos nós uma vez, e a
+partir daí um bloco reconhecido viaja como um identificador de 24 bytes em vez do conteúdo.
 
-1. Treinar um codebook sobre chunks reais deste jogo (`crompressor train --size 4096`).
-2. Distribuir o codebook aos dois peers **uma vez** — e resolver como: ele é grande, e essa
-   distribuição é um problema de sincronização por si só.
-3. Medir só o tráfego de índices por mensagem, contra o gzip do payload equivalente.
-4. Expor `cromPack(bytes, codebook, modo)` no WASM — a API atual não tem por onde receber
-   nenhum dos três.
+Ou seja: minha tabela mediu empacotamento autônomo, que é justamente o cenário que o autor
+classifica como mau uso. **A medição estava correta; a pergunta é que estava errada.**
 
-Duas ressalvas que continuam valendo independentemente desse teste:
+### A pergunta certa: esse modelo se aplica a este jogo?
 
-- **Regime de tamanho.** Quase todo o tráfego deste jogo é pequeno: `player_state` tem ~200
-  bytes e sai 10x por segundo. Pelo próprio critério do autor, esse tráfego está fora do alvo do
-  crompressor. O único payload no regime "médio/grande" é o `full_sync` — e é exatamente onde a
-  fragmentação com gzip já resolveu o problema que existia (o canal caía).
-- **Perda continua proibida para bloco.** Se os índices sozinhos forem suficientes, a
-  reconstrução é aproximada — modo Edge. Id de bloco não tolera aproximação. Para lossless o
-  delta XOR volta a trafegar, e aí o ganho retorna ao teto de ~2,5x já medido.
+Aqui a resposta continua sendo majoritariamente não, mas por um motivo **completamente
+diferente** do que eu havia registrado — e que vale mais que a discussão de razão de compressão:
+
+**O `full_sync` deste jogo já não transmite o dado redundante.** O terreno é gerado
+proceduralmente a partir da semente, e o convidado o regenera localmente. O que trafega são só
+as `blockMods` — as alterações do jogador. A redundância entre pares que o crompressor existe
+para eliminar **já foi eliminada por construção**, pela geração determinística.
+
+É o mesmo princípio do artigo (não mandar o que o outro lado consegue obter sozinho), aplicado
+uma camada acima: em vez de um codebook de padrões, a semente. E o dicionário aqui custa 4 bytes.
+
+Onde o modelo do artigo *encostaria* neste projeto, e por que ainda não fecha:
+
+| Candidato | Avaliação |
+|---|---|
+| `full_sync` P2P | A redundância já foi removida pela semente; sobra o diff do jogador, que é único por mundo |
+| Snapshots da IA (`capture_multi_angle`) | 4 fotos quase idênticas — é literalmente o caso CCTV do artigo. Mas elas vão para a API do modelo, que precisa do PNG real |
+| Distribuição de mods entre usuários | **Caso mais forte.** Mods compartilham estruturas e blocos comuns; um codebook de padrões de mod dedupli­caria bem numa galeria |
+| Export de mundos numa plataforma de compartilhamento | Mesmo raciocínio, se muitos mundos partirem de templates comuns |
+
+Os dois últimos são reais, mas dependem de algo que ainda não existe: **uma plataforma de
+distribuição**. Com um usuário e um navegador, não há segundo nó para deduplicar contra.
+
+### O ponto do artigo que mais interessa a este projeto
+
+A afirmação sobre **"12,7x de ganho ao injetar o motor em simulações em RAM (pathfinding,
+física), deduplicando estados matemáticos repetidos"** é a mais relevante aqui — e não tem
+relação com tamanho de arquivo.
+
+Este projeto acabou de ganhar A* ([`src/entities/Pathfinding.ts`](src/entities/Pathfinding.ts)),
+com vários mobs recalculando rota contra o mesmo jogador, no mesmo terreno, a cada 0,35 s. São
+estados repetidos, e hoje cada um é recomputado do zero. Isso é memoização de estado — parente
+próximo da deduplicação — e é mensurável sem depender de plataforma nenhuma.
 
 ### Onde ele caberia neste projeto
 
@@ -1622,11 +1649,19 @@ Para blocos, saves e P2P: não.
 
 ## Decisão tomada nesta rodada
 
-Implementado com **gzip nativo** (`CompressionStream`), não com o WASM:
+Implementado com **gzip nativo** (`CompressionStream`), não com o WASM — mas a razão principal
+não é mais a razão de compressão, e sim a arquitetura:
 
-- 10,9 MB de WASM é **13x o bundle inteiro do jogo** (853 KB). Para um ganho negativo, o custo
-  de download não se justifica em nenhuma hipótese.
-- O gzip nativo roda em C++ dentro do navegador, sem custo de download e sem GC do Go.
+1. **A redundância que o crompressor elimina já não existe aqui.** O `full_sync` transmite só as
+   alterações do jogador; o terreno o convidado regenera da semente. Não há um segundo nó com
+   dado repetido para deduplicar contra.
+2. **Não há plataforma de distribuição.** O modelo do artigo pressupõe nós que compartilham um
+   codebook treinado. Com um usuário e um navegador, falta o outro nó.
+3. **10,9 MB é 13x o bundle inteiro do jogo** (853 KB). Mesmo que 1 e 2 fossem resolvidos, o
+   custo de download precisaria ser pago por um ganho que ainda não foi medido neste domínio.
+
+Nenhum desses três pontos é sobre o crompressor ser bom ou ruim — é sobre este jogo, hoje, não
+ter o problema que ele resolve. Os itens 918-921 registram o que mudaria essa conclusão.
 
 - [~] 901 `P0` **Compressão do `full_sync` com `CompressionStream` nativo**
 - [~] 902 `P0` **Fragmentação de mensagem grande no P2P** — `src/net/wire.ts`
@@ -1643,6 +1678,10 @@ Implementado com **gzip nativo** (`CompressionStream`), não com o WASM:
 - [ ] 915 `P3` Medir o cenário de codebook compartilhado: treinar sobre chunks reais, distribuir uma vez, e comparar só o tráfego de índices contra gzip
 - [ ] 916 `P3` Pré-requisito do anterior: expor `cromPack(bytes, codebook, modo)` no WASM — a API atual não recebe nenhum dos três
 - [ ] 917 `P3` Resolver a distribuição do codebook entre peers (ele próprio é grande, e vira um problema de sync)
+- [ ] 918 `P1` **Cache de rotas do A\***: mobs recalculam contra o mesmo alvo e terreno a cada 0,35 s — memoizar estado repetido é o análogo local do que o artigo mede como 12,7x
+- [ ] 919 `P2` Medir quantas consultas de `findPath` são repetidas numa cena real, antes de otimizar
+- [ ] 920 `P3` Reavaliar o crompressor **se** surgir uma galeria de mods/mundos — aí existe o segundo nó contra o qual deduplicar
+- [ ] 921 `P2` Documentar que o `full_sync` já elimina a redundância por regeneração via semente (o dicionário custa 4 bytes)
 - [ ] 912 `P2` Isolar segredo de dado de terceiro em fluxos comprimidos distintos (CRIME/BREACH)
 - [ ] 913 `P2` Documentar em `docs/NETWORK_PROTOCOL.md` o formato de quadro e o limiar de fragmentação
 
