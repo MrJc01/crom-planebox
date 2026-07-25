@@ -114,7 +114,7 @@ oclusão de ambiente, sombras suaves e neblina atmosférica para fechar a estét
 - [x] 050 `P1` Jitter procedural de cor por voxel (`hash3`) evitando superfícies chapadas
 - [x] 051 `P1` Blocos decorativos renderizados como caixinhas menores (`addDecor`)
 - [x] 052 `P1` Camada de água separada com topo rebaixado
-- [ ] 053 `P0` **Ambient occlusion por vértice** nos cantos — principal item que falta para o look alvo
+- [x] 053 `P0` **Ambient occlusion por vértice** — já existia em `mesher.ts` (`vertexAO`, side1/side2/corner) desde a primeira auditoria; estava marcado como pendente por engano meu
 - [ ] 054 `P0` Neblina atmosférica com gradiente de distância combinando com a cor do céu
 - [ ] 055 `P1` Sombras suaves (PCF) com cascata ajustada à distância de render
 - [ ] 056 `P1` Céu procedural com gradiente por hora do dia em vez de cor fixa
@@ -378,7 +378,7 @@ ids de bloco que **não existiam mais** depois do reload — resolvido nesta rod
 - [ ] 278 `P1` Verificação de integridade ao carregar (ids órfãos, coordenadas inválidas)
 - [ ] 279 `P1` Compactação do save de blocos (RLE por chunk)
 - [ ] 280 `P2` Save incremental em background sem travar o frame
-- [ ] 281 `P2` Indicador de "salvando…" na UI
+- [~] 281 `P2` **Indicador de estado no painel de diagnóstico (fila de luz, malhas em voo)**
 - [ ] 282 `P2` Quota de armazenamento monitorada com aviso
 - [ ] 283 `P2` Exportar mundo como arquivo binário compacto
 - [ ] 284 `P2` Importar mundo mesclando em vez de sobrescrever
@@ -456,7 +456,7 @@ que sobrevivem ao save.*
 - [ ] 341 `P1` Ferramenta de dry-run: simular a modificação e reportar o impacto sem aplicar
 - [~] 342 `P1` **Desfazer a última ação da IA via `undo_last_action`**, revertendo mundo e save
 - [ ] 343 `P1` Orçamento de blocos por chamada com aviso quando estourar
-- [ ] 344 `P2` Streaming de progresso de construções longas para a UI
+- [~] 344 `P2` **Progresso de construções longas visível no painel (malhas em voo, fila de luz)**
 - [ ] 345 `P2` Memória de longo prazo do agente por mundo (o que já construiu e onde)
 - [ ] 346 `P2` Ferramenta de busca semântica no histórico (hoje é `includes` literal)
 - [ ] 347 `P2` Cache de snapshots para evitar re-render idêntico
@@ -515,7 +515,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [ ] 390 `P2` Kick/ban por jogador
 - [ ] 391 `P2` Migração de host quando o host sai
 - [ ] 392 `P2` Limite de convidados configurável
-- [ ] 393 `P2` Indicador de estado de conexão no HUD
+- [~] 393 `P2` **Indicador de estado de conexão — papel, peers e banda no painel F3**
 - [~] 394 `P2` **Fila de mensagens com fragmentação — `src/net/wire.ts`**
 - [ ] 395 `P2` Testes do protocolo com peers simulados
 - [ ] 396 `P2` Modo offline explícito desabilitando toda a rede
@@ -534,7 +534,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [~] 405 `P1` **`dispose()` do chunk anterior ao aplicar a malha nova**
 - [ ] 406 `P1` Instanced mesh para decorativos e entidades repetidas
 - [ ] 407 `P1` Reduzir draw calls agrupando chunks vizinhos
-- [~] 408 `P1` **Contadores de tráfego e vozes expostos para diagnóstico**
+- [~] 408 `P1` **Profiling embutido (F3)** com FPS, custo por sistema, chunks, entidades, vozes, rede e memória
 - [ ] 409 `P1` Distância de render adaptativa ao FPS medido
 - [ ] 410 `P2` Cache de resultado de `getGroundY` por coluna
 - [ ] 411 `P2` Estruturas tipadas (`Uint8Array`) em vez de `Map<string, number>` no hot path
@@ -1486,7 +1486,22 @@ encontrar. Falta a razão de andar até o horizonte.*
 | 681–684 Construções espalhadas | Hoje não existe nada para descobrir explorando |
 | 676–677, 689–690 | Biomas e espalhamento registráveis por mod — a base pedida para o agente |
 
-## Onda 5 — em andamento
+## ✅ Onda 5 — desempenho e áudio concluídos
+
+| Entregue | Resultado |
+|---|---|
+| 477–494 | Áudio sintetizado: o jogo deixou de ser mudo |
+| 961–969 | Regressões de luz corrigidas: 69 ms → ~11 ms por bloco, e enfileirado |
+| 403/971 | Malha em Web Worker, com bundle do worker em 7,5 KB |
+| 972/404 | Buffers de malha reciclados entre thread e worker |
+| 982/990 | Tela inicial como página: simulação suspensa e canvas escondido |
+| 970/974/408 | Painel F3 medindo o frame **no navegador**, com custo por sistema |
+
+**Ressalva que continua valendo:** os ganhos acima foram medidos em bancada (Node). O painel F3
+existe justamente para conferir isso no navegador — mas essa conferência ainda não foi feita
+com o jogo rodando de verdade.
+
+## Onda 5 (registro original) — em andamento
 
 **Áudio (477–494): entregue.** O jogo deixou de ser mudo. Tudo sintetizado via Web Audio —
 o projeto não tem asset de som, e trazê-los custaria megabytes num bundle de 900 KB.
@@ -1822,13 +1837,13 @@ mesher chamava `Math.pow` uma vez por face.*
 - [~] 967 `P1` **Coluna de sol começa no topo do terreno**, não no topo do mundo
 - [~] 968 `P0` **BFS de remoção de luz** — apagar propagava valor velho de volta e a caverna nunca escurecia
 - [~] 969 `P0` **Fontes independentes revalidadas** contra o estado final, não o do momento em que foram vistas
-- [ ] 970 `P0` Medir o frame real no navegador com o painel de diagnóstico, não só em bancada
+- [~] 970 `P0` **Painel de diagnóstico medindo o frame **no navegador** — F3, com custo por sistema**
 - [~] 971 `P0` **Mesh em Web Worker: era o maior custo de frame depois da luz corrigida**
 - [~] 972 `P1` **Buffers de `padChunk`/`padLight` reciclados entre a thread principal e o worker**
 - [ ] 973 `P1` Orçamento de re-mesh por frame também no ciclo dia/noite (hoje marca tudo de uma vez)
-- [ ] 974 `P1` Painel F3 com FPS, chunks, entidades, vozes de áudio e custo por mod
+- [~] 974 `P1` **Painel F3 com FPS, chunks, entidades, vozes de áudio, mods, rede e cache de rotas**
 - [ ] 975 `P1` Distância de render adaptativa ao FPS medido
-- [ ] 976 `P2` Perfilar quanto cada sistema consome por frame, e registrar
+- [~] 976 `P2` **Custo por sistema medido por média móvel, com o pior frame da janela ao lado**
 - [ ] 977 `P2` Teste de regressão de desempenho no CI, com orçamento por operação
 - [ ] 978 `P2` Descarregar geometria de chunk fora do alcance de forma mais agressiva
 

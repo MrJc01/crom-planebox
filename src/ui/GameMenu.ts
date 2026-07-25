@@ -151,6 +151,7 @@ export class GameMenu implements UIScreen {
       ['F', 'Comer o item selecionado'],
       ['T', 'Conversar com a IA'],
       ['E', 'Inventário'],
+      ['F3', 'Diagnóstico: onde o frame está indo'],
       ['Clique', 'Retomar o controle da câmera'],
     ];
     for (const [tecla, oque] of atalhos) {

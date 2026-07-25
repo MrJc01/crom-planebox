@@ -32,6 +32,9 @@ import { UIManager } from './ui/UIManager';
 import { CharacterCreator } from './ui/CharacterCreator';
 import { ModsPage } from './ui/ModsPage';
 import { GameMenu } from './ui/GameMenu';
+import { DebugPanel } from './ui/DebugPanel';
+import { profiler } from './core/profiler';
+import { getPathCacheStats } from './entities/Pathfinding';
 import { CodeEditorPage } from './ui/CodeEditorPage';
 import { PlayerModel } from './player/PlayerModel';
 import { AvatarManager } from './player/AvatarManager';
@@ -452,6 +455,20 @@ async function bootstrap() {
   // --- Hub de navegação ---------------------------------------------------------------------
   // Antes, cada tela só era alcançável por um atalho de tecla próprio — quem não leu a
   // documentação não descobria nenhuma. O hub dá uma porta única e mostra os atalhos.
+  const debugPanel = new DebugPanel({
+    chunksCarregados: () => world.chunks.size,
+    chunksSujos: () => { let n = 0; for (const c of world.chunks.values()) if (c.dirty) n++; return n; },
+    malhasEmVoo: () => jobsEmVoo.size,
+    filaLuz: () => filaRelight.size,
+    entidades: () => entitySystem.listEntities().length,
+    hostis: () => entitySystem.hostileCount,
+    vozesAudio: () => audio.vozes,
+    modsCarregados: () => modRuntime.loadedCount,
+    rede: () => ({ ...peerSync.getTrafficStats(), papel: peerSync.role, peers: peerSync.peerCount }),
+    posicao: () => ({ x: player.pos.x, y: player.pos.y, z: player.pos.z }),
+    cacheRotas: () => getPathCacheStats(),
+  });
+
   const gameMenu = new GameMenu(audio);
   gameMenu.onRetomar = () => uiManager.closeBlocking('game-menu');
   gameMenu.registrar({
@@ -1262,6 +1279,12 @@ async function bootstrap() {
         else hud.showToast('Visão Top-Down só é acessível no Modo Criativo.');
         return;
       }
+      if (e.code === 'F3') {
+        e.preventDefault();
+        debugPanel.alternar();
+        hud.showToast(debugPanel.aberto ? 'Diagnóstico ligado (F3)' : 'Diagnóstico desligado');
+        return;
+      }
       if (e.code === 'F5') {
         e.preventDefault();
         cameraManager.setMode(cameraManager.mode === 'thirdperson' ? 'fps' : 'thirdperson');
@@ -1341,9 +1364,13 @@ async function bootstrap() {
     // Na tela inicial o quadro é devolvido imediatamente. O `requestAnimationFrame` continua
     // agendado para a volta ser instantânea, mas nada é simulado nem desenhado.
     if (noMenuInicial) return;
+    profiler.beginFrame();
 
     streamAccum += dt;
-    if (streamAccum > 0.05) { streamAccum = 0; streamChunks(); }
+    if (streamAccum > 0.05) {
+      streamAccum = 0;
+      profiler.begin('chunks'); streamChunks(); profiler.end('chunks');
+    }
 
     const rules = gameModeManager.rules;
     if (cameraManager.mode === 'fps') {
@@ -1377,7 +1404,7 @@ async function bootstrap() {
     const faseAtual = fasesDoDia(timeOfDay);
     if (faseAtual !== faseAnterior) modRuntime.dispatch('dayPhase', { phase: faseAtual, timeOfDay });
 
-    modRuntime.tickAll(dt);
+    profiler.begin('mods'); modRuntime.tickAll(dt); profiler.end('mods');
     const sunScale = gs.getSunScale();
     if (Math.abs(sunScale - lastBakedSun) > 0.06) {
       lastBakedSun = sunScale;
@@ -1385,7 +1412,7 @@ async function bootstrap() {
     }
 
     cameraManager.update();
-    physics.update(dt);
+    profiler.begin('física'); physics.update(dt); profiler.end('física');
 
     // Hostis só existem onde a sobrevivência está ligada; no criativo o mundo é seguro.
     mobSpawner.enabled = rules.hasSurvival;
@@ -1398,7 +1425,9 @@ async function bootstrap() {
     if (ponto) entitySystem.spawnHostile(ponto.kind, ponto.x, ponto.y, ponto.z);
 
     playerCombat.tick(dt);
+    profiler.begin('entidades');
     const danoRecebido = entitySystem.update(dt, player.pos);
+    profiler.end('entidades');
     if (danoRecebido > 0 && rules.hasSurvival && playerCombat.canBeHurt()) {
       playerCombat.markHurt();
       survivalSystem.applyDamage(danoRecebido, 'ataque inimigo');
@@ -1433,7 +1462,7 @@ async function bootstrap() {
     }
 
     // Uma região de luz por frame. O custo total é o mesmo, mas deixa de ser um pico no clique.
-    processarRelight();
+    profiler.begin('luz'); processarRelight(); profiler.end('luz');
     despacharBlocos();
 
     netAccum += dt;
@@ -1465,7 +1494,11 @@ async function bootstrap() {
       }
     }
 
+    profiler.begin('render');
     gs.renderer.render(gs.scene, cameraManager.activeCamera);
+    profiler.end('render');
+
+    profiler.endFrame();
   }
 
   console.log('✅ Crom Planebox (Base Crom Quadrado) pronto — aguardando seleção no Menu Principal.');
