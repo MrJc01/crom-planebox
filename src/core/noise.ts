@@ -1,5 +1,5 @@
 // Simplex 2D semeado + fractais (fBm, ridged). Sem dependências externas.
-import { mulberry32 } from './rng';
+import { mulberry32, hash3, lerp } from './rng';
 
 const GRAD = [
   [1, 1], [-1, 1], [1, -1], [-1, -1],
@@ -81,5 +81,73 @@ export class Simplex2 {
       amp *= gain; freq *= lacunarity;
     }
     return Math.min(1, sum);
+  }
+}
+
+/**
+ * Value noise 3D com interpolação trilinear e suavização quíntica.
+ *
+ * Existe para as cavernas: `Simplex2` só resolve o relevo (uma altura por coluna) e não
+ * consegue descrever um vazio que passa por dentro da montanha. Value noise é mais barato que
+ * simplex 3D e, para máscara de caverna, a diferença de qualidade não aparece — o que importa
+ * é ser contínuo, determinístico por semente e rápido, porque roda uma vez por voxel de pedra.
+ */
+export class Value3 {
+  constructor(private seed: number) {}
+
+  /** Suavização quíntica de Perlin: derivada segunda contínua, sem artefato de grade visível. */
+  private static fade(t: number): number {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  noise(x: number, y: number, z: number): number {
+    const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+    const xf = x - xi, yf = y - yi, zf = z - zi;
+
+    const u = Value3.fade(xf), v = Value3.fade(yf), w = Value3.fade(zf);
+    const s = this.seed;
+
+    const c000 = hash3(xi, yi, zi, s);
+    const c100 = hash3(xi + 1, yi, zi, s);
+    const c010 = hash3(xi, yi + 1, zi, s);
+    const c110 = hash3(xi + 1, yi + 1, zi, s);
+    const c001 = hash3(xi, yi, zi + 1, s);
+    const c101 = hash3(xi + 1, yi, zi + 1, s);
+    const c011 = hash3(xi, yi + 1, zi + 1, s);
+    const c111 = hash3(xi + 1, yi + 1, zi + 1, s);
+
+    const x00 = lerp(c000, c100, u);
+    const x10 = lerp(c010, c110, u);
+    const x01 = lerp(c001, c101, u);
+    const x11 = lerp(c011, c111, u);
+
+    return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w) * 2 - 1; // -1..1
+  }
+
+  /** fBm de N oitavas, normalizado para -1..1. */
+  fbm(x: number, y: number, z: number, octaves = 3): number {
+    let sum = 0, amp = 1, freq = 1, norm = 0;
+    for (let i = 0; i < octaves; i++) {
+      sum += this.noise(x * freq, y * freq, z * freq) * amp;
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return sum / norm;
+  }
+
+  /**
+   * Ruído "ridged": |noise| invertido, que produz vales estreitos e conectados em vez de
+   * bolhas isoladas. É o que dá o formato de túnel às cavernas.
+   */
+  ridged(x: number, y: number, z: number, octaves = 3): number {
+    let sum = 0, amp = 1, freq = 1, norm = 0;
+    for (let i = 0; i < octaves; i++) {
+      sum += (1 - Math.abs(this.noise(x * freq, y * freq, z * freq))) * amp;
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return sum / norm; // 0..1
   }
 }

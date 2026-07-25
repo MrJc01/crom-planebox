@@ -8,6 +8,7 @@ function makePlayer(overrides: Partial<PlayerController> = {}): PlayerController
     lastImpactVelY: 0,
     headUnder: false,
     inLava: false,
+    inWater: false,
     ...overrides,
   } as unknown as PlayerController;
 }
@@ -81,4 +82,63 @@ describe('SurvivalSystem', () => {
     expect(s.health).toBe(s.maxHealth);
     expect(s.hunger).toBe(s.maxHunger);
   });
+
+  describe('queimadura por lava', () => {
+    it('entrar na lava acende a queimadura e causa dano imediato', () => {
+      const s = new SurvivalSystem(makePlayer({ inLava: true }));
+      s.update(0.5);
+      expect(s.health).toBeLessThan(s.maxHealth);
+      expect(s.burnTime).toBeGreaterThan(0);
+    });
+
+    it('sair da lava NÃO apaga o fogo: o dano continua', () => {
+      const player = makePlayer({ inLava: true });
+      const s = new SurvivalSystem(player);
+      s.update(0.2);
+
+      (player as any).inLava = false;
+      const afterLava = s.health;
+      s.update(1);
+
+      expect(s.health).toBeLessThan(afterLava);
+      expect(s.burnTime).toBeGreaterThan(0);
+    });
+
+    it('entrar na água apaga o fogo na hora', () => {
+      const player = makePlayer({ inLava: true });
+      const s = new SurvivalSystem(player);
+      s.update(0.2);
+      expect(s.burnTime).toBeGreaterThan(0);
+
+      (player as any).inLava = false;
+      (player as any).inWater = true;
+      s.update(0.1);
+
+      expect(s.burnTime).toBe(0);
+    });
+
+    it('a queimadura expira sozinha e para de causar dano', () => {
+      const player = makePlayer({ inLava: true });
+      const s = new SurvivalSystem(player);
+      s.update(0.1);
+      (player as any).inLava = false;
+
+      for (let i = 0; i < 20; i++) s.update(0.5); // bem além da duração
+      expect(s.burnTime).toBe(0);
+
+      const settled = s.health;
+      s.update(0.5);
+      // Sem fogo, a vida só pode subir (regeneração) ou ficar igual — nunca cair por queimadura.
+      expect(s.health).toBeGreaterThanOrEqual(settled);
+    });
+
+    it('reset apaga a queimadura', () => {
+      const s = new SurvivalSystem(makePlayer({ inLava: true }));
+      s.update(0.3);
+      s.reset();
+      expect(s.burnTime).toBe(0);
+      expect(s.health).toBe(s.maxHealth);
+    });
+  });
+
 });

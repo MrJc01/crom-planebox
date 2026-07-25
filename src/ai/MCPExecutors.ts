@@ -547,6 +547,11 @@ export class MCPExecutors {
           await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
           this.onBlocksChanged(mods);
 
+          // Registra o lote para poder ser desfeito. Antes, `undoChanges` era montado e
+          // descartado — `recordBatch` não era chamado em lugar nenhum do projeto, então
+          // nenhuma construção da IA era reversível.
+          if (undoChanges.length > 0) this.undoManager?.recordBatch(undoChanges);
+
           // Blocos criados com `registerCustomBlock` dentro do script não pertencem a nenhum mod
           // ainda. Adotá-los aqui é o que impede o bug antigo: sem isso o bloco existia só em
           // memória, e no reload as posições salvas apontavam para um id inexistente.
@@ -698,6 +703,24 @@ export class MCPExecutors {
         const res = await this.modService.importMod(payload);
         this.syncModLookup();
         return { result: res.message };
+      }
+
+      case 'undo_last_action': {
+        if (!this.undoManager) return { result: 'Histórico de desfazer indisponível.' };
+
+        // Persistir a reversão é parte do trabalho: desfazer só na memória deixaria o save
+        // com a construção antiga, que reapareceria no próximo carregamento.
+        let reverted: { x: number; y: number; z: number; blockType: number }[] = [];
+        const previous = this.undoManager.onApplied;
+        this.undoManager.onApplied = (changes) => { reverted = changes; };
+        const ok = this.undoManager.undo();
+        this.undoManager.onApplied = previous;
+
+        if (!ok) return { result: 'Não há nenhuma ação recente para desfazer.' };
+
+        await WorldRepository.saveBlockModBatch(this.currentWorldId, reverted);
+        this.onBlocksChanged(reverted);
+        return { result: `Última construção desfeita: ${reverted.length} bloco(s) voltaram ao estado anterior e o save foi atualizado.` };
       }
 
       case 'search_chat_and_code': {

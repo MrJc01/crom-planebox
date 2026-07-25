@@ -170,8 +170,8 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [x] 097 `P0` Geração procedural por semente com ruído multi-oitava — `src/world/worldgen.ts`
 - [x] 098 `P1` Biomas com vegetação distinta (pinheiros, capim, flores, juncos)
 - [x] 099 `P1` Geração fora da thread principal em worker
-- [ ] 100 `P0` Cavernas conectadas por ruído 3D (worm caves)
-- [ ] 101 `P0` Veios de minério por profundidade e raridade
+- [~] 100 `P0` **Cavernas conectadas por ruído 3D (túneis ridged em interseção + câmaras) — `src/world/underground.ts`**
+- [~] 101 `P0` **Veios de minério por profundidade e raridade (carvão → ferro → ouro → diamante)**
 - [ ] 102 `P1` Mapa de biomas por temperatura × umidade em vez de ruído único
 - [ ] 103 `P1` Transições suaves entre biomas (blend de altura e cor)
 - [ ] 104 `P1` Rios e lagos conectados seguindo o gradiente do terreno
@@ -383,7 +383,7 @@ ids de bloco que **não existiam mais** depois do reload — resolvido nesta rod
 - [ ] 283 `P2` Exportar mundo como arquivo binário compacto
 - [ ] 284 `P2` Importar mundo mesclando em vez de sobrescrever
 - [ ] 285 `P2` Clonar mundo
-- [ ] 286 `P1` Apagar mundo removendo **todas** as tabelas relacionadas (hoje `deleteWorld` esquece players, uiCustomizations e mods)
+- [~] 286 `P1` **Apagar mundo removendo todas as tabelas relacionadas** — `WorldRepository.deleteWorld`
 - [ ] 287 `P2` Histórico de versões do mundo com rollback
 - [ ] 288 `P2` Testes de round-trip export→import preservando tudo
 
@@ -454,7 +454,7 @@ que sobrevivem ao save.*
 - [~] 339 `P1` **`registerCustomBlock` dentro do script agora persiste de verdade**
 - [ ] 340 `P1` Planejador multi-etapa explícito (a IA declara o plano antes de executar)
 - [ ] 341 `P1` Ferramenta de dry-run: simular a modificação e reportar o impacto sem aplicar
-- [ ] 342 `P1` Desfazer a última ação da IA via `UndoManager` exposto como ferramenta
+- [~] 342 `P1` **Desfazer a última ação da IA via `undo_last_action`**, revertendo mundo e save
 - [ ] 343 `P1` Orçamento de blocos por chamada com aviso quando estourar
 - [ ] 344 `P2` Streaming de progresso de construções longas para a UI
 - [ ] 345 `P2` Memória de longo prazo do agente por mundo (o que já construiu e onde)
@@ -503,7 +503,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 378 `P1` Modelo host-autoritativo documentado — `docs/NETWORK_PROTOCOL.md`
 - [x] 379 `P1` Sync completo de blocos ao entrar (`full_sync`)
 - [x] 380 `P1` Retransmissão de blocos alterados pela IA (`onBlocksChanged`)
-- [ ] 381 `P0` Sincronizar **mods** com os convidados (senão o convidado vê buraco no lugar do bloco)
+- [~] 381 `P0` **Sincronizar mods com os convidados** (`full_sync.mods` + `mod_sync`)
 - [ ] 382 `P0` Sincronizar entidades e seu estado
 - [ ] 383 `P1` Interpolação de posição de jogadores remotos
 - [ ] 384 `P1` Reconexão automática com re-sync incremental
@@ -682,18 +682,31 @@ Ou seja: **toda modificação de bloco criada pela IA corrompia o mundo no reloa
 marcados `[~]` acima são a correção estrutural: identidade de bloco estável, persistência por
 mundo, reaplicação no load e cobertura de testes.
 
+### Rodada 3 — concluído
+
+| Item | Entrega |
+|---|---|
+| 100–101 | Cavernas por ruído 3D e veios de minério — o subsolo deixou de ser rocha maciça |
+| 540 | Lava com a mesma geometria de minibloco da água |
+| 543 | Queimadura persistente: sair da lava não apaga o fogo, só a água |
+| 342 | `undo_last_action` — e `recordBatch` passou a ser chamado (o undo existia mas estava morto) |
+| 381/608 | Mods sincronizados no P2P, com os ids preservados |
+| 286 | `deleteWorld` deixou de vazar players, threads, UI e mods |
+
+Densidade medida no subsolo: **10,6% de caverna**, com gradiente de raridade
+carvão 1,24% → ferro 0,92% → ouro 0,12% → diamante 0,022%.
+
 **Prioridade recomendada para a próxima rodada** (maior impacto primeiro):
 
 | Ordem | Item | Por quê |
 |---|---|---|
-| 1 | 243–244 (luz propagada) | Sem escuridão real, cavernas e tochas não têm função |
-| 2 | 100–101 (cavernas + minérios) | Sem eles a progressão de tiers não tem de onde sair |
-| 3 | 145–147 (combate) | O único pilar do gênero ainda totalmente ausente |
-| 4 | 175–176 (pathfinding + colisão de entidade) | NPCs atravessando parede quebram a imersão |
-| 5 | 381 (sync de mods no P2P) | Convidado vê buraco onde o host vê bloco de mod |
-| 6 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
-| 7 | 286 (deleteWorld incompleto) | Vaza players, uiCustomizations e mods no IndexedDB |
-| 8 | 514 (CI) | Impede regressão silenciosa nos 60+ testes |
+| 1 | 243–244 (luz propagada) | Agora que existem cavernas, elas são iluminadas como a superfície — sem escuridão, tocha e mineração não têm tensão |
+| 2 | 145–147 (combate) | O único pilar do gênero ainda totalmente ausente |
+| 3 | 175–176 (pathfinding + colisão de entidade) | NPCs atravessando parede quebram a imersão |
+| 4 | 195 (receitas por tier) | Os minérios já existem, mas ainda não viram ferramenta |
+| 5 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
+| 6 | 609 (sync de entidades no P2P) | Última lacuna grande do multiplayer |
+| 7 | 514 (CI) | Impede regressão silenciosa nos 165 testes |
 
 ---
 
@@ -736,10 +749,10 @@ transporte de massa conservada em mini-voxels.*
 - [~] 537 `P1` **Desempate de direção alternado, sem viés para um lado**
 - [~] 538 `P1` **Empurrão horizontal no destroço, para o grão rolar visivelmente**
 - [~] 539 `P0` **Cobertura de testes da mecânica de fluidos e desmoronamento** (20 testes)
-- [ ] 540 `P1` Renderizar a lava com a mesma geometria rebaixada da água (hoje é cubo cheio)
+- [~] 540 `P1` **Lava renderizada com a mesma geometria rebaixada da água**
 - [ ] 541 `P1` Altura visual do voxel proporcional ao volume restante
 - [ ] 542 `P1` Nadar e boiar com física própria dentro do fluido
-- [ ] 543 `P1` Dano por lava e queimadura persistente
+- [~] 543 `P1` **Dano por lava e queimadura persistente** (só a água apaga)
 - [ ] 544 `P1` Balde: pegar e despejar uma quantidade finita
 - [ ] 545 `P2` Correnteza empurrando jogador e entidades
 - [ ] 546 `P2` Evaporação lenta de poças rasas expostas ao sol
@@ -816,7 +829,7 @@ multiplayer. Vale registrá-la explicitamente para nenhuma feature futura quebra
 - [x] 605 `P0` Chamadas de rede externas restritas ao provedor de IA configurado
 - [~] 606 `P0` **Aparência do personagem trafega P2P, sem servidor de perfil**
 - [~] 607 `P0` **Fluidos simulados no cliente; o anfitrião é a autoridade e replica o resultado**
-- [ ] 608 `P1` Sincronizar mods para os convidados (hoje o convidado vê "bloco ausente")
+- [~] 608 `P1` **Sincronizar mods para os convidados — o convidado registra no mesmo id do anfitrião**
 - [ ] 609 `P1` Sincronizar entidades e seu estado
 - [ ] 610 `P1` Documentar a premissa client-side no `ARCHITECTURE.md` como regra de projeto
 - [ ] 611 `P1` Teste automatizado garantindo que o relay não recebe payload de mundo

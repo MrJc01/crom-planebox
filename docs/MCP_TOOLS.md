@@ -125,3 +125,13 @@ Remove o mod e limpa do mundo os blocos que ele havia colocado. **Confirme com o
 ### `export_mod` / `import_mod`
 `export_mod(mod_id)` devolve o JSON portátil. `import_mod(mod_json)` instala em outro mundo,
 **realocando os ids de bloco** para não colidir com o que já existe ali.
+
+### `undo_last_action`
+Desfaz o último lote de blocos construído por `execute_voxel_script`, revertendo **o mundo e o
+save**. Use quando o usuário disser que não gostou do resultado, em vez de apagar bloco a bloco.
+- Sem parâmetros.
+
+> Nota de implementação: `UndoManager.recordBatch` existia no projeto mas nunca era chamado —
+> nenhuma construção da IA era reversível. Agora `execute_voxel_script` registra o lote, e o
+> undo também grava a reversão no IndexedDB (antes ela só existiria em memória e a construção
+> antiga reapareceria no próximo carregamento).

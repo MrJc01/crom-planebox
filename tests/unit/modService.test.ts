@@ -457,3 +457,77 @@ describe('ModService — adoção de blocos criados dentro de execute_voxel_scri
     expect(BLOCKS[id].name).toBe('Areia Mágica');
   });
 });
+
+describe('ModService — sincronização P2P (o convidado precisa concordar sobre os ids)', () => {
+  beforeEach(() => {
+    resetCustomBlocks();
+    fake.mods.clear();
+    fake.entities.clear();
+    fake.blockMods.length = 0;
+  });
+
+  it('REGRESSÃO: o convidado registra o bloco no MESMO id do anfitrião', () => {
+    // Diferente de importMod, aqui realocar seria fatal: as mensagens `block_update` carregam
+    // só o número do bloco, então divergir de id faz o convidado pintar o mundo trocado.
+    const doAnfitriao: ModPackage = {
+      id: 'mod-cristal', name: 'Cristal', version: '1.0.0', enabled: true,
+      blocks: [{ key: 'azul', name: 'Cristal Azul', blockId: CUSTOM_BLOCK_ID_BASE + 5, topColor: '#38bdf8' }],
+      entities: [], structures: [], createdAt: 0, updatedAt: 0,
+    };
+
+    const { svc } = newService();
+    return svc.applyRemoteMods([doAnfitriao]).then((n) => {
+      expect(n).toBe(1);
+      expect(BLOCKS[CUSTOM_BLOCK_ID_BASE + 5].name).toBe('Cristal Azul');
+      expect(svc.getMod('mod-cristal')!.blocks[0].blockId).toBe(CUSTOM_BLOCK_ID_BASE + 5);
+    });
+  });
+
+  it('mod remoto é persistido, para sobreviver a uma reconexão', async () => {
+    const { svc } = newService();
+    await svc.applyRemoteMods([{
+      id: 'mod-x', name: 'X', version: '1.0.0', enabled: true,
+      blocks: [{ key: 'a', name: 'A', blockId: 70, topColor: 0 }],
+      entities: [], structures: [], createdAt: 0, updatedAt: 0,
+    } as ModPackage]);
+
+    expect(fake.mods.has('mod-x')).toBe(true);
+  });
+
+  it('mod remoto inválido é recusado sem derrubar os demais', async () => {
+    const { svc } = newService();
+    const applied = await svc.applyRemoteMods([
+      { id: '', name: '', version: '1', enabled: true, blocks: [], entities: [], structures: [], createdAt: 0, updatedAt: 0 } as ModPackage,
+      { id: 'mod-ok', name: 'OK', version: '1', enabled: true, blocks: [{ key: 'b', name: 'B', blockId: 80, topColor: 0 }], entities: [], structures: [], createdAt: 0, updatedAt: 0 } as ModPackage,
+    ]);
+
+    expect(applied).toBe(1);
+    expect(BLOCKS[80].name).toBe('B');
+  });
+
+  it('applyRemoteMods NÃO dispara onModChanged — senão o mod ecoaria de volta para a rede', async () => {
+    const { svc } = newService();
+    const echoes: string[] = [];
+    svc.onModChanged = (m) => echoes.push(m.id);
+
+    await svc.applyRemoteMods([{
+      id: 'mod-remoto', name: 'Remoto', version: '1.0.0', enabled: true,
+      blocks: [{ key: 'a', name: 'A', blockId: 90, topColor: 0 }],
+      entities: [], structures: [], createdAt: 0, updatedAt: 0,
+    } as ModPackage]);
+
+    expect(echoes).toEqual([]);
+  });
+
+  it('criar um mod localmente DISPARA onModChanged, para o anfitrião replicar', async () => {
+    const { svc } = newService();
+    const echoes: string[] = [];
+    svc.onModChanged = (m) => echoes.push(m.id);
+
+    const { details } = await svc.createMod('Local');
+    await svc.addBlock(details.modId, { key: 'c', name: 'C', topColor: 0 });
+
+    expect(echoes.length).toBeGreaterThanOrEqual(2); // criação + adição de bloco
+    expect(echoes[0]).toBe(details.modId);
+  });
+});

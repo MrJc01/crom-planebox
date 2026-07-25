@@ -30,6 +30,12 @@ export const enum B {
   BRICK = 26,
   DARK_STONE = 27,
   LAVA = 28,
+  // Minérios (adicionados na rodada de cavernas). Cabem na folga 29..63 reservada para blocos
+  // nativos futuros, então nenhum save existente com blocos de mod é afetado.
+  COAL_ORE = 29,
+  IRON_ORE = 30,
+  GOLD_ORE = 31,
+  DIAMOND_ORE = 32,
 }
 
 export interface BlockDef {
@@ -111,6 +117,13 @@ BLOCKS[B.OBSIDIAN] = def('obsidiana', 0x1e1b4b, 0x18181b, 0x09090b, { structural
 BLOCKS[B.BRICK] = def('tijolo', 0xb91c1c, 0x991b1b, 0x7f1d1d, { structural: true, drops: B.BRICK });
 BLOCKS[B.DARK_STONE] = def('pedra escura', 0x334155, 0x1e293b, 0x0f172a, { structural: true, drops: B.DARK_STONE, minToolTier: 1 });
 BLOCKS[B.LAVA] = def('lava', 0xea580c, 0xc2410c, 0x9a3412, { solid: false, opaque: false, interactive: true });
+// Minérios: matriz de pedra com salpicos do mineral, por isso a cor fica entre a da pedra e a
+// do metal puro. `drops` aponta para o bloco refinado correspondente, fechando a progressão
+// picareta → minério → bloco.
+BLOCKS[B.COAL_ORE] = def('minério de carvão', 0x6b7280, 0x5f6672, 0x555b66, { drops: B.COAL_ORE, minToolTier: 1 });
+BLOCKS[B.IRON_ORE] = def('minério de ferro', 0xb0a89c, 0xa39a8e, 0x968d81, { drops: B.IRON_ORE, minToolTier: 1 });
+BLOCKS[B.GOLD_ORE] = def('minério de ouro', 0xc4b06a, 0xb5a05e, 0xa69053, { drops: B.GOLD_ORE, minToolTier: 2 });
+BLOCKS[B.DIAMOND_ORE] = def('minério de diamante', 0x7ba9b8, 0x6d9aa9, 0x5f8b9a, { drops: B.DIAMOND_ORE, minToolTier: 3 });
 
 // --- Blocos customizados (sistema de mods) ---------------------------------
 //

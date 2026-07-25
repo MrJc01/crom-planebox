@@ -350,9 +350,28 @@ async function bootstrap() {
       case 'block_update':
         world.setBlock(msg.x, msg.y, msg.z, msg.blockType);
         break;
-      case 'full_sync':
-        for (const m of msg.blockMods) world.setBlock(m.x, m.y, m.z, m.blockType);
-        chatOverlay.receiveWorldChatMessage('', 'Sincronizado com o mundo do anfitrião.', true);
+      case 'full_sync': {
+        // Ordem obrigatória: registrar os mods primeiro, aplicar os blocos depois.
+        const applyBlocks = () => {
+          for (const m of msg.blockMods) world.setBlock(m.x, m.y, m.z, m.blockType);
+          chatOverlay.receiveWorldChatMessage('', 'Sincronizado com o mundo do anfitrião.', true);
+        };
+        if (msg.mods?.length) {
+          mcpExecutors.modService.applyRemoteMods(msg.mods).then((n) => {
+            if (n > 0) hud.showToast(`🧩 ${n} mod(s) recebidos do anfitrião`);
+            applyBlocks();
+          });
+        } else {
+          applyBlocks();
+        }
+        break;
+      }
+      case 'mod_sync':
+        // Mod criado pela IA do anfitrião durante a partida.
+        mcpExecutors.modService.applyRemoteMods([msg.mod]).then((n) => {
+          if (n > 0) hud.showToast(`🧩 Mod "${msg.mod.name}" recebido do anfitrião`);
+        });
+        if (peerSync.role === 'host') peerSync.broadcast(msg, fromPeerId);
         break;
       case 'player_joined':
         remotePlayers.set(msg.playerId, { name: msg.name, isOp: false });
@@ -395,7 +414,14 @@ async function bootstrap() {
         const [x, y, z] = key.split(',').map(Number);
         return { x, y, z, blockType };
       });
-      peerSync.sendTo(peerId, { type: 'full_sync', blockMods, players: [] });
+      // Os mods vão junto: sem eles o convidado aplicaria ids de bloco que não existem no
+      // registro local e veria "bloco ausente" onde o anfitrião vê o bloco de verdade.
+      peerSync.sendTo(peerId, {
+        type: 'full_sync',
+        blockMods,
+        players: [],
+        mods: mcpExecutors.modService.getMods(),
+      });
     });
     peerSync.broadcast({ type: 'player_joined', playerId: peerId, name }, peerId);
     hud.showToast(`${name} entrou no mundo!`);
@@ -423,6 +449,12 @@ async function bootstrap() {
   // Fluido escoando e areia desmoronando alteram o mundo sozinhos. O host é a autoridade:
   // ele salva o resultado e replica para os convidados, para a poça não escoar de um jeito
   // na tela de cada um. Tudo continua rodando no cliente — o relay só faz sinalização.
+  // Mod criado/alterado durante a partida vai imediatamente para os convidados, senão os
+  // `block_update` seguintes chegariam com ids que eles ainda não conhecem.
+  mcpExecutors.modService.onModChanged = (mod) => {
+    if (peerSync.role === 'host') peerSync.broadcast({ type: 'mod_sync', mod });
+  };
+
   physics.onSimulatedBlocks = (changes) => {
     if (peerSync.role === 'guest') return;
     if (currentWorld.id) WorldRepository.saveBlockModBatch(currentWorld.id, changes);

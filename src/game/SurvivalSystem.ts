@@ -9,6 +9,8 @@ const STARVE_DAMAGE_PER_SEC = 100 / 30;        // com fome zerada, morre em ~30s
 const REGEN_PER_SEC = 100 / 20;                // com fome > 50%, regenera vida em ~20s
 const DROWN_DAMAGE_PER_SEC = 100 / 8;          // afogando, morre em ~8s sem ar
 const LAVA_DAMAGE_PER_SEC = 100 / 3;           // contato com lava, morre em ~3s
+const BURN_DURATION = 6;                       // segundos de queimadura ao sair da lava
+const BURN_DAMAGE_PER_SEC = 100 / 14;          // queimando, morre em ~14s se não apagar o fogo
 
 export class SurvivalSystem {
   public health = 100;
@@ -19,6 +21,8 @@ export class SurvivalSystem {
 
   private airTime = 0;
   private wasOnGround = true;
+  /** Segundos restantes de queimadura. Sair da lava não apaga o fogo — só a água apaga. */
+  public burnTime = 0;
 
   public onDamage: (amount: number, cause: string) => void = () => {};
   public onDeath: (cause: string) => void = () => {};
@@ -32,6 +36,7 @@ export class SurvivalSystem {
     this.alive = true;
     this.airTime = 0;
     this.wasOnGround = true;
+    this.burnTime = 0;
     this.onChanged();
   }
 
@@ -66,9 +71,21 @@ export class SurvivalSystem {
       this.airTime = 0;
     }
 
-    // Lava: dano contínuo e imediato ao contato, sem tolerância.
+    // Lava: dano contínuo e imediato ao contato, sem tolerância, e o jogador pega fogo.
     if (this.player.inLava) {
       this.applyDamage(LAVA_DAMAGE_PER_SEC * dt, 'lava');
+      this.burnTime = BURN_DURATION;
+    }
+
+    // Queimadura: continua depois de sair da lava. Entrar na água apaga na hora — é o que
+    // transforma "pular fora da lava" numa fuga incompleta e dá função ao lago mais próximo.
+    if (this.burnTime > 0) {
+      if (this.player.inWater || this.player.headUnder) {
+        this.burnTime = 0;
+      } else {
+        this.burnTime = Math.max(0, this.burnTime - dt);
+        if (!this.player.inLava) this.applyDamage(BURN_DAMAGE_PER_SEC * dt, 'queimadura');
+      }
     }
 
     // Fome decai com o tempo; sem fome, a vida decai; com fome > 50%, a vida regenera aos poucos.

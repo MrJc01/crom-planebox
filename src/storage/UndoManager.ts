@@ -13,6 +13,11 @@ export class UndoManager {
   private redoStack: BlockChange[][] = [];
   private maxHistory = 50;
   public onToast: (msg: string) => void = () => {};
+  /**
+   * Blocos efetivamente reescritos por um undo/redo. Sem isto a reversão só acontecia no mundo
+   * em memória: o IndexedDB continuava com a construção antiga e ela voltava no próximo load.
+   */
+  public onApplied: (changes: { x: number; y: number; z: number; blockType: number }[]) => void = () => {};
 
   constructor(private world: World) {}
 
@@ -41,6 +46,7 @@ export class UndoManager {
     }
 
     this.redoStack.push(redoBatch);
+    this.onApplied(batch.map((c) => ({ x: c.x, y: c.y, z: c.z, blockType: c.oldBlock })));
     this.onToast(`↺ Desfeito lote de ${batch.length} blocos! (Ctrl+Z)`);
     console.log(`↺ [UndoManager] Desfeito lote de ${batch.length} blocos!`);
     return true;

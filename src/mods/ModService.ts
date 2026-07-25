@@ -113,6 +113,53 @@ export class ModService {
     const idx = this.mods.findIndex((m) => m.id === pkg.id);
     if (idx >= 0) this.mods[idx] = pkg;
     else this.mods.push(pkg);
+    this.onModChanged(pkg);
+  }
+
+  /**
+   * Notifica que um mod foi criado ou alterado. O anfitrião usa para replicar aos convidados.
+   * Não dispara em `applyRemoteMods`, senão um mod recebido voltaria de eco para a rede.
+   */
+  public onModChanged: (mod: ModPackage) => void = () => {};
+
+  /**
+   * Instala mods vindos do anfitrião numa sessão P2P.
+   *
+   * Diferente de `importMod`, aqui os `blockId` do pacote são **preservados como estão**. É o
+   * ponto crítico da sincronização: anfitrião e convidado precisam concordar sobre qual id é
+   * qual bloco, porque as mensagens `block_update` transportam só o número. Realocar aqui faria
+   * o convidado pintar o mundo com os blocos trocados.
+   */
+  public async applyRemoteMods(incoming: ModPackage[]): Promise<number> {
+    let applied = 0;
+
+    for (const raw of incoming || []) {
+      const pkg: ModPackage = JSON.parse(JSON.stringify(raw));
+      const errors = validateModPackage(pkg);
+      if (errors.length > 0) {
+        console.warn(`🧩 [ModService] Mod "${pkg?.id}" recebido do anfitrião foi recusado: ${errors.join(' ')}`);
+        continue;
+      }
+
+      try {
+        if (pkg.enabled) applyModBlocks(pkg);
+      } catch (err: any) {
+        console.warn(`🧩 [ModService] Falha ao aplicar mod remoto "${pkg.id}": ${err?.message || err}`);
+        continue;
+      }
+
+      // Grava sem passar por `persist`, para não ecoar de volta pela rede.
+      await WorldRepository.saveMod(this.worldId, pkg);
+      const idx = this.mods.findIndex((m) => m.id === pkg.id);
+      if (idx >= 0) this.mods[idx] = pkg;
+      else this.mods.push(pkg);
+      applied++;
+    }
+
+    if (applied > 0) {
+      console.log(`🧩 [ModService] ${applied} mod(s) sincronizados do anfitrião com os ids originais.`);
+    }
+    return applied;
   }
 
   /** Cria um mod vazio (ou devolve o existente com o mesmo id, sem sobrescrever conteúdo). */

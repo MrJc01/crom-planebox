@@ -4,6 +4,7 @@
 // Ver docs/NETWORK_PROTOCOL.md para a descrição completa.
 
 import { Appearance } from '../player/Appearance';
+import { ModPackage } from '../mods/ModTypes';
 
 export interface BlockUpdateMsg {
   type: 'block_update';
@@ -42,6 +43,22 @@ export interface FullSyncMsg {
   type: 'full_sync';
   blockMods: { x: number; y: number; z: number; blockType: number }[];
   players: { playerId: string; name: string; isOp: boolean }[];
+  /**
+   * Mods do mundo do anfitrião. Precisam chegar ANTES de `blockMods` serem aplicados: sem eles
+   * o convidado recebe posições com ids de bloco que não existem no registro dele e enxerga
+   * "bloco ausente" em magenta onde o anfitrião vê o bloco de verdade.
+   * Ausente em anfitriões de versão antiga — tratado como lista vazia.
+   */
+  mods?: ModPackage[];
+}
+
+/**
+ * Um mod criado ou alterado durante a partida. Enviado pelo anfitrião para os convidados
+ * registrarem o bloco na hora, sem precisar de um `full_sync` inteiro.
+ */
+export interface ModSyncMsg {
+  type: 'mod_sync';
+  mod: ModPackage;
 }
 
 export interface PlayerJoinedMsg { type: 'player_joined'; playerId: string; name: string; appearance?: Appearance }
@@ -56,6 +73,7 @@ export type NetMessage =
   | ChatMessageMsg
   | CommandMsg
   | FullSyncMsg
+  | ModSyncMsg
   | PlayerJoinedMsg
   | PlayerLeftMsg
   | OpChangedMsg

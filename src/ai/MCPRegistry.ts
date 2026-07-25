@@ -559,6 +559,14 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'undo_last_action',
+      description: 'Desfaz o último lote de blocos construído por execute_voxel_script, revertendo o mundo E o save. Use quando o usuário disser que não gostou do resultado, em vez de tentar apagar bloco a bloco.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'execute_voxel_script',
       description: 'EXECUÇÃO DE CÓDIGO DIRETA: Permite à IA escrever e executar um script em JavaScript para gerar algoritmicamente QUALQUER construção, casa tecnológica, castelo, escultura, anatomia de animal/ser 3D (via createEntity) ou terreno 3D do zero em tempo real usando laços, matemática e funções espaciais.',
       parameters: {

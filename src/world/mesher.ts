@@ -6,7 +6,7 @@
 //  - decoração (capim/flores/junco) como caixinhas menores
 
 import * as THREE from 'three';
-import { B, getBlockDef, isOpaque, isDecor } from './blocks';
+import { B, getBlockDef, isOpaque, isDecor, isFluid } from './blocks';
 import { CX, CY, CZ } from './chunk';
 import { hash3 } from '../core/rng';
 
@@ -123,18 +123,26 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
           continue;
         }
 
-        if (t === B.WATER) {
-          // água: só o topo (quando exposto) e laterais contra o ar
+        if (isFluid(t)) {
+          // Fluidos (água e lava): cubinho de topo rebaixado, com só as faces expostas.
+          // O topo baixo é o que dá a leitura de "poça" em vez de bloco cheio, e vale para os
+          // dois — a lava é voxel discreto igual à água (ver `src/world/fluids.ts`).
+          //
+          // O destino muda: água usa o buffer transparente; lava vai para o buffer sólido,
+          // porque o material da água é translúcido e deixaria a lava com cara de gelatina.
+          const buf = t === B.WATER ? water : solid;
           const jr = 0.95 + hash3(wx, y, wz, 999) * 0.1;
           const def = getBlockDef(t);
           for (let f = 0; f < FACES.length; f++) {
             const face = FACES[f];
             const nb = padded[pidx(x + face.n[0], y + face.n[1], z + face.n[2])];
-            if (nb === B.WATER || isOpaque(nb)) continue;
+            // Compara com o próprio tipo: faces internas entre dois voxels do mesmo fluido
+            // não são desenhadas, mas a fronteira água/lava continua visível.
+            if (nb === t || isOpaque(nb)) continue;
             const ccol = def.colors[f === 0 ? 0 : f === 1 ? 2 : 1];
             const sh = face.shade * jr;
             const scale: [number, number, number] = f === 0 ? [1, 0.88, 1] : [1, 1, 1];
-            water.quad(x, y, z, face, ccol[0] * sh, ccol[1] * sh, ccol[2] * sh, [1, 1, 1, 1], scale);
+            buf.quad(x, y, z, face, ccol[0] * sh, ccol[1] * sh, ccol[2] * sh, [1, 1, 1, 1], scale);
           }
           continue;
         }
@@ -147,7 +155,7 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
           const nx = x + face.n[0], ny = y + face.n[1], nz = z + face.n[2];
           const nb = padded[pidx(nx, ny, nz)];
           if (isOpaque(nb)) continue;
-          if (nb === B.WATER && t === B.WATER) continue;
+          // (a checagem água-contra-água saiu daqui: fluidos são tratados no ramo acima)
           if (nb === B.GLASS && t === B.GLASS) continue;
 
           const ccol = def.colors[f === 0 ? 0 : f === 1 ? 2 : 1];

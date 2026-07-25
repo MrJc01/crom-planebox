@@ -14,6 +14,7 @@ import { Simplex2 } from '../core/noise';
 import { hash2, clamp, smoothstep, lerp } from '../core/rng';
 import { B } from './blocks';
 import { CX, CY, CZ, SCALE, blockIndex } from './chunk';
+import { UndergroundGen } from './underground';
 
 /** nível do mar em mini-voxels (20 m) */
 export const WATER_LEVEL = 20 * SCALE;
@@ -42,8 +43,11 @@ export class WorldGen {
   private nMoist: Simplex2;
   private nPath: Simplex2;
   private nWarp: Simplex2;
+  /** Cavernas e veios de minério (ver `src/world/underground.ts`). */
+  public underground: UndergroundGen;
 
   constructor(public seed: number) {
+    this.underground = new UndergroundGen(seed);
     this.nContinent = new Simplex2(seed ^ 0x1a2b3c);
     this.nMountainMask = new Simplex2(seed ^ 0x2b3c4d);
     this.nRidge = new Simplex2(seed ^ 0x3c4d5e);
@@ -176,6 +180,20 @@ export class WorldGen {
           else if (y === h) t = col.surface;
           else if (y >= h - dirtDepth) t = col.under;
           else t = B.STONE;
+
+          // Cavernas e minério só valem para a rocha: escavar a camada de terra logo abaixo da
+          // grama abriria buracos na paisagem, e minério na terra ficaria visível da superfície.
+          if (t === B.STONE) {
+            if (this.underground.isCave(wxp, y, wzp, h)) {
+              // Poças de lava no fundo da caverna dão perigo à camada profunda e viram fonte
+              // natural para o escoamento finito de fluidos.
+              t = this.underground.isDeepLava(y) ? B.LAVA : B.AIR;
+            } else {
+              const ore = this.underground.oreAt(wxp, y, wzp, h);
+              if (ore !== 0) t = ore;
+            }
+          }
+
           data[blockIndex(x, y, z)] = t;
         }
         for (let y = h + 1; y <= WATER_LEVEL; y++) {
