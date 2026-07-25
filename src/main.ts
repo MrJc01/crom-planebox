@@ -7,6 +7,7 @@ import { meshChunk } from './world/mesher';
 import { VoxelPhysics } from './world/physics';
 import { isSolid } from './world/blocks';
 import { LightEngine } from './world/lighting';
+import { invalidatePathCache } from './entities/Pathfinding';
 import { ModRuntime } from './mods/ModRuntime';
 import { ModHostBridge } from './mods/ModAPI';
 import { MobSpawner } from './entities/MobSpawner';
@@ -26,6 +27,8 @@ import { MainMenu } from './ui/MainMenu';
 import { WorldCreationWizard } from './ui/WorldCreationWizard';
 import { UIManager } from './ui/UIManager';
 import { CharacterCreator } from './ui/CharacterCreator';
+import { ModsPage } from './ui/ModsPage';
+import { CodeEditorPage } from './ui/CodeEditorPage';
 import { PlayerModel } from './player/PlayerModel';
 import { AvatarManager } from './player/AvatarManager';
 import { Appearance, DEFAULT_APPEARANCE } from './player/Appearance';
@@ -351,6 +354,23 @@ async function bootstrap() {
   };
   mcpExecutors.modRuntime = modRuntime;
 
+  // --- Telas de manutenção -----------------------------------------------------------------
+  // Versionamento, rollback e quarentena existiam mas só a IA os alcançava. Estas duas telas
+  // põem na mão do usuário o que já estava construído.
+  const modsPage = new ModsPage(mcpExecutors.modService, modRuntime);
+  const codeEditor = new CodeEditorPage(mcpExecutors.modService, modRuntime);
+
+  modsPage.onOpenEditor = (modId, scriptKey) => {
+    uiManager.openBlocking('code-editor');
+    void codeEditor.abrir(modId, scriptKey);
+  };
+  const recarregarTelas = () => {
+    if (modsPage.isOpen) modsPage.render();
+    chatOverlay.listMods = () => mcpExecutors.modService.getMods().map((m) => ({ id: m.id, name: m.name }));
+  };
+  modsPage.onChanged = recarregarTelas;
+  codeEditor.onChanged = recarregarTelas;
+
   // HUD & UI Overlays (ficam ocultos até o jogo realmente começar, para o MainMenu não competir com eles)
   const hud = new HUD(cameraManager);
   hud.canUseTopdown = () => gameModeManager.mode === 'creative';
@@ -566,6 +586,9 @@ async function bootstrap() {
    * a cada bloco custaria dezenas de milissegundos por clique.
    */
   function relight(x: number, y: number, z: number, radius = 10): void {
+    // Alterar o mundo pode abrir ou fechar passagem: a rota memoizada precisa cair, senão os
+    // mobs contornariam uma parede que não existe mais.
+    invalidatePathCache();
     lightEngine.recalcRegion(Math.floor(x), Math.floor(y), Math.floor(z), radius);
     const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
     for (let dz = -1; dz <= 1; dz++) {
@@ -838,6 +861,8 @@ async function bootstrap() {
   cameraManager.isSolidAt = (x, y, z) => isSolid(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
   uiManager.registerBlocking(inventoryModal);
   uiManager.registerBlocking(characterCreator);
+  uiManager.registerBlocking(modsPage);
+  uiManager.registerBlocking(codeEditor);
   uiManager.registerFloating(chatOverlay);
 
   const pauseMenu = new PauseMenu({
@@ -1024,6 +1049,16 @@ async function bootstrap() {
           inventoryModal.renderHotbar();
           hud.showToast(`Comeu ${slot.label}. Fome: ${Math.round(survivalSystem.hunger)}%`);
         }
+        return;
+      }
+      if (e.code === 'F6') {
+        e.preventDefault();
+        uiManager.openBlocking('mods-page');
+        return;
+      }
+      if (e.code === 'F7') {
+        e.preventDefault();
+        uiManager.openBlocking('code-editor');
         return;
       }
       if (e.code === 'F4') {

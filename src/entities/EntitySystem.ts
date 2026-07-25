@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { World } from '../world/world';
 import { B, isSolid } from '../world/blocks';
 import { CombatTimers, MOB_PROFILES, MobKind, MobProfile, knockbackFrom } from './Combat';
-import { PathNode, findPath } from './Pathfinding';
+import { PathNode, findPathCached } from './Pathfinding';
 
 export type EntityType = 'human' | 'orc' | 'goblin' | 'animal' | 'hero';
 
@@ -470,7 +470,7 @@ export class EntitySystem {
       // Intervalo escalonado por distância: perseguição de perto recalcula mais.
       e.repathTimer = dist < 8 ? 0.35 : 0.9;
       e.pathGoal = player.clone();
-      e.path = findPath(
+      e.path = findPathCached(
         this.world,
         { x: Math.floor(e.pos.x), y: Math.floor(e.pos.y), z: Math.floor(e.pos.z) },
         { x: Math.floor(player.x), y: Math.floor(player.y), z: Math.floor(player.z) },

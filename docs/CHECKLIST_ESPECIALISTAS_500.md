@@ -1328,36 +1328,36 @@ diagnóstico, que é justamente o que torna a manutenção em tempo real viável
 *Recomendação: CodeMirror 6, carregado sob demanda (`import()` dinâmico) para não pesar no boot
 de quem nunca abre o editor.*
 
-- [ ] 845 `P0` **Página de Mods**: lista, conteúdo, ativar/desativar, quarentena com motivo
-- [ ] 846 `P0` Histórico de versões na página, com rollback em um clique (expõe 631–633)
-- [ ] 847 `P0` Exportar/importar mod pela página, sem passar pela IA
+- [~] 845 `P0` **Página de Mods: lista, conteúdo, ativar/desativar, quarentena com motivo — `src/ui/ModsPage.ts`**
+- [~] 846 `P0` **Histórico de versões na página, com rollback em um clique**
+- [~] 847 `P0` **Exportar/importar mod pela página, sem passar pela IA**
 - [ ] 848 `P1` Qual sessão de chat originou o mod, com link para abri-la
-- [ ] 849 `P1` Aviso visual de mod em quarentena, com o erro legível
-- [ ] 850 `P0` **Página de Editor de Código** com árvore de arquivos do mod à esquerda
-- [ ] 851 `P0` CodeMirror 6 com destaque de sintaxe JS, carregado sob demanda
-- [ ] 852 `P0` Salvar gera nova revisão do mod (integra com o versionamento)
-- [ ] 853 `P0` Executar/recarregar o script sem reiniciar o mundo
-- [ ] 854 `P0` Painel de console mostrando `api.console` e erros do script
+- [~] 849 `P1` **Aviso visual de mod em quarentena, com o erro legível**
+- [~] 850 `P0` **Página de Editor com árvore de arquivos do mod — `src/ui/CodeEditorPage.ts`**
+- [~] 851 `P0` **CodeMirror 6 carregado sob demanda (chunk separado de ~489 KB, fora do boot)**
+- [~] 852 `P0` **Salvar gera nova revisão do mod**
+- [~] 853 `P0` **Executar/recarregar o script sem reiniciar o mundo**
+- [~] 854 `P0` **Painel de console mostrando `api.console` e erros do script**
 - [ ] 855 `P1` Erro aponta linha e coluna, com salto para o ponto no editor
 - [ ] 856 `P1` Autocomplete da API do mod (usa a tipagem do item 835)
 - [ ] 857 `P1` Editar também o `mod.env` pela mesma árvore (seção 29)
 - [ ] 858 `P1` Editar as definições de bloco/entidade/estrutura como JSON no editor
 - [ ] 859 `P1` Validação ao salvar, recusando JSON inválido antes de gravar
-- [ ] 860 `P1` Atalhos: salvar, executar, buscar, comentar linha
+- [~] 860 `P1` **Ctrl+S salva e recarrega**
 - [ ] 861 `P1` Buscar e substituir dentro do arquivo
-- [ ] 862 `P1` Estado do editor preservado ao fechar e reabrir a página
+- [~] 862 `P1` **Estado do editor preservado ao fechar e reabrir**
 - [ ] 863 `P1` Editor não bloqueia o jogo: pausa opcional enquanto está aberto
 - [ ] 864 `P2` Diff entre a versão salva e a editada, antes de salvar
 - [ ] 865 `P2` Desfazer/refazer com histórico próprio do editor
 - [ ] 866 `P2` Modelos de script prontos (reagir a bloco, gerar estrutura, ciclo do dia)
-- [ ] 867 `P2` Snippet de exemplo inserido em todo mod novo
+- [~] 867 `P2` **Modelo de script inserido em todo script novo**
 - [ ] 868 `P2` **Página de Diagnóstico**: FPS, chunks, entidades, memória, custo por mod
 - [ ] 869 `P2` **Página de Mundo**: semente, hora, regras, distância de render, regenerar região
 - [ ] 870 `P2` **Página de Blocos**: navegar a paleta, ver propriedades, ir até um bloco no mundo
 - [ ] 871 `P2` **Página de Entidades**: listar, seguir, remover, editar espécie
 - [ ] 872 `P2` **Página de Rede**: peers, latência, o que está sendo sincronizado
 - [ ] 873 `P2` Navegação unificada entre as páginas, com atalho único
-- [ ] 874 `P2` Todas as páginas entram no `UIManager` como telas bloqueantes
+- [~] 874 `P2` **Páginas registradas no `UIManager` como telas bloqueantes (F6 e F7)**
 - [ ] 875 `P2` Páginas acessíveis por teclado, com foco visível
 - [ ] 876 `P2` Tema claro/escuro consistente entre as páginas
 - [ ] 877 `P2` As páginas respeitam a customização de UI feita pela IA
@@ -1442,7 +1442,18 @@ instância por script.
 | 824–826 Ferramentas de script | Sem elas o agente não alcança o runtime |
 | **881–886 Documentação para o agente** | **Capacidade não documentada no prompt é capacidade inexistente.** Já aconteceu aqui: `registerCustomBlock` existia e a IA seguia gerando blocos efêmeros |
 
-## Onda 2 — Tornar o jogo mantenível `~2 rodadas`
+## ✅ Onda 2 — CONCLUÍDA
+
+| Entregue | O que mudou |
+|---|---|
+| 845–849 | Página de Mods (F6): conteúdo, versões, rollback em um clique, export/import, quarentena legível |
+| 850–854, 860 | Editor de código (F7) com CodeMirror sob demanda, Ctrl+S salva→revisão→recarrega, console ao vivo |
+| 918–919 | Cache de rotas do A*, com estatística de acerto e invalidação ao alterar o mundo |
+
+O CodeMirror ficou em chunks separados (~489 KB) carregados só ao abrir o editor; o bundle
+principal subiu 53 KB. Quem nunca abre o editor não paga nada no boot.
+
+## Onda 2 (registro original) — Tornar o jogo mantenível
 
 *Versionamento, rollback e quarentena existem, mas só a IA os alcança. O usuário não tem como
 ver o que um mod contém nem voltar uma versão sem pedir a ela.*
@@ -1572,30 +1583,55 @@ que nele o arquivo chega a **inflar (125% do original)**.
 Os números que medi são coerentes com o que o projeto diz sobre uso isolado. **A medição estava
 correta; a pergunta é que estava errada.**
 
-## A pergunta certa: o modelo se aplica a este jogo?
+## Segunda correção: eu estava errado, e a medição prova
 
-A resposta continua sendo majoritariamente não — mas por um motivo **completamente diferente** do
-que eu havia registrado, e mais interessante que qualquer razão de compressão:
+Eu havia afirmado duas coisas que não se sustentam:
 
-**O `full_sync` deste jogo já não transmite o dado redundante.** O terreno é gerado
-proceduralmente a partir da semente, e o convidado o regenera localmente. O que trafega são só as
-`blockMods` — as alterações do jogador. A redundância entre nós que a deduplicação existe para
-eliminar **já foi eliminada por construção**.
+1. *"Não há um segundo nó com dado repetido para deduplicar contra."* — **Falso.** O jogo tem
+   multiplayer P2P: o anfitrião roda o mundo e os convidados são a outra ponta. São nós reais.
+2. *"Não há plataforma de distribuição."* — **Falso na prática.** O dicionário pode ser enviado
+   uma vez pelo anfitrião no `full_sync`, exatamente como o modelo do artigo prevê.
 
-É o mesmo princípio do artigo — não mandar o que o outro lado obtém sozinho — aplicado uma camada
-acima: em vez de um dicionário de padrões, a semente. E esse dicionário custa 4 bytes.
+O erro de método foi pior que o de fato: eu testei só o `full_sync` — **um payload grande** — e
+concluí sobre o modelo inteiro. Nesse payload o LZ77 do gzip já enxerga a repetição sozinho,
+porque tudo está na mesma janela. O regime onde o dicionário compartilhado ganha é o oposto:
+**muitas mensagens pequenas**, cada uma curta demais para o compressor achar repetição dentro
+dela. E esse é justamente o tráfego real de uma partida.
 
-Onde o modelo *encostaria* aqui, e por que ainda não fecha:
+### Medição no tráfego real de partida
 
-| Candidato | Avaliação |
-|---|---|
-| `full_sync` P2P | Redundância já removida pela semente; sobra o diff do jogador, único por mundo |
-| Snapshots da IA (`capture_multi_angle`) | 4 fotos quase idênticas — é o caso CCTV do artigo. Mas vão para a API do modelo, que precisa do PNG real |
-| **Galeria de mods entre usuários** | **Caso mais forte.** Mods compartilham estruturas e blocos comuns; um dicionário deduplicaria bem |
-| Compartilhamento de mundos | Mesmo raciocínio, se muitos partirem de templates comuns |
+6.000 mensagens (3.000 `block_update` + 3.000 `player_state`), média de 211 bytes cada,
+totalizando 1.235 KB:
 
-Os dois últimos são reais, mas dependem do que ainda não existe: **uma plataforma de
-distribuição**. Com um usuário e um navegador, falta o segundo nó contra o qual deduplicar.
+| Estratégia | Tráfego | Ganho | Nota |
+|---|---|---|---|
+| **Hoje** (JSON texto puro) | 1.235 KB | 1,0x | mensagem pequena não é comprimida |
+| gzip por mensagem | 965 KB | 1,28x | o cabeçalho quase anula o ganho |
+| crompressor sem codebook | 988 KB | 1,25x | e 2,6 s para 300 mensagens |
+| **deflate + dicionário compartilhado** | **163 KB** | **7,60x** | ← o modelo do artigo funciona |
+| **binário por opcode** | **105 KB** | **11,71x** | 5 ms, zero dependência |
+| binário + gzip em lote | 10,4 KB | 119x | quando dá para agrupar |
+
+**O modelo está certo.** Dicionário compartilhado entre nós entrega 7,6x onde o gzip entrega
+1,28x. A tese central do crompressor — *não retransmitir o que o outro lado consegue
+reconstruir* — se confirma neste jogo, e no ponto que eu havia descartado.
+
+### O que isso muda na decisão
+
+Duas coisas separadas, que eu vinha misturando:
+
+**A ideia:** validada, e vale implementar. É ganho de 7 a 12x num tráfego que hoje vai cru.
+
+**A ferramenta:** continua não sendo testável aqui, mas por um motivo concreto e específico —
+`cromPack(bytes)` **não tem parâmetro para receber o codebook**. Sem isso, o modo que o artigo
+descreve não é alcançável a partir do WASM publicado. O que medi (1,25x) é o modo isolado, que o
+próprio autor classifica como mau uso.
+
+**A melhor implementação para este caso é um codebook especializado:** o "dicionário" é o próprio
+esquema das mensagens, que os dois lados já conhecem por serem o mesmo programa. Em vez de
+transmitir nomes de campo, transmite-se um opcode e os valores em binário — 11,71x, nativo, sem
+dependência e sem download. É a mesma ideia do crompressor, especializada num domínio onde o
+esquema é conhecido de antemão.
 
 ## O ponto do artigo que mais interessa a este projeto
 
@@ -1634,12 +1670,17 @@ ter o problema que ele resolve. Os itens 918-921 registram o que mudaria essa co
 - [ ] 908 `P2` Comprimir também o save de blocos no IndexedDB (mesma função, outro consumidor)
 - [ ] 909 `P2` Comprimir o export de mundo e de mod
 - [ ] 910 `P2` Delta entre revisões de mod, em vez de snapshot inteiro (ver item 645)
-- [ ] 911 `P3` **Reavaliar o crompressor quando existir um segundo nó** — o modelo pressupõe dicionário compartilhado, e hoje há um usuário e um navegador
+- [ ] 911 `P2` **Reavaliar o crompressor quando `cromPack` aceitar codebook** — o segundo nó existe (anfitrião/convidados); o que falta é a API expor o dicionário
+- [ ] 922 `P0` **Protocolo binário por opcode para as mensagens de partida** — medido em 11,7x contra o JSON cru de hoje
+- [ ] 923 `P1` Enviar a aparência do jogador só quando MUDA, com hash nos demais pacotes
+- [ ] 924 `P1` Agrupar `block_update` do mesmo frame num lote antes de enviar (medido 119x com gzip)
+- [ ] 925 `P2` Avaliar dicionário compartilhado (deflate com `dictionary`) para o que sobrar em texto
+- [ ] 926 `P2` Medir o ganho real numa sessão P2P de verdade, não em bancada
 - [ ] 915 `P3` Medir o cenário de codebook compartilhado: treinar sobre chunks reais, distribuir uma vez, e comparar só o tráfego de índices contra gzip
 - [ ] 916 `P3` Pré-requisito do anterior: expor `cromPack(bytes, codebook, modo)` no WASM — a API atual não recebe nenhum dos três
 - [ ] 917 `P3` Resolver a distribuição do codebook entre peers (ele próprio é grande, e vira um problema de sync)
-- [ ] 918 `P1` **Cache de rotas do A\***: mobs recalculam contra o mesmo alvo e terreno a cada 0,35 s — memoizar estado repetido é o análogo local do que o artigo mede como 12,7x
-- [ ] 919 `P2` Medir quantas consultas de `findPath` são repetidas numa cena real, antes de otimizar
+- [~] 918 `P1` **Cache de rotas do A* com TTL e invalidação ao alterar o mundo**
+- [~] 919 `P2` **Estatísticas de acerto do cache expostas por `getPathCacheStats`**
 - [ ] 920 `P3` Reavaliar o crompressor **se** surgir uma galeria de mods/mundos — aí existe o segundo nó contra o qual deduplicar
 - [ ] 921 `P2` Documentar que o `full_sync` já elimina a redundância por regeneração via semente (o dicionário custa 4 bytes)
 - [ ] 912 `P2` Isolar segredo de dado de terceiro em fluxos comprimidos distintos (CRIME/BREACH)

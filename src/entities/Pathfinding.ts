@@ -146,12 +146,96 @@ class MinHeap {
 const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
 
 /**
+ * Cache de rotas.
+ *
+ * Vários mobs perseguem o MESMO jogador, no MESMO terreno, recalculando a cada 0,35 s. As
+ * consultas se repetem muito, e cada uma refazia a busca do zero. Isto é memoização de estado —
+ * a ideia que o artigo do crompressor mede como ganho ao deduplicar estados repetidos em
+ * simulação, aplicada aqui sem depender de nada externo.
+ *
+ * A chave arredonda o alvo para uma célula: dois mobs perseguindo o jogador que andou meio voxel
+ * devem reaproveitar a mesma rota. O TTL curto existe porque o terreno muda — um mod ou o
+ * jogador pode abrir uma passagem, e uma rota velha ficaria contornando uma parede que não
+ * existe mais.
+ */
+const CACHE_TTL_MS = 900;
+const CACHE_MAX = 128;
+/** Célula de agregação do alvo, em voxels. Maior = mais acerto, rota menos precisa. */
+const GOAL_CELL = 2;
+
+interface CacheEntry {
+  path: PathNode[] | null;
+  expiraEm: number;
+}
+
+const routeCache = new Map<string, CacheEntry>();
+const cacheStats = { hits: 0, misses: 0 };
+
+/** Estatísticas de reaproveitamento, para medir antes de concluir qualquer coisa. */
+export function getPathCacheStats(): { hits: number; misses: number; hitRate: number; size: number } {
+  const total = cacheStats.hits + cacheStats.misses;
+  return {
+    hits: cacheStats.hits,
+    misses: cacheStats.misses,
+    hitRate: total > 0 ? cacheStats.hits / total : 0,
+    size: routeCache.size,
+  };
+}
+
+export function resetPathCache(): void {
+  routeCache.clear();
+  cacheStats.hits = 0;
+  cacheStats.misses = 0;
+}
+
+/** Invalida tudo: chamado quando o mundo muda de forma que possa abrir ou fechar passagem. */
+export function invalidatePathCache(): void {
+  routeCache.clear();
+}
+
+/**
  * Caminho de `start` até `goal`, ou `null` se não houver dentro do orçamento.
  *
  * O resultado **não inclui** o nó inicial: são os passos a seguir. Quando o alvo exato não é
  * alcançável (o jogador pulou num pilar, por exemplo), devolve o caminho até o ponto explorado
  * mais próximo dele — chegar perto é infinitamente melhor que ficar parado.
  */
+/**
+ * Versão com memoização. É a que a IA das criaturas usa; `findPath` continua puro e direto,
+ * para os testes verificarem o algoritmo sem cache no caminho.
+ */
+export function findPathCached(
+  world: PathWorld,
+  start: PathNode,
+  goal: PathNode,
+  options: PathOptions = {},
+  agora = Date.now(),
+): PathNode[] | null {
+  const sx = Math.floor(start.x), sy = Math.floor(start.y), sz = Math.floor(start.z);
+  const gx = Math.floor(goal.x / GOAL_CELL), gy = Math.floor(goal.y / GOAL_CELL), gz = Math.floor(goal.z / GOAL_CELL);
+  const chave = `${sx},${sy},${sz}>${gx},${gy},${gz}`;
+
+  const cacheado = routeCache.get(chave);
+  if (cacheado && cacheado.expiraEm > agora) {
+    cacheStats.hits++;
+    // Cópia: quem consome consome os waypoints com `shift()`, e mutar o cache
+    // faria a próxima criatura receber uma rota pela metade.
+    return cacheado.path ? cacheado.path.map((n) => ({ ...n })) : null;
+  }
+
+  cacheStats.misses++;
+  const path = findPath(world, start, goal, options);
+
+  if (routeCache.size >= CACHE_MAX) {
+    // Descarte simples do mais antigo: o Map do JS mantém ordem de inserção.
+    const maisAntigo = routeCache.keys().next().value;
+    if (maisAntigo !== undefined) routeCache.delete(maisAntigo);
+  }
+  routeCache.set(chave, { path, expiraEm: agora + CACHE_TTL_MS });
+
+  return path ? path.map((n) => ({ ...n })) : null;
+}
+
 export function findPath(
   world: PathWorld,
   start: PathNode,
