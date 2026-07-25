@@ -339,7 +339,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [~] 245 `P1` **Ciclo dia/noite com sol animado em arco e céu que muda de cor**
 - [~] 246 `P1` **Cor da luz variando ao amanhecer/entardecer (laranja rasante)**
 - [~] 247 `P1` **Tochas colocáveis emitindo luz (bloco `TORCH`, craftável com carvão)**
-- [~] 248 `P1` **Recalcular luz incrementalmente ao colocar/quebrar bloco (`recalcRegion`)**
+- [~] 248 `P1` **Recalcular luz incrementalmente com **remoção correta** e enfileirado por frame**
 - [~] 249 `P2` **Luz atravessando blocos translúcidos com atenuação (água, folhagem, vidro)**
 - [ ] 250 `P2` Luz da lua com intensidade por fase
 - [ ] 251 `P2` Luz colorida por bloco emissivo
@@ -348,7 +348,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [ ] 254 `P2` Adaptação de exposição ao sair de uma caverna
 - [~] 255 `P2` **Spawn de inimigos condicionado ao nível de luz — consome o motor da rodada 4**
 - [ ] 256 `P2` Debug view mostrando o mapa de luz
-- [ ] 257 `P1` Luz calculada no worker, não na thread principal
+- [~] 257 `P1` **Custo de luz espalhado por frame em vez de pico no clique (fila com orçamento)**
 - [ ] 258 `P2` Limite de propagação configurável por performance
 - [ ] 259 `P3` Reflexão de luz difusa entre blocos próximos
 - [ ] 260 `P2` Iluminação suave interpolada por vértice
@@ -534,11 +534,11 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [ ] 405 `P1` `dispose()` consistente de geometria e material ao descarregar chunk
 - [ ] 406 `P1` Instanced mesh para decorativos e entidades repetidas
 - [ ] 407 `P1` Reduzir draw calls agrupando chunks vizinhos
-- [ ] 408 `P1` Profiling embutido (F3) com FPS, chunks, draw calls, memória
+- [~] 408 `P1` **Contadores de tráfego e vozes expostos para diagnóstico**
 - [ ] 409 `P1` Distância de render adaptativa ao FPS medido
 - [ ] 410 `P2` Cache de resultado de `getGroundY` por coluna
 - [ ] 411 `P2` Estruturas tipadas (`Uint8Array`) em vez de `Map<string, number>` no hot path
-- [ ] 412 `P2` Evitar concatenação de string como chave de bloco no loop crítico
+- [~] 412 `P2` **Evitada a concatenação de string por voxel no acesso à luz (cache de chunk)**
 - [ ] 413 `P2` Web Worker dedicado para persistência
 - [ ] 414 `P2` Debounce já existe no save de jogador; estender ao save de blocos
 - [ ] 415 `P1` Limite de entidades simuladas por frame
@@ -1787,4 +1787,82 @@ ao esqueleto real.*
 - [ ] 958 `P2` Ver o corpo dentro da água com a distorção do fluido
 - [ ] 959 `P2` Opção de esconder o corpo, para quem preferir a visão limpa
 - [ ] 960 `P2` Testes de que a cabeça está oculta em 1ª pessoa e visível em 3ª
+
+---
+
+# Adendo — Desempenho e interface (itens 961–1000)
+
+> Relato do usuário: *"está muito muito travado"*, *"a GUI ainda não melhorou, não tem uma
+> página só do menu inicial"*, *"às vezes dou ESC e não consigo voltar a ter o mouse fixo"*.
+>
+> As duas primeiras causas de travamento foram **regressões introduzidas por mim** nas rodadas
+> de luz e de mods. Ficam registradas com o que era e o que virou.
+
+## 36 — Auditoria de desempenho (rodada de correção)
+
+*Diagnóstico: colocar **um** bloco disparava um recálculo de luz síncrono que zerava 9.261
+células, re-semeava 441 colunas inteiras de 128 voxels, e ainda marcava 9 chunks para re-mesh.
+Cada acesso à luz montava uma string (`chunkKey`) — mais de 100 mil concatenações por clique. E o
+mesher chamava `Math.pow` uma vez por face.*
+
+| Correção | Antes | Depois |
+|---|---|---|
+| `recalcRegion` (raio 8) | **69 ms** por bloco colocado | **~11 ms**, e enfileirado |
+| Custo por frame ao construir | 42 ms (travando) | **2,8 ms** espalhado |
+| Consulta de luz no mesher | `Math.pow` por face | tabela de 256 entradas — **16x** |
+| Acesso a `getLight/setLight` | string por voxel | cache do último chunk |
+| Chunks marcados por alteração | sempre 9 | só os que a região toca |
+
+- [~] 961 `P0` **`recalcRegion` deixou de re-semear colunas inteiras** — lê o sol que chega no teto da caixa
+- [~] 962 `P0` **Fila de relight com orçamento de uma região por frame**
+- [~] 963 `P0` **Regiões próximas se fundem** antes de processar (célula de 12)
+- [~] 964 `P0` **Tabela de luz de 256 entradas** no lugar de `Math.pow` por face
+- [~] 965 `P0` **Cache do último chunk** em `getLight`/`setLight`
+- [~] 966 `P1` **Só os chunks tocados pela região são marcados**, não os 9 vizinhos
+- [~] 967 `P1` **Coluna de sol começa no topo do terreno**, não no topo do mundo
+- [~] 968 `P0` **BFS de remoção de luz** — apagar propagava valor velho de volta e a caverna nunca escurecia
+- [~] 969 `P0` **Fontes independentes revalidadas** contra o estado final, não o do momento em que foram vistas
+- [ ] 970 `P0` Medir o frame real no navegador com o painel de diagnóstico, não só em bancada
+- [ ] 971 `P0` Mesh em Web Worker (item 403) — é o próximo maior custo depois da luz
+- [ ] 972 `P1` Reaproveitar os buffers de `padChunk`/`padLight` em vez de alocar 300 KB por re-mesh
+- [ ] 973 `P1` Orçamento de re-mesh por frame também no ciclo dia/noite (hoje marca tudo de uma vez)
+- [ ] 974 `P1` Painel F3 com FPS, chunks, entidades, vozes de áudio e custo por mod
+- [ ] 975 `P1` Distância de render adaptativa ao FPS medido
+- [ ] 976 `P2` Perfilar quanto cada sistema consome por frame, e registrar
+- [ ] 977 `P2` Teste de regressão de desempenho no CI, com orçamento por operação
+- [ ] 978 `P2` Descarregar geometria de chunk fora do alcance de forma mais agressiva
+
+## 37 — Interface: separação de telas e controle de câmera
+
+*Parecer: o `MainMenu` existe, mas o jogo não tem uma **página inicial** de verdade — as telas
+foram nascendo como overlays sobre a cena, e hoje há sete delas competindo pelo mesmo espaço sem
+navegação comum. E o bug do ponteiro é o pior tipo: o jogador perde o controle da câmera e não
+tem nenhuma indicação do que fazer.*
+
+*Causa do bug do ESC: `requestPointerLock` **exige gesto do usuário**, e o navegador impõe uma
+recusa logo após a saída por ESC. A chamada automática era negada em silêncio (o `catch` engolia)
+e nada mais tentava — o mouse ficava solto para sempre.*
+
+- [~] 979 `P0` **Retomada do ponteiro por clique**, que é o gesto que o navegador aceita
+- [~] 980 `P0` **Dica "clique para voltar ao jogo"** quando o controle está solto
+- [~] 981 `P0` **`pointerlockchange` detecta perda inesperada** e avisa, em vez de deixar o jogador sem saber
+- [ ] 982 `P0` Página inicial de verdade, separada da cena 3D
+- [ ] 983 `P0` Navegação comum entre as telas (mods, editor, personagem, mundo, opções)
+- [ ] 984 `P0` Uma barra ou menu único, em vez de sete atalhos de tecla soltos (F4, F5, F6, F7…)
+- [ ] 985 `P1` Tela de opções unificada: vídeo, áudio, controles, acessibilidade
+- [ ] 986 `P1` Volume por canal exposto na interface (o sistema já suporta)
+- [ ] 987 `P1` Lista de atalhos visível dentro do jogo
+- [ ] 988 `P1` Menu de pausa com as mesmas entradas da página inicial
+- [ ] 989 `P1` Estilo compartilhado entre as telas, em vez de CSS repetido em cada arquivo
+- [ ] 990 `P1` Transição clara entre "no menu" e "jogando", com o ponteiro sempre coerente
+- [ ] 991 `P2` Voltar de qualquer tela sempre para o mesmo lugar
+- [ ] 992 `P2` Indicador de qual tela está aberta
+- [ ] 993 `P2` As telas herdam a customização de UI feita pela IA
+- [ ] 994 `P2` Navegação por teclado e foco visível em todas as telas
+- [ ] 995 `P2` Tela inicial mostrando os mundos com prévia e data
+- [ ] 996 `P2` Tela de créditos e versão
+- [ ] 997 `P2` Primeira execução com um passo a passo curto
+- [ ] 998 `P2` Layout responsivo para janela pequena
+- [ ] 999 `P2` Testes de que ESC sempre devolve o controle da câmera
+- [ ] 1000 `P2` Testes de navegação entre telas sem estado preso
 

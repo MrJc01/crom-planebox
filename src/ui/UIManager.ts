@@ -72,10 +72,72 @@ export class UIManager {
     else s.open();
   }
 
+  /**
+   * Retomar o pointer lock **não** funciona automaticamente depois do ESC.
+   *
+   * O navegador exige um gesto do usuário para conceder o lock, e impõe um período de recusa
+   * logo após o usuário sair com ESC. A chamada automática era recusada em silêncio (o `catch`
+   * engolia), e como nada mais tentava de novo, o mouse ficava solto para sempre — sem jeito de
+   * voltar a girar a câmera.
+   *
+   * A correção é aceitar isso e usar o clique como gesto: tenta na hora (funciona quando o
+   * fechamento veio de um clique num botão) e, se falhar, arma o próximo clique no canvas.
+   */
   private tryRelock(): void {
     if (this.blockingStack.length === 0 && this.lockElement && this.shouldRelock()) {
-      try { (this.lockElement as HTMLElement).requestPointerLock(); } catch { /* ignora: precisa de gesto do usuário em alguns navegadores */ }
+      this.solicitarLock();
     }
+  }
+
+  private solicitarLock(): void {
+    if (!this.lockElement || document.pointerLockElement) return;
+    try {
+      const r = (this.lockElement as HTMLElement).requestPointerLock() as unknown as Promise<void> | undefined;
+      // Navegadores novos devolvem Promise; a rejeição precisa ser tratada ou vira erro solto.
+      if (r && typeof (r as any).catch === 'function') (r as any).catch(() => this.aguardarClique());
+    } catch {
+      this.aguardarClique();
+    }
+    // Mesmo sem erro, o lock pode não vir. Confere no frame seguinte e arma o clique.
+    setTimeout(() => {
+      if (!document.pointerLockElement && this.shouldRelock() && this.blockingStack.length === 0) {
+        this.aguardarClique();
+      }
+    }, 60);
+  }
+
+  /** Mostra a dica e espera um clique — que é o gesto que o navegador aceita. */
+  private aguardarClique(): void {
+    if (this.aguardandoClique) return;
+    this.aguardandoClique = true;
+    this.onPointerLockPendente(true);
+  }
+
+  private aguardandoClique = false;
+
+  /** Avisado quando o jogo está esperando um clique para retomar o controle da câmera. */
+  public onPointerLockPendente: (pendente: boolean) => void = () => {};
+
+  /**
+   * Liga o clique no canvas à retomada do lock. Chamado uma vez pelo `main`.
+   * Sem isto, sair do menu com ESC deixaria o jogador sem controle de câmera até recarregar.
+   */
+  public configureRelockOnClick(canvas: HTMLElement): void {
+    canvas.addEventListener('mousedown', () => {
+      if (this.blockingStack.length > 0 || !this.shouldRelock()) return;
+      if (document.pointerLockElement) return;
+      try { (canvas as HTMLElement).requestPointerLock(); } catch { /* o próximo clique tenta de novo */ }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement) {
+        this.aguardandoClique = false;
+        this.onPointerLockPendente(false);
+      } else if (this.blockingStack.length === 0 && this.shouldRelock()) {
+        // Perdeu o lock sem menu aberto: avisa, em vez de deixar o jogador sem saber o que fazer.
+        this.aguardarClique();
+      }
+    });
   }
 
   /**

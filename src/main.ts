@@ -606,18 +606,56 @@ async function bootstrap() {
    * ou abrir um buraco no teto precisa acender/apagar a área na hora — refazer o chunk inteiro
    * a cada bloco custaria dezenas de milissegundos por clique.
    */
-  function relight(x: number, y: number, z: number, radius = 10): void {
-    // Alterar o mundo pode abrir ou fechar passagem: a rota memoizada precisa cair, senão os
-    // mobs contornariam uma parede que não existe mais.
-    invalidatePathCache();
-    lightEngine.recalcRegion(Math.floor(x), Math.floor(y), Math.floor(z), radius);
-    const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const c = world.getChunk(cx + dx, cz + dz);
+  /**
+   * Fila de regiões a reluminar, processada com orçamento no loop.
+   *
+   * Antes o recálculo era **síncrono a cada bloco**: `recalcRegion` com raio 10 zera 9 mil
+   * células e re-semeia 441 colunas inteiras de 128 blocos — mais de 100 mil operações por
+   * clique, e ainda marcava 9 chunks para re-mesh. Era a causa principal do travamento.
+   *
+   * Agora o custo é o mesmo, mas espalhado: no máximo uma região por frame, e regiões próximas
+   * se fundem numa só antes de serem processadas.
+   */
+  const RELIGHT_CELL = 12;
+  const filaRelight = new Map<string, { x: number; y: number; z: number; radius: number }>();
+
+  function queueRelight(x: number, y: number, z: number, radius = 8): void {
+    const fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z);
+    // Agrupa por célula grossa: colocar 30 blocos vizinhos vira UMA região, não 30.
+    const chave = `${Math.floor(fx / RELIGHT_CELL)},${Math.floor(fy / RELIGHT_CELL)},${Math.floor(fz / RELIGHT_CELL)}`;
+    const atual = filaRelight.get(chave);
+    if (atual) {
+      if (radius > atual.radius) atual.radius = radius;
+      return;
+    }
+    filaRelight.set(chave, { x: fx, y: fy, z: fz, radius });
+  }
+
+  /** Processa uma região por frame. O resto espera — luz atrasada é melhor que frame perdido. */
+  function processarRelight(): void {
+    const primeiro = filaRelight.entries().next();
+    if (primeiro.done) return;
+    const [chave, r] = primeiro.value;
+    filaRelight.delete(chave);
+
+    lightEngine.recalcRegion(r.x, r.y, r.z, r.radius);
+
+    // Marca só os chunks que a região realmente toca, em vez dos 9 vizinhos sempre.
+    const cx0 = Math.floor((r.x - r.radius) / CX), cx1 = Math.floor((r.x + r.radius) / CX);
+    const cz0 = Math.floor((r.z - r.radius) / CZ), cz1 = Math.floor((r.z + r.radius) / CZ);
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const c = world.getChunk(cx, cz);
         if (c) c.dirty = true;
       }
     }
+  }
+
+  function relight(x: number, y: number, z: number, radius = 8): void {
+    // Alterar o mundo pode abrir ou fechar passagem: a rota memoizada precisa cair, senão os
+    // mobs contornariam uma parede que não existe mais.
+    invalidatePathCache();
+    queueRelight(x, y, z, radius);
   }
 
   /**
@@ -913,6 +951,23 @@ async function bootstrap() {
     () => cameraManager.mode === 'fps' || cameraManager.mode === 'thirdperson' || cameraManager.mode === 'ghost',
   );
   cameraManager.isSolidAt = (x, y, z) => isSolid(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
+
+  // Retomar o controle da câmera depois do ESC exige um gesto do usuário — o navegador recusa
+  // o pedido automático. O clique no canvas é esse gesto.
+  uiManager.configureRelockOnClick(gs.renderer.domElement);
+
+  const dicaClique = document.createElement('div');
+  dicaClique.textContent = 'Clique para voltar ao jogo';
+  dicaClique.style.cssText = `
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: rgba(2,6,23,0.82); color: #e2e8f0; font-family: system-ui, sans-serif;
+    font-size: 15px; padding: 12px 22px; border-radius: 10px; border: 1px solid #334155;
+    pointer-events: none; z-index: 40; display: none;
+  `;
+  document.body.appendChild(dicaClique);
+  uiManager.onPointerLockPendente = (pendente) => {
+    dicaClique.style.display = pendente && gameStarted ? 'block' : 'none';
+  };
   uiManager.registerBlocking(inventoryModal);
   uiManager.registerBlocking(characterCreator);
   uiManager.registerBlocking(modsPage);
@@ -1246,6 +1301,8 @@ async function bootstrap() {
       ultimoPassoZ = player.pos.z;
     }
 
+    // Uma região de luz por frame. O custo total é o mesmo, mas deixa de ser um pico no clique.
+    processarRelight();
     despacharBlocos();
 
     netAccum += dt;

@@ -88,7 +88,22 @@ export class LightEngine {
   public seedSunColumn(x: number, z: number, out: Node[]): void {
     let level = MAX_LIGHT;
 
-    for (let y = this.maxY - 1; y >= 0; y--) {
+    // O céu acima do terreno é sempre luz plena: descer bloco a bloco por dezenas de voxels de
+    // ar só para descobrir isso era o segundo maior custo do recálculo. Aqui a coluna começa
+    // logo acima do primeiro bloco não-transparente, e o vazio acima é preenchido em bloco.
+    let topo = this.maxY - 1;
+    while (topo > 0 && opacity(this.grid.getBlock(x, topo, z)) === 0) topo--;
+
+    const cheio = packLight(MAX_LIGHT, 0);
+    for (let y = this.maxY - 1; y > topo; y--) {
+      const packed = this.grid.getLight(x, y, z);
+      // Preserva luz de bloco que exista no ar (tocha flutuante, por exemplo).
+      this.grid.setLight(x, y, z, blockOf(packed) === 0 ? cheio : packLight(MAX_LIGHT, blockOf(packed)));
+    }
+    // O primeiro voxel abaixo do céu aberto é quem semeia a propagação lateral.
+    if (topo < this.maxY - 1) out.push({ x, y: topo + 1, z, level: MAX_LIGHT });
+
+    for (let y = topo; y >= 0; y--) {
       const t = this.grid.getBlock(x, y, z);
       const op = opacity(t);
 
@@ -177,45 +192,110 @@ export class LightEngine {
     const y0 = Math.max(0, cy - radius), y1 = Math.min(this.maxY - 1, cy + radius);
     const z0 = cz - radius, z1 = cz + radius;
 
-    for (let y = y0; y <= y1; y++) {
-      for (let z = z0; z <= z1; z++) {
-        for (let x = x0; x <= x1; x++) this.grid.setLight(x, y, z, 0);
-      }
-    }
+    const volume = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1);
 
-    const sunQueue: Node[] = [];
-    const blockQueue: Node[] = [];
-
-    for (let z = z0; z <= z1; z++) {
-      for (let x = x0; x <= x1; x++) {
-        // Re-semeia a coluna inteira: a alteração pode ter aberto ou fechado o caminho do sol
-        // muito acima da caixa (quebrar o teto de uma caverna, por exemplo).
-        this.seedSunColumn(x, z, sunQueue);
-      }
-    }
+    // Fase 1 — apagar. Coleta a luz atual da caixa, zera, e enfileira para propagar a
+    // **escuridão** para fora dela.
+    const removerSol: Node[] = [];
+    const removerBloco: Node[] = [];
 
     for (let y = y0; y <= y1; y++) {
       for (let z = z0; z <= z1; z++) {
-        for (let x = x0; x <= x1; x++) this.seedBlockLight(x, y, z, blockQueue);
-      }
-    }
-
-    // As bordas da caixa reinjetam a luz que vem de fora dela.
-    const border: Node[] = [];
-    for (let y = y0; y <= y1; y++) {
-      for (let z = z0 - 1; z <= z1 + 1; z++) {
-        for (let x = x0 - 1; x <= x1 + 1; x++) {
-          const inside = x >= x0 && x <= x1 && z >= z0 && z <= z1;
-          if (inside) continue;
+        for (let x = x0; x <= x1; x++) {
           const packed = this.grid.getLight(x, y, z);
-          if (skyOf(packed) > 1) sunQueue.push({ x, y, z, level: skyOf(packed) });
-          if (blockOf(packed) > 1) border.push({ x, y, z, level: blockOf(packed) });
+          const sol = skyOf(packed), blk = blockOf(packed);
+          if (sol > 0) removerSol.push({ x, y, z, level: sol });
+          if (blk > 0) removerBloco.push({ x, y, z, level: blk });
+          this.grid.setLight(x, y, z, 0);
         }
       }
     }
 
-    this.propagateSun(sunQueue, 200_000);
-    this.propagateBlockLight(blockQueue.concat(border), 100_000);
+    // Propagar a escuridão é o que estava faltando. Sem esta fase, ao fechar um buraco no teto
+    // os vizinhos FORA da caixa continuavam guardando a luz antiga e a reinjetavam de volta —
+    // a caverna nunca escurecia. Quem for fonte independente é recolhido para reacender depois.
+    let readicionarSol: Node[] = [];
+    let readicionarBloco: Node[] = [];
+    this.removeLight(removerSol, true, readicionarSol, volume * 8);
+    this.removeLight(removerBloco, false, readicionarBloco, volume * 6);
+
+    // As fontes são revalidadas contra o estado FINAL, e não o do momento em que foram vistas.
+    //
+    // Uma célula pode ser marcada como fonte independente cedo e ser apagada logo depois por
+    // outro caminho da remoção. Reacendê-la com o nível antigo injetava luz que não existe mais
+    // — era isso que deixava a caverna com um gradiente subindo a partir do chão.
+    const revalidar = (fontes: Node[], isSun: boolean): Node[] =>
+      fontes
+        .map((f) => ({ ...f, level: isSun ? skyOf(this.grid.getLight(f.x, f.y, f.z)) : blockOf(this.grid.getLight(f.x, f.y, f.z)) }))
+        .filter((f) => f.level > 1);
+
+    readicionarSol = revalidar(readicionarSol, true);
+    readicionarBloco = revalidar(readicionarBloco, false);
+
+    // Fase 2 — reacender. Emissores dentro da caixa, mais as fontes independentes achadas.
+    for (let y = y0; y <= y1; y++) {
+      for (let z = z0; z <= z1; z++) {
+        for (let x = x0; x <= x1; x++) {
+          const emissao = emission(this.grid.getBlock(x, y, z));
+          if (emissao <= 0) continue;
+          const packed = this.grid.getLight(x, y, z);
+          this.grid.setLight(x, y, z, packLight(skyOf(packed), emissao));
+          readicionarBloco.push({ x, y, z, level: emissao });
+        }
+      }
+    }
+
+    // O sol que entra pelo teto da caixa: a caixa não precisa saber de onde ele veio, só quanto
+    // chega. Antes, cada coluna era re-semeada do topo do mundo — com raio 8 são 289 colunas de
+    // até 128 voxels, e isso sozinho custava dezenas de milissegundos por bloco colocado.
+    for (let z = z0; z <= z1; z++) {
+      for (let x = x0; x <= x1; x++) {
+        const sol = skyOf(this.grid.getLight(x, y1 + 1, z));
+        if (sol > 0) readicionarSol.push({ x, y: y1 + 1, z, level: sol });
+      }
+    }
+
+    this.propagateSun(readicionarSol, volume * 8);
+    this.propagateBlockLight(readicionarBloco, volume * 6);
+  }
+
+  /**
+   * Propaga escuridão a partir de células que perderam a luz.
+   *
+   * Um vizinho mais escuro que a origem só podia estar sendo iluminado por ela: apaga e
+   * continua. Um vizinho igual ou mais claro tem fonte própria, então é recolhido em
+   * `fontesIndependentes` para reacender a região depois que a limpeza terminar.
+   */
+  private removeLight(queue: Node[], isSun: boolean, fontesIndependentes: Node[], budget: number): void {
+    let head = 0;
+
+    while (head < queue.length && budget-- > 0) {
+      const node = queue[head++];
+
+      for (const [dx, dy, dz] of NEIGHBORS) {
+        const nx = node.x + dx, ny = node.y + dy, nz = node.z + dz;
+        if (ny < 0 || ny >= this.maxY) continue;
+
+        const packed = this.grid.getLight(nx, ny, nz);
+        const nivel = isSun ? skyOf(packed) : blockOf(packed);
+        if (nivel === 0) continue;
+
+        // Luz solar descendo não perde nível (é o que mantém o fundo de um poço claro), então um
+        // vizinho de baixo com valor IGUAL também foi iluminado por nós.
+        //
+        // Restringir este caso ao nível 15 deixava vazar toda luz que primeiro andou de lado e
+        // depois desceu: a coluna abaixo ficava com o valor antigo e o reinjetava, e a caverna
+        // não escurecia ao fechar o buraco do teto.
+        const iluminadoPorNos = nivel < node.level || (isSun && dy === -1 && nivel === node.level);
+
+        if (iluminadoPorNos) {
+          this.grid.setLight(nx, ny, nz, isSun ? packLight(0, blockOf(packed)) : packLight(skyOf(packed), 0));
+          queue.push({ x: nx, y: ny, z: nz, level: nivel });
+        } else {
+          fontesIndependentes.push({ x: nx, y: ny, z: nz, level: nivel });
+        }
+      }
+    }
   }
 }
 
@@ -232,4 +312,20 @@ export function lightFactor(packed: number, sunScale = 1): number {
   const level = Math.max(sun * sunScale, blk);
   // Curva levemente côncava: a queda de luz fica perceptível cedo, como no olho humano.
   return 0.05 + 0.95 * Math.pow(level, 1.35);
+}
+
+/**
+ * Tabela de 256 entradas com o fator de luz de cada valor empacotado possível.
+ *
+ * O mesher chama `lightFactor` **uma vez por face** — dezenas de milhares de vezes por chunk. Com
+ * `Math.pow` lá dentro, isso dominava o custo de gerar a malha. Como só existem 256 combinações
+ * de (sol, bloco), vale pré-calcular todas de uma vez e depois só indexar.
+ *
+ * A tabela depende de `sunScale`, mas o mundo só é re-meshado quando ele muda um degrau
+ * perceptível — então uma tabela por chamada de `meshChunk` já elimina o custo.
+ */
+export function buildLightTable(sunScale = 1): Float32Array {
+  const tabela = new Float32Array(256);
+  for (let packed = 0; packed < 256; packed++) tabela[packed] = lightFactor(packed, sunScale);
+  return tabela;
 }

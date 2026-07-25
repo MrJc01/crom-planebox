@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { B, getBlockDef, isOpaque, isDecor, isFluid } from './blocks';
-import { lightFactor } from './lighting';
+import { buildLightTable } from './lighting';
 import { CX, CY, CZ } from './chunk';
 import { hash3 } from '../core/rng';
 
@@ -111,10 +111,14 @@ export interface ChunkGeometry {
  * `sunScale` é a intensidade do dia (1 = meio-dia, ~0.12 = madrugada).
  */
 export function meshChunk(padded: Uint8Array, cx: number, cz: number, light?: Uint8Array, sunScale = 1): ChunkGeometry {
+  // Tabela de 256 entradas em vez de `Math.pow` por face. `lightAt` roda dezenas de milhares de
+  // vezes por chunk, e a potência dentro dela dominava o custo de gerar a malha.
+  const tabelaLuz = light ? buildLightTable(sunScale) : null;
+
   // A luz de uma face é a da célula que ela encara — a do ar em frente, não a do próprio
   // bloco (que é sempre 0 por ser opaco).
   const lightAt = (px: number, py: number, pz: number): number =>
-    light ? lightFactor(light[pidx(px, py, pz)], sunScale) : 1;
+    tabelaLuz ? tabelaLuz[light![pidx(px, py, pz)]] : 1;
   const solid = new GeoBuffer();
   const water = new GeoBuffer();
   const glass = new GeoBuffer();

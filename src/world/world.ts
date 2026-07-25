@@ -52,11 +52,38 @@ export class World {
   // O `World` implementa a interface `LightGrid`: fora dos chunks carregados, devolve céu
   // aberto acima do mundo e escuridão abaixo, para a propagação nas bordas não inventar luz.
 
+  /**
+   * Cache do último chunk consultado.
+   *
+   * `chunkKey` monta uma string por chamada, e a propagação de luz faz centenas de milhares de
+   * acessos — quase todos na mesma coluna de chunks. Guardar o último resolvido elimina a
+   * concatenação e a busca no Map na esmagadora maioria das vezes.
+   */
+  private ultimoCx = Number.NaN;
+  private ultimoCz = Number.NaN;
+  private ultimoChunk: Chunk | undefined = undefined;
+
+  private chunkEm(cx: number, cz: number): Chunk | undefined {
+    if (cx === this.ultimoCx && cz === this.ultimoCz) return this.ultimoChunk;
+    const c = this.chunks.get(chunkKey(cx, cz));
+    this.ultimoCx = cx;
+    this.ultimoCz = cz;
+    this.ultimoChunk = c;
+    return c;
+  }
+
+  /** Invalida o cache. Chamado ao trocar de mundo ou remover chunk. */
+  invalidateChunkCache(): void {
+    this.ultimoCx = Number.NaN;
+    this.ultimoCz = Number.NaN;
+    this.ultimoChunk = undefined;
+  }
+
   getLight(x: number, y: number, z: number): number {
     if (y < 0) return 0;
     if (y >= CY) return 0xf0; // acima do mundo: sol pleno, luz de bloco zero
     const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
-    const c = this.chunks.get(chunkKey(cx, cz));
+    const c = this.chunkEm(cx, cz);
     if (!c) return 0;
     return c.light[(x - cx * CX) + CX * ((z - cz * CZ) + CZ * y)];
   }
@@ -64,7 +91,7 @@ export class World {
   setLight(x: number, y: number, z: number, packed: number): void {
     if (y < 0 || y >= CY) return;
     const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
-    const c = this.chunks.get(chunkKey(cx, cz));
+    const c = this.chunkEm(cx, cz);
     if (!c) return;
     c.light[(x - cx * CX) + CX * ((z - cz * CZ) + CZ * y)] = packed;
   }
