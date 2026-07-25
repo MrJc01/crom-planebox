@@ -1265,34 +1265,34 @@ api.console.log(...)                          // vai para o painel, não para o 
 api.B                                         // paleta base, sem decorar ids
 ```
 
-- [ ] 801 `P0` Campo `scripts: ModScript[]` no `ModPackage`, versionado junto do resto
-- [ ] 802 `P0` API injetada como objeto — sem `window`, `fetch`, `document` ou `eval` no escopo
-- [ ] 803 `P0` Lista fechada de eventos: load, unload, tick, blockPlaced, blockBroken, playerDamaged, entityDeath, dayPhase
-- [ ] 804 `P0` `api.on(evento, fn)` registrando handler na carga do script
-- [ ] 805 `P0` Cada handler roda protegido; exceção não escapa para o loop do jogo
-- [ ] 806 `P0` Script que falha N vezes é desligado sozinho, com o motivo no log
-- [ ] 807 `P0` Orçamento de blocos por chamada, para laço mal escrito não travar o frame
-- [ ] 808 `P0` Orçamento de tempo por `tick`, somado entre todos os mods
-- [ ] 809 `P0` Blocos alterados por script são atribuídos ao mod (fecha 704–705)
-- [ ] 810 `P0` Reverter um mod desfaz exatamente os blocos que ele colocou
-- [ ] 811 `P1` `api.world`: getBlock, setBlock, fillBox, getGroundY, findNearest
-- [ ] 812 `P1` Referência de bloco por id, chave do mod (`meu_cristal`) ou nome da paleta
-- [ ] 813 `P1` `api.entities`: spawn de espécie do próprio mod, list, damage
-- [ ] 814 `P1` `api.player`: position, teleport, health, give
-- [ ] 815 `P1` `api.ui.toast` com limite de tamanho e de frequência
-- [ ] 816 `P1` `api.storage` chave-valor por mod, isolado dos demais
-- [ ] 817 `P1` `api.console` direcionado ao painel do editor, com log limitado
-- [ ] 818 `P1` `api.B` com a paleta base, para não decorar ids
-- [ ] 819 `P1` Recarregar um script sem reiniciar o mundo (hot reload)
-- [ ] 820 `P1` `unload` chamado antes de recarregar, para o mod limpar o que criou
-- [ ] 821 `P1` Handlers de um script removidos ao recarregá-lo (sem duplicar)
+- [~] 801 `P0` **Campo `scripts` no `ModPackage`, versionado junto do resto**
+- [~] 802 `P0` **API injetada como objeto — sem `window`, `fetch`, `document`, `setTimeout` ou `import`**
+- [~] 803 `P0` **Oito eventos: load, unload, tick, blockPlaced, blockBroken, playerDamaged, entityDeath, dayPhase**
+- [~] 804 `P0` **`api.on(evento, fn)` registrando handler na carga do script**
+- [~] 805 `P0` **Handler protegido — exceção não escapa para o loop do jogo**
+- [~] 806 `P0` **Script desligado sozinho após 5 erros, com o motivo no log**
+- [~] 807 `P0` **Orçamento de 20.000 blocos por chamada**
+- [~] 808 `P0` **Orçamento de 4 ms por frame, somado entre todos os mods**
+- [~] 809 `P0` **Bloco escrito por script é gravado com a autoria do mod (`blockMods.modId`)**
+- [~] 810 `P0` **`deleteMod` desfaz por autoria **e** por tipo — pedra do jogador não é arrastada junto**
+- [~] 811 `P1` **`api.world`: getBlock, setBlock, fillBox, getGroundY, findNearest**
+- [~] 812 `P1` **Referência de bloco por id, chave do mod ou nome da paleta**
+- [~] 813 `P1` **`api.entities`: spawn de espécie do próprio mod, list, damage**
+- [~] 814 `P1` **`api.player`: position, teleport, health, give**
+- [~] 815 `P1` **`api.ui.toast` com limite de tamanho**
+- [~] 816 `P1` **`api.storage` chave-valor por mod, isolado**
+- [~] 817 `P1` **`api.console` no log do mod, limitado a 300 linhas**
+- [~] 818 `P1` **`api.B` com a paleta base**
+- [~] 819 `P1` **Recarregar script sem reiniciar o mundo**
+- [~] 820 `P1` **`unload` disparado antes de recarregar**
+- [~] 821 `P1` **Handlers removidos ao recarregar — sem duplicação**
 - [ ] 822 `P1` Ordem de execução previsível entre mods (por ordem de carga)
-- [ ] 823 `P1` Desabilitar um script sem desabilitar o mod inteiro
-- [ ] 824 `P1` Ferramenta MCP `define_mod_script` para o agente escrever comportamento
+- [~] 823 `P1` **`set_mod_script_enabled` desliga um script sem desabilitar o mod**
+- [~] 824 `P1` **`define_mod_script` — compila e carrega na mesma chamada**
 - [ ] 825 `P1` Ferramenta MCP `run_mod_script` para testar sem instalar
-- [ ] 826 `P1` Erro de script vira mensagem acionável para o agente se autocorrigir
+- [~] 826 `P1` **Erro de script devolvido ao agente na mesma volta, mais `get_mod_script_logs`**
 - [ ] 827 `P2` `api.world.queryRegion` devolvendo histograma de blocos
-- [ ] 828 `P2` `api.time`: hora do mundo, fase do dia, agendar callback
+- [~] 828 `P2` **`api.time`: fração do dia e `isNight()`**
 - [ ] 829 `P2` `api.random` semeado pelo mundo, para script determinístico
 - [ ] 830 `P2` `api.recipes` para registrar receita de crafting
 - [ ] 831 `P2` `api.biomes` para registrar bioma (liga com a seção 27)
@@ -1306,9 +1306,9 @@ api.B                                         // paleta base, sem decorar ids
 - [ ] 839 `P2` Desligar automaticamente o mod que estoura o orçamento de frame
 - [ ] 840 `P2` Multiplayer: script roda só no anfitrião, resultado replica
 - [ ] 841 `P2` Sandbox de permissões por script (liga com a seção 30)
-- [ ] 842 `P2` Testes do isolamento: mod que lança exceção não afeta os outros
-- [ ] 843 `P2` Testes do desligamento automático após N erros
-- [ ] 844 `P2` Testes de que a API não expõe nada além da lista declarada
+- [~] 842 `P2` **Testes de isolamento: mod que lança exceção não afeta os outros**
+- [~] 843 `P2` **Testes do desligamento automático após N erros**
+- [~] 844 `P2` **Testes de que a API não expõe global implícito nem evento inexistente**
 
 ## 32 — Designer de Ferramentas Internas (páginas GUI)
 
@@ -1374,24 +1374,24 @@ Toda capacidade que não aparecer nesses dois lugares é, na prática, inexisten
 gerando blocos efêmeros, porque nada no prompt dizia como usá-la corretamente. A documentação
 aqui não é cortesia — é o mecanismo de ativação da funcionalidade.*
 
-- [ ] 881 `P0` Seção da API de mods no prompt do sistema, com o ciclo completo de uso
-- [ ] 882 `P0` Cada evento documentado com o formato exato do payload
-- [ ] 883 `P0` Exemplo executável por evento, curto o bastante para o agente copiar e adaptar
-- [ ] 884 `P0` Deixar explícito que a sessão define o mod, e que a escrita é escopada a ele
-- [ ] 885 `P0` Deixar explícito o que **não** existe (sem `window`, sem `fetch`, sem `document`)
-- [ ] 886 `P0` Ferramenta `get_mod_api_reference` devolvendo a superfície completa sob demanda
+- [~] 881 `P0` **Seção de script no prompt do sistema, com o fluxo completo**
+- [~] 882 `P0` **Cada evento documentado com o formato do payload**
+- [~] 883 `P0` **Cinco exemplos executáveis — e um teste garante que compilam**
+- [~] 884 `P0` **Documentado que a sessão define o mod e que a escrita é escopada**
+- [~] 885 `P0` **Documentado explicitamente o que **não** existe (fetch, window, setTimeout, import)**
+- [~] 886 `P0` **`get_mod_api_reference` devolvendo a superfície completa sob demanda**
 - [ ] 887 `P1` `docs/MOD_API.md` como fonte única, e o prompt referenciando-a
 - [ ] 888 `P1` Referência gerada a partir do código, para não divergir silenciosamente
-- [ ] 889 `P1` Teste que falha quando a API muda e a documentação não acompanha
-- [ ] 890 `P1` Erros do runtime citando a função correta da API na mensagem
+- [~] 889 `P1` **Teste que falha se um evento sumir da referência entregue à IA**
+- [~] 890 `P1` **Erros do runtime citando o script e a mensagem original**
 - [ ] 891 `P1` `get_session_context` incluindo o que o mod atual já registra (eventos, scripts)
 - [ ] 892 `P1` Receitas prontas: "reagir a bloco quebrado", "gerar estrutura", "ciclo do dia"
 - [ ] 893 `P1` Documentar o orçamento de blocos e de tempo, para o agente dividir a tarefa
 - [ ] 894 `P2` Documentar como ler outros mods sem poder alterá-los
 - [ ] 895 `P2` Changelog da API versionado, para mods antigos continuarem válidos
-- [ ] 896 `P2` Exemplos negativos: o que costuma dar errado e por quê
+- [~] 896 `P2` **Seção de erros comuns na referência**
 - [ ] 897 `P2` Guia de arte e de escala junto da API (proporção do jogador em mini-voxels)
-- [ ] 898 `P2` Documentação em português, alinhada ao resto do projeto
+- [~] 898 `P2` **Documentação em português, alinhada ao projeto**
 - [ ] 899 `P2` `list_recent_errors` correlacionando erro com a função da API envolvida
 - [ ] 900 `P2` Teste de que toda função pública da API aparece na documentação
 
@@ -1413,7 +1413,24 @@ aqui não é cortesia — é o mecanismo de ativação da funcionalidade.*
 | 277 Backup antes de migrar | Consequência direta do anterior |
 | 278 Verificação de integridade no load | A quarentena de mod já cobre parte; falta o mesmo para blocos e entidades órfãos |
 
-## Onda 1 — Fechar a lacuna que o próprio objetivo declara `~2 rodadas`
+## ✅ Onda 1 — CONCLUÍDA
+
+*O objetivo do projeto é "a IA modificar todo o jogo com save no mundo". Um mod era **só dados**:
+descrevia o que existe, nunca o que acontece. Agora tem comportamento.*
+
+| Entregue | O que mudou |
+|---|---|
+| 801–810 | Runtime com API injetada, isolamento, orçamento e autoria de bloco |
+| 811–821, 823, 828 | Superfície de funções: mundo, entidades, jogador, tempo, storage, console |
+| 824, 826 | `define_mod_script` compila e carrega **na mesma chamada** — o agente recebe o erro na hora |
+| 881–886, 889 | `get_mod_api_reference` + seção no prompt, com teste que falha se a doc divergir do código |
+
+**Bug encontrado pelo próprio teste:** cada handler fecha sobre o `api` recebido na compilação,
+mas o despacho construía um `api` novo a cada evento e drenava o objeto errado. Resultado: bloco
+colocado dentro de um evento nunca era salvo nem sincronizado. Corrigido reaproveitando uma
+instância por script.
+
+## Onda 1 (registro original) — Fechar a lacuna que o próprio objetivo declara
 
 *O objetivo do projeto é "a IA modificar todo o jogo com save no mundo". Hoje um mod é só
 **dados**: descreve o que existe, nunca o que acontece. Esta é a lacuna central que sobrou.*
@@ -1517,39 +1534,91 @@ Todas com round-trip verificado (`unpack(pack(x)) === x`). Comparadas com gzip, 
 | 48 chunks realistas, juntos (6 MB) | **15,4x** · 91 ms | 2,3x · 1146 ms |
 | 24 versões quase idênticas (9,4 MB) | **30,1x** · 56 ms | 20,4x · 2424 ms |
 
-## Os dois números que explicam tudo
+## Correção: o binário está correto — o domínio é que é outro
 
-**1. Ganho de deduplicação entre chunks: 1,00x — para os dois compressores.**
+A primeira leitura destes números levantou a hipótese de que o motor de dedup estivesse inerte
+na build WASM. **A documentação do projeto mostra que não.** O `README` e o `docs/benchmarks.md`
+do crompressor declaram, para o modo **Archive (lossless)**:
 
-Chunks de terreno **não são duplicatas uns dos outros**. Cada um tem coordenada diferente, logo
-relevo diferente. A redundância dos dados voxel é *local* — sequências longas do mesmo bloco
-dentro do chunk — e isso é exatamente o que LZ77/gzip explora. Deduplicação vence quando os
-**mesmos bytes** se repetem por um acervo (backups, versões de arquivo), não aqui.
+> Compressão ~1.5–2.5x (tensores densos) · *"obedecer aos limites de entropia de Shannon sobre
+> o resíduo"*
 
-Isso não é ajuste fino: é incompatibilidade de regime entre a técnica e o dado.
+Medimos **2,1x a 2,7x**. Ou seja: **o crompressor entregou exatamente o que promete.** A build
+está correta e a medição também — o que estava errado era a expectativa.
 
-**2. A API exposta não recebe codebook.**
+### O que o crompressor realmente é
 
-O binário contém `packbytes: open codebook`, `search: nil codebook`, `search: empty codebook` —
-o dicionário compartilhado é central no desenho. Mas `cromPack(bytes)` não tem parâmetro por
-onde recebê-lo. **A hipótese mais provável para os números acima é que o motor de dedup/LSH
-esteja inerte nesta build**, caindo para zstd por chunk com o custo do fatiamento por cima.
+Um compressor **de domínio específico para pesos de LLM e tensores**, construído sobre três
+primitivas: CDC (chunking por conteúdo), VQ (quantização vetorial contra um codebook treinado) e
+XOR delta. Ele tem dois modos mutuamente exclusivos:
 
-Se essa hipótese estiver certa, o problema é da API do WASM, não do algoritmo — e o teste
-decisivo seria expor `cromPack(bytes, codebook)` e repetir a medição com um codebook treinado
-sobre chunks do próprio jogo.
+| Modo | Compressão | Fidelidade | Uso declarado |
+|---|---|---|---|
+| **Edge** | ~5–8x | **Lossy** (MSE ~2,55) | inferência de borda, LLM em CPU |
+| **Archive** | ~1,5–2,5x | bit-exact | backup, cold storage, distribuição P2P |
 
-## Sobre segurança
+O número que dá sentido ao projeto é o **8x do modo Edge** — e ele custa perda. Funciona para
+pesos de rede neural porque o resíduo descartado é ruído que não muda a qualidade da inferência,
+exatamente como GPTQ e AWQ fazem.
 
-O `crompressor` tem `Decrypt`/`DeriveKey`, mas **o canal P2P já é cifrado**: o DataChannel do
-WebRTC exige DTLS, sem modo em claro. Cifrar de novo por cima não acrescenta confidencialidade
-no transporte.
+### Por que isso não serve para voxels
 
-E há um risco a registrar para quando os segredos da seção 29 existirem: **comprimir dados
-influenciáveis por terceiro no mesmo fluxo que um segredo permite ataques de oráculo por
-compressão (família CRIME/BREACH)**, em que o tamanho do resultado vaza informação sobre o
-segredo. Para blocos do mundo o risco é irrelevante; no dia em que chave de `mod.env` trafegar,
-segredo e dado de terceiro não podem compartilhar o mesmo fluxo comprimido.
+**Id de bloco é símbolo discreto, não grandeza contínua.** Um peso de rede neural aproximado de
+0,732 para 0,729 continua funcionando; um bloco 3 (pedra) aproximado para 4 (areia) é um mundo
+corrompido, não um mundo levemente degradado. Não existe tolerância perceptual em id de bloco.
+
+Isso elimina o modo Edge — o único em que o crompressor supera o gzip. Resta o Archive, cujo
+teto de ~2,5x é **principiado, não um defeito**: o resíduo XOR de uma aproximação VQ é quase
+aleatório, e a própria tabela de benchmarks do projeto registra Archive sobre `urandom` = 1,0x
+com a nota *"resíduo XOR consome todo o espaço (limite de Shannon)"*.
+
+### Sobre a deduplicação em blocos, especificamente
+
+O ganho de dedup entre chunks medido foi **1,00x para os dois compressores**. Chunks de terreno
+não são duplicatas uns dos outros: cada um tem coordenada diferente, logo relevo diferente. A
+redundância de dado voxel é *local* — sequências longas do mesmo bloco dentro do chunk — e isso
+é o que LZ77/gzip explora. Deduplicação vence quando os **mesmos bytes** se repetem por um
+acervo, que não é o caso aqui nem com um codebook treinado.
+
+### Esclarecimento do autor, e o que ele muda na avaliação
+
+> *"O crompressor só funciona com dados médios/grandes, para passar apenas os vetores de
+> instrução na comunicação."*
+
+Isso aponta um cenário que **a medição acima não cobriu**, e é justo registrar:
+
+Nos testes, cada payload foi empacotado de forma autônoma — o resultado precisa conter tudo que
+a reconstrução exige. O uso pretendido é outro: **os dois lados compartilham o mesmo codebook
+treinado, e o que trafega são só os índices** (os "vetores de instrução"). Nesse regime a conta
+muda de natureza, porque o dicionário deixa de ser custo de transmissão.
+
+O que seria necessário para medir isso de verdade, e que fica registrado como tarefa:
+
+1. Treinar um codebook sobre chunks reais deste jogo (`crompressor train --size 4096`).
+2. Distribuir o codebook aos dois peers **uma vez** — e resolver como: ele é grande, e essa
+   distribuição é um problema de sincronização por si só.
+3. Medir só o tráfego de índices por mensagem, contra o gzip do payload equivalente.
+4. Expor `cromPack(bytes, codebook, modo)` no WASM — a API atual não tem por onde receber
+   nenhum dos três.
+
+Duas ressalvas que continuam valendo independentemente desse teste:
+
+- **Regime de tamanho.** Quase todo o tráfego deste jogo é pequeno: `player_state` tem ~200
+  bytes e sai 10x por segundo. Pelo próprio critério do autor, esse tráfego está fora do alvo do
+  crompressor. O único payload no regime "médio/grande" é o `full_sync` — e é exatamente onde a
+  fragmentação com gzip já resolveu o problema que existia (o canal caía).
+- **Perda continua proibida para bloco.** Se os índices sozinhos forem suficientes, a
+  reconstrução é aproximada — modo Edge. Id de bloco não tolera aproximação. Para lossless o
+  delta XOR volta a trafegar, e aí o ganho retorna ao teto de ~2,5x já medido.
+
+### Onde ele caberia neste projeto
+
+Há um caso real, e é específico: **se o jogo passar a embarcar um modelo de linguagem local**
+para o agente rodar sem API externa (o que a seção 30 prevê como capacidade de mod), pesos de
+LLM no navegador são exatamente o domínio do modo Edge, com os 8x documentados. Aí a conversa
+muda por completo.
+
+Para blocos, saves e P2P: não.
 
 ## Decisão tomada nesta rodada
 
@@ -1569,7 +1638,11 @@ Implementado com **gzip nativo** (`CompressionStream`), não com o WASM:
 - [ ] 908 `P2` Comprimir também o save de blocos no IndexedDB (mesma função, outro consumidor)
 - [ ] 909 `P2` Comprimir o export de mundo e de mod
 - [ ] 910 `P2` Delta entre revisões de mod, em vez de snapshot inteiro (ver item 645)
-- [ ] 911 `P3` **Reavaliar o crompressor se a API passar a aceitar codebook** — treinar um sobre chunks reais e repetir a tabela acima
+- [ ] 911 `P3` **Reavaliar o crompressor se o jogo embarcar um LLM local** — pesos de rede são o domínio do modo Edge (8x documentados), diferente de id de bloco
+- [ ] 914 `P3` Se um dia houver LLM local no navegador, medir Edge do crompressor contra quantização padrão (GPTQ/AWQ)
+- [ ] 915 `P3` Medir o cenário de codebook compartilhado: treinar sobre chunks reais, distribuir uma vez, e comparar só o tráfego de índices contra gzip
+- [ ] 916 `P3` Pré-requisito do anterior: expor `cromPack(bytes, codebook, modo)` no WASM — a API atual não recebe nenhum dos três
+- [ ] 917 `P3` Resolver a distribuição do codebook entre peers (ele próprio é grande, e vira um problema de sync)
 - [ ] 912 `P2` Isolar segredo de dado de terceiro em fluxos comprimidos distintos (CRIME/BREACH)
 - [ ] 913 `P2` Documentar em `docs/NETWORK_PROTOCOL.md` o formato de quadro e o limiar de fragmentação
 

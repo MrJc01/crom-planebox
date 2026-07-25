@@ -11,6 +11,8 @@ import { UIExecutors } from './UIExecutors';
 import { getStructureTemplate } from '../crafting/StructureTemplates';
 import { SCALE } from '../world/chunk';
 import { ModService } from '../mods/ModService';
+import { ModRuntime } from '../mods/ModRuntime';
+import { MOD_API_REFERENCE } from '../mods/ModAPIReference';
 import { resolveBlockRef } from '../mods/ModRegistry';
 
 /**
@@ -95,6 +97,8 @@ export class MCPExecutors {
   public uiExecutors: UIExecutors;
   /** Sistema de mods: cria e persiste blocos, entidades e estruturas inéditas no mundo. */
   public modService: ModService;
+  /** Runtime que executa os scripts dos mods. Injetado pelo `main`. */
+  public modRuntime?: ModRuntime;
   /** Log das últimas falhas de execute_voxel_script, para a IA se autocorrigir sem o usuário colar erros manualmente. */
   private recentErrors: ScriptErrorLog[] = [];
   /** Notifica blocos alterados pela IA — usado pelo host para retransmitir via PeerSync. */
@@ -685,6 +689,53 @@ export class MCPExecutors {
           Number(args.x) || 0, Number(args.y) || 0, Number(args.z) || 0,
         );
         return { result: res.message, snapshotImage: snap };
+      }
+
+      case 'define_mod_script': {
+        const alvo = this.targetMod(args, 'escrever um script');
+        if ('erro' in alvo) return { result: alvo.erro };
+
+        const res = await this.modService.setScript(alvo.modId, {
+          key: String(args.key || 'main'),
+          name: args.name,
+          code: String(args.code ?? ''),
+          enabled: args.enabled,
+        });
+        if (!res.ok) return { result: res.message };
+
+        // Recarrega na hora: o agente precisa do resultado (ou do erro) na mesma volta, senão
+        // ele reporta sucesso sem saber se o código sequer compila.
+        const mod = this.modService.getMod(alvo.modId)!;
+        const cargas = this.modRuntime?.loadMod(mod) ?? [];
+        const falhou = cargas.find((c) => !c.ok);
+        if (falhou) {
+          return { result: `${res.message}\n❌ O script não carregou: ${falhou.error}\nCorrija e chame define_mod_script de novo.` };
+        }
+
+        const logs = this.modRuntime?.getLogs(alvo.modId, 10) ?? [];
+        const resumo = logs.length > 0 ? `\nLog: ${logs.map((l) => `[${l.level}] ${l.message}`).join(' | ')}` : '';
+        return { result: `${res.message}\n✅ Script carregado e ativo.${resumo}` };
+      }
+
+      case 'set_mod_script_enabled': {
+        const alvo = this.targetMod(args, 'alterar um script');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const res = await this.modService.setScriptEnabled(alvo.modId, String(args.key || ''), !!args.enabled);
+        const mod = this.modService.getMod(alvo.modId);
+        if (res.ok && mod) this.modRuntime?.loadMod(mod);
+        return { result: res.message };
+      }
+
+      case 'get_mod_script_logs': {
+        const alvo = this.targetMod(args, 'consultar logs');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const logs = this.modRuntime?.getLogs(alvo.modId, 40) ?? [];
+        if (logs.length === 0) return { result: 'Nenhum log — o script não imprimiu nada e não lançou erro.' };
+        return { result: logs };
+      }
+
+      case 'get_mod_api_reference': {
+        return { result: MOD_API_REFERENCE };
       }
 
       case 'attach_session_to_mod': {

@@ -85,6 +85,21 @@ export interface ModEntityInstance {
   z: number;
 }
 
+/**
+ * Script de um mod: o código que dá **comportamento** ao que antes eram só dados.
+ *
+ * Um mod pode ter vários — separar por assunto ("clima", "criaturas") mantém cada arquivo
+ * legível e permite desligar um pedaço sem derrubar o mod inteiro.
+ */
+export interface ModScript {
+  /** Chave única no mod, ex.: 'main'. Serve de nome de arquivo no editor. */
+  key: string;
+  name: string;
+  /** Código JS. Recebe `api` no escopo; ver `src/mods/ModAPI.ts`. */
+  code: string;
+  enabled: boolean;
+}
+
 export interface ModPackage {
   /** Identificador estável, ex.: 'mod-rubi'. Único por mundo. */
   id: string;
@@ -96,6 +111,8 @@ export interface ModPackage {
   blocks: ModBlockDef[];
   entities: ModEntityDef[];
   structures: ModStructureDef[];
+  /** Ausente em mods criados antes do runtime — tratado como lista vazia. */
+  scripts?: ModScript[];
   createdAt: number;
   updatedAt: number;
 
@@ -155,6 +172,7 @@ export function emptyModPackage(id: string, name: string, description = '', orig
     blocks: [],
     entities: [],
     structures: [],
+    scripts: [],
     createdAt: now,
     updatedAt: now,
     originThreadId,

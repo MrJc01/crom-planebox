@@ -31,6 +31,12 @@ export interface BlockModRecord {
   y: number;
   z: number;
   blockType: number;
+  /**
+   * Mod responsável por este bloco, quando ele veio de um script de mod.
+   * É o que permite desfazer um mod com precisão — sem isso, remover um mod só conseguiria
+   * apagar blocos pelo TIPO, o que erraria em qualquer bloco da paleta base que ele tenha usado.
+   */
+  modId?: string;
 }
 
 export interface PlayerRecord {
@@ -188,6 +194,10 @@ export class VoxelDatabase extends Dexie {
     // v6: histórico de revisões de mod, para voltar versão sem perder a sessão de chat.
     this.version(6).stores({
       modRevisions: '[worldId+key], worldId, [worldId+modId]'
+    });
+    // v7: índice de autoria dos blocos, para reverter exatamente o que um mod colocou.
+    this.version(7).stores({
+      blockMods: '++id, [worldId+key], worldId, [worldId+modId]'
     });
   }
 }

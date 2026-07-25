@@ -7,6 +7,8 @@ import { meshChunk } from './world/mesher';
 import { VoxelPhysics } from './world/physics';
 import { isSolid } from './world/blocks';
 import { LightEngine } from './world/lighting';
+import { ModRuntime } from './mods/ModRuntime';
+import { ModHostBridge } from './mods/ModAPI';
 import { MobSpawner } from './entities/MobSpawner';
 import { CombatTimers, damageForTier, isInMeleeReach } from './entities/Combat';
 import { foodValueOf, isEdible } from './game/SurvivalSystem';
@@ -295,6 +297,60 @@ async function bootstrap() {
   const mcpExecutors = new MCPExecutors(world, player, gs.scene, gs.renderer, currentWorld.id, entitySystem, eventSystem, undoManager);
   const openRouterClient = new OpenRouterClient(mcpExecutors);
 
+  // --- Runtime de mods ----------------------------------------------------------------------
+  // A ponte é a única porta entre o código de um mod e o jogo: o que não estiver aqui, ele não
+  // alcança. Nada de `window`, `fetch` ou `document` chega até o script.
+  const modBridge: ModHostBridge = {
+    getBlock: (x, y, z) => world.getBlock(x, y, z),
+    setBlock: (x, y, z, t) => world.setBlock(x, y, z, t),
+    getGroundY: (x, z) => {
+      for (let y = CY - 1; y >= 0; y--) {
+        const b = world.getBlock(x, y, z);
+        if (b !== 0 && b !== 6) return y;
+      }
+      return 0;
+    },
+    spawnEntity: (modId, entityKey, x, y, z) => {
+      const mod = mcpExecutors.modService.getMod(modId);
+      const especie = (mod?.entities ?? []).find((e) => e.key === entityKey);
+      if (!especie) return null;
+      const rec = entitySystem.createCustomEntity({
+        name: especie.name, faction: especie.faction, role: especie.role,
+        x, y, z, parts: especie.parts as any, behaviorScript: especie.behaviorScript,
+      });
+      return rec.id;
+    },
+    listEntities: () => entitySystem.listEntities().map((e: any) => ({
+      id: e.id, name: e.name, x: e.position.x, y: e.position.y, z: e.position.z,
+    })),
+    damageEntity: (id, amount) => entitySystem.damageEntity(id, amount),
+    playerPosition: () => ({ x: player.pos.x, y: player.pos.y, z: player.pos.z }),
+    teleportPlayer: (x, y, z) => { player.pos.set(x, y, z); player.vel.set(0, 0, 0); },
+    playerHealth: () => survivalSystem.health,
+    giveItem: (block, count) => inter.grant(block, count),
+    toast: (msg) => hud.showToast(msg),
+    timeOfDay: () => timeOfDay,
+  };
+
+  const modRuntime = new ModRuntime(modBridge);
+
+  /** Fase do dia em texto, para os mods reagirem sem interpretar a fração. */
+  const fasesDoDia = (t: number): string =>
+    t < 0.2 ? 'noite' : t < 0.3 ? 'amanhecer' : t < 0.7 ? 'dia' : t < 0.8 ? 'anoitecer' : 'noite';
+
+  // Bloco escrito por script é salvo COM a autoria do mod, para poder ser desfeito com precisão.
+  modRuntime.onBlocksChanged = (modId, changes) => {
+    if (currentWorld.id) WorldRepository.saveBlockModBatch(currentWorld.id, changes, modId);
+    relightBatch(changes);
+    if (peerSync.role === 'host') {
+      for (const c of changes) peerSync.broadcast({ type: 'block_update', x: c.x, y: c.y, z: c.z, blockType: c.blockType });
+    }
+  };
+  modRuntime.onScriptDisabled = (modId, scriptKey, reason) => {
+    hud.showToast(`⚠️ Script "${scriptKey}" do mod "${modId}" foi desligado: ${reason}`);
+  };
+  mcpExecutors.modRuntime = modRuntime;
+
   // HUD & UI Overlays (ficam ocultos até o jogo realmente começar, para o MainMenu não competir com eles)
   const hud = new HUD(cameraManager);
   hud.canUseTopdown = () => gameModeManager.mode === 'creative';
@@ -567,7 +623,12 @@ async function bootstrap() {
     }
   };
 
+  survivalSystem.onDamage = (amount, cause) => {
+    modRuntime.dispatch('playerDamaged', { amount, cause, health: survivalSystem.health });
+  };
+
   entitySystem.onEntityDeath = (mob) => {
+    modRuntime.dispatch('entityDeath', { id: mob.id, name: mob.name, x: mob.pos.x, y: mob.pos.y, z: mob.pos.z });
     hud.showToast(`${mob.name} derrotado!`);
     const drop = mob.profile?.drop ?? -1;
     if (drop >= 0 && (mob.profile?.dropCount ?? 0) > 0) {
@@ -577,6 +638,7 @@ async function bootstrap() {
 
   inter.onBlockChange = (x, y, z, blockType) => {
     relight(x, y, z);
+    modRuntime.dispatch(blockType === 0 ? 'blockBroken' : 'blockPlaced', { x, y, z, block: blockType });
     if (peerSync.role === 'host') peerSync.broadcast({ type: 'block_update', x, y, z, blockType });
   };
 
@@ -715,7 +777,13 @@ async function bootstrap() {
     // Os mods vêm ANTES dos blocos salvos: eles registram os blocos customizados nos ids que o
     // save referencia. Na ordem inversa, o mundo aplicaria ids sem definição e o mesher
     // renderizaria "bloco ausente" até o registro chegar.
+    modRuntime.unloadAll();
     const modSummary = await mcpExecutors.loadModsForWorld(worldId);
+    // Só os mods saudáveis rodam script: um mod em quarentena já falhou ao ser aplicado, e
+    // executar o código dele seria insistir no erro.
+    for (const mod of mcpExecutors.modService.getMods()) {
+      if (mod.enabled && !mod.quarantined && (mod.scripts?.length ?? 0) > 0) modRuntime.loadMod(mod);
+    }
     if (modSummary.mods > 0) {
       hud.showToast(`🧩 ${modSummary.mods} mod(s) carregados: ${modSummary.blocks} bloco(s), ${modSummary.entities} entidade(s)`);
     }
@@ -1024,8 +1092,13 @@ async function bootstrap() {
     // Ciclo dia/noite. A luz de céu está assada na cor dos vértices, então o mundo só é
     // re-meshado quando `sunScale` muda o suficiente para ser perceptível — algumas vezes por
     // dia de jogo, e não a cada frame.
+    const faseAnterior = fasesDoDia(timeOfDay);
     timeOfDay = (timeOfDay + dt / DAY_LENGTH) % 1;
     gs.setTimeOfDay(timeOfDay);
+    const faseAtual = fasesDoDia(timeOfDay);
+    if (faseAtual !== faseAnterior) modRuntime.dispatch('dayPhase', { phase: faseAtual, timeOfDay });
+
+    modRuntime.tickAll(dt);
     const sunScale = gs.getSunScale();
     if (Math.abs(sunScale - lastBakedSun) > 0.06) {
       lastBakedSun = sunScale;

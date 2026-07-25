@@ -453,6 +453,56 @@ export class ModService {
     };
   }
 
+  /**
+   * Adiciona ou substitui um script do mod. Substituir é o caminho do editor: salvar de novo o
+   * mesmo `key` atualiza o código e gera revisão, em vez de acumular arquivos.
+   */
+  public async setScript(modId: string, script: { key: string; name?: string; code: string; enabled?: boolean }): Promise<ModApplyResult> {
+    const mod = this.getMod(modId);
+    if (!mod) return { ok: false, message: `Mod "${modId}" não encontrado.` };
+
+    const key = normalizeKey(script.key || 'main');
+    if (!key) return { ok: false, message: 'O script precisa de uma chave válida.' };
+    if (typeof script.code !== 'string') return { ok: false, message: 'O script precisa de código.' };
+
+    const anteriores = mod.scripts ?? [];
+    const existente = anteriores.find((s) => s.key === key);
+    const novo = {
+      key,
+      name: script.name || existente?.name || key,
+      code: script.code,
+      enabled: script.enabled ?? existente?.enabled ?? true,
+    };
+
+    const candidate: ModPackage = {
+      ...mod,
+      scripts: existente ? anteriores.map((s) => (s.key === key ? novo : s)) : [...anteriores, novo],
+    };
+
+    await this.snapshot(mod, existente ? `Antes de alterar o script "${key}"` : `Antes de adicionar o script "${key}"`);
+    candidate.revision = (mod.revision ?? 1) + 1;
+    await this.persist(candidate);
+
+    return {
+      ok: true,
+      message: `Script "${key}" ${existente ? 'atualizado' : 'adicionado'} no mod "${mod.name}" (revisão ${candidate.revision}).`,
+      details: { modId, key, revision: candidate.revision },
+    };
+  }
+
+  /** Liga/desliga um script sem removê-lo. */
+  public async setScriptEnabled(modId: string, key: string, enabled: boolean): Promise<ModApplyResult> {
+    const mod = this.getMod(modId);
+    if (!mod) return { ok: false, message: `Mod "${modId}" não encontrado.` };
+    const scripts = mod.scripts ?? [];
+    if (!scripts.some((s) => s.key === key)) return { ok: false, message: `O mod não tem o script "${key}".` };
+
+    const candidate: ModPackage = { ...mod, scripts: scripts.map((s) => (s.key === key ? { ...s, enabled } : s)) };
+    candidate.revision = (mod.revision ?? 1) + 1;
+    await this.persist(candidate);
+    return { ok: true, message: `Script "${key}" ${enabled ? 'ligado' : 'desligado'}.` };
+  }
+
   public async addStructure(modId: string, structure: ModStructureDef): Promise<ModApplyResult> {
     const mod = this.getMod(modId);
     if (!mod) return { ok: false, message: `Mod "${modId}" não encontrado. Use create_mod primeiro.` };
@@ -574,8 +624,20 @@ export class ModService {
     const blockIds = revokeModBlocks(mod);
 
     let purged = 0;
-    if (purgePlacedBlocks && blockIds.length > 0) {
-      const positions = await WorldRepository.purgeBlocksOfTypes(this.worldId, blockIds);
+    if (purgePlacedBlocks) {
+      // Duas fontes: os blocos com autoria registrada (colocados por script) e os que usam um
+      // tipo de bloco declarado pelo mod. A união cobre os dois caminhos de escrita.
+      const porAutoria = await WorldRepository.purgeBlocksOfMod(this.worldId, modId);
+      const porTipo = blockIds.length > 0 ? await WorldRepository.purgeBlocksOfTypes(this.worldId, blockIds) : [];
+
+      const vistos = new Set<string>();
+      const positions = [...porAutoria, ...porTipo].filter((p) => {
+        const k = `${p.x},${p.y},${p.z}`;
+        if (vistos.has(k)) return false;
+        vistos.add(k);
+        return true;
+      });
+
       for (const p of positions) this.world.setBlock(p.x, p.y, p.z, 0);
       this.onBlocksChanged(positions.map((p) => ({ ...p, blockType: 0 })));
       purged = positions.length;

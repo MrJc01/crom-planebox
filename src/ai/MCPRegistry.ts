@@ -544,6 +544,59 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'define_mod_script',
+      description: 'Adiciona ou substitui um SCRIPT do mod desta sessão — o código que dá comportamento a ele (reagir a bloco quebrado, rodar lógica por frame, responder ao ciclo do dia). O script recebe um objeto `api` no escopo; chame get_mod_api_reference para ver a superfície completa antes de escrever. Salvar o mesmo `key` de novo atualiza o código e gera uma revisão nova.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: "Chave curta do script, ex.: 'main' ou 'clima'. Funciona como nome de arquivo." },
+          code: { type: 'string', description: 'Código JavaScript. Use api.on("evento", fn) para registrar comportamento.' },
+          name: { type: 'string', description: 'Nome legível do script' },
+          enabled: { type: 'boolean', description: 'Padrão true' },
+          mod_id: { type: 'string', description: 'Omita para usar o mod desta sessão.' },
+        },
+        required: ['key', 'code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_mod_api_reference',
+      description: 'Devolve a referência COMPLETA da API disponível aos scripts de mod: todos os eventos com o formato do payload, todas as funções, os limites e exemplos prontos. Chame ANTES de escrever qualquer script — a superfície é fechada e o que não estiver nela não existe.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_mod_script_logs',
+      description: 'Últimas linhas de log e erros dos scripts de um mod (o que api.console imprimiu, e as exceções). Use para se autocorrigir depois de instalar um script que não funcionou como esperado.',
+      parameters: {
+        type: 'object',
+        properties: { mod_id: { type: 'string', description: 'Omita para usar o mod desta sessão.' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_mod_script_enabled',
+      description: 'Liga ou desliga um script sem removê-lo do mod.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string' },
+          enabled: { type: 'boolean' },
+          mod_id: { type: 'string' },
+        },
+        required: ['key', 'enabled'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_mods',
       description: 'Lista os mods instalados neste mundo com seus blocos, espécies e estruturas. Consulte ANTES de criar conteúdo novo, para reaproveitar o que já existe em vez de duplicar.',
       parameters: { type: 'object', properties: {} },

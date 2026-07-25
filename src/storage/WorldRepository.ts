@@ -80,7 +80,7 @@ export class WorldRepository {
    * de ~650 mini-blocos (ex.: `stamp_structure` de um muro) levava mais de 1 minuto e parecia
    * travado. Agora faz 1 leitura em lote + no máximo 2 escritas em lote, independente de N.
    */
-  static async saveBlockModBatch(worldId: string, mods: { x: number; y: number; z: number; blockType: number }[]): Promise<void> {
+  static async saveBlockModBatch(worldId: string, mods: { x: number; y: number; z: number; blockType: number }[], modId?: string): Promise<void> {
     if (mods.length === 0) return;
 
     // Dedup por chave (x,y,z): se o mesmo bloco aparece mais de uma vez no lote, só o último vale.
@@ -103,10 +103,12 @@ export class WorldRepository {
             if (existing.id !== undefined) toDeleteIds.push(existing.id);
           } else {
             existing.blockType = m.blockType;
+            // Sobrescrever transfere a autoria: quem escreveu por último é quem responde por ele.
+            existing.modId = modId;
             toPut.push(existing);
           }
         } else if (m.blockType !== 0) {
-          toPut.push({ worldId, key, x: m.x, y: m.y, z: m.z, blockType: m.blockType });
+          toPut.push({ worldId, key, x: m.x, y: m.y, z: m.z, blockType: m.blockType, modId });
         }
       }
 
@@ -243,6 +245,18 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
    - ETAPA 3 [TELHADO E ILUMINAÇÃO]: Construa o telhado, adicione iluminação no teto com 'B.GLOWSTONE' e acabamentos. Use 'capture_snapshot' para verificar.
    - ETAPA 4 [ENTIDADES E SERES 3D]: Programe e gere as entidades habitando o local usando 'createEntity'. Use 'capture_multi_angle' (tira 4 fotos automáticas: frente/direita/trás/esquerda) como verificação final obrigatória de QUALQUER construção terminada — é mais confiável que um único 'capture_snapshot' porque revela erros escondidos atrás da construção. Se notar qualquer imperfeição em qualquer uma das fotos, corrija imediatamente!
    - Se algo der errado no meio de um script, use 'list_recent_errors' para ver os últimos erros desta sessão antes de tentar de novo — evita repetir o mesmo engano.
+
+1.02 COMPORTAMENTO = SCRIPT DE MOD:
+   Quando o pedido não for "coloque isto aqui" e sim "faça o jogo REAGIR" — dar tocha ao quebrar
+   bloco no escuro, gerar criatura ao anoitecer, premiar quem minera —, isso é um SCRIPT de mod,
+   não uma construção. Fluxo:
+     1. 'get_mod_api_reference' — a superfície é FECHADA (sem window, fetch, document,
+        setTimeout ou import). Leia antes de escrever a primeira linha.
+     2. 'define_mod_script' — o script é compilado e carregado na mesma chamada, então você
+        recebe o erro de compilação na hora, e não depois.
+     3. 'get_mod_script_logs' — leia o que 'api.console' imprimiu e o que falhou, e corrija.
+   O script registra comportamento com api.on(evento, fn). Eventos: load, unload, tick,
+   blockPlaced, blockBroken, playerDamaged, entityDeath, dayPhase.
 
 1.05 CONTEÚDO INÉDITO = SISTEMA DE MODS (NÃO use execute_voxel_script para isso):
    Quando o pedido for para CRIAR ALGO NOVO no jogo — um bloco que não existe, uma criatura nova,
@@ -507,6 +521,18 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
     thread.modId = modId;
     thread.updatedAt = Date.now();
     await db.chatThreads.put(thread);
+  }
+
+  /**
+   * Apaga os blocos que um mod colocou, pela autoria registrada.
+   * Mais preciso que apagar por tipo de bloco: um mod que usou pedra da paleta base não
+   * arrasta consigo a pedra que o jogador colocou.
+   */
+  static async purgeBlocksOfMod(worldId: string, modId: string): Promise<{ x: number; y: number; z: number }[]> {
+    const rows = await db.blockMods.where('[worldId+modId]').equals([worldId, modId]).toArray();
+    const ids = rows.map((r) => r.id).filter((id): id is number => id !== undefined);
+    if (ids.length > 0) await db.blockMods.bulkDelete(ids);
+    return rows.map((r) => ({ x: r.x, y: r.y, z: r.z }));
   }
 
   // Instâncias de entidade de mod colocadas no mundo (o molde fica no ModPackage)

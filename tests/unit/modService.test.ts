@@ -26,6 +26,11 @@ vi.mock('../../src/storage/WorldRepository', () => {
       state.mods.delete(modId);
       for (const [id, e] of state.entities) if (e.modId === modId) state.entities.delete(id);
     },
+    async purgeBlocksOfMod(_worldId: string, modId: string) {
+      const hits = state.blockMods.filter((m: any) => m.modId === modId);
+      state.blockMods = state.blockMods.filter((m: any) => m.modId !== modId);
+      return hits.map((m) => ({ x: m.x, y: m.y, z: m.z }));
+    },
     async purgeBlocksOfTypes(_worldId: string, blockIds: number[]) {
       const targets = new Set(blockIds);
       const hits = state.blockMods.filter((m) => targets.has(m.blockType));
