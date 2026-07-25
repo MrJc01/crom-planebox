@@ -1534,118 +1534,79 @@ Todas com round-trip verificado (`unpack(pack(x)) === x`). Comparadas com gzip, 
 | 48 chunks realistas, juntos (6 MB) | **15,4x** · 91 ms | 2,3x · 1146 ms |
 | 24 versões quase idênticas (9,4 MB) | **30,1x** · 56 ms | 20,4x · 2424 ms |
 
-## Correção: o binário está correto — o domínio é que é outro
+## Correção: o que o crompressor é
 
-A primeira leitura destes números levantou a hipótese de que o motor de dedup estivesse inerte
-na build WASM. **A documentação do projeto mostra que não.** O `README` e o `docs/benchmarks.md`
-do crompressor declaram, para o modo **Archive (lossless)**:
+Registro um erro meu antes da análise. Numa primeira leitura descrevi o crompressor como
+"compressor de domínio para pesos de LLM e tensores". **Está errado.** Peguei uma linha de
+benchmark num README lido dentro de um projeto de artigo (`crom-artigo-dnai-jl/`), tratei-a como
+se fosse a finalidade do projeto, e repeti isso por duas rodadas — generalizei a partir de uma
+fonte que não é a declaração de propósito.
 
-> Compressão ~1.5–2.5x (tensores densos) · *"obedecer aos limites de entropia de Shannon sobre
-> o resíduo"*
+A declaração de propósito é o artigo do autor: *"A ilusão da compressão: por que o Crompressor
+não é o novo gzip, e sim um Git para dados (CDN, P2P)"*.
 
-Medimos **2,1x a 2,7x**. Ou seja: **o crompressor entregou exatamente o que promete.** A build
-está correta e a medição também — o que estava errado era a expectativa.
+**O que ele é:** um motor de **deduplicação com dicionário estático compartilhado**. O modelo é o
+do Git e o do CAS (content-addressable storage): treina-se um `.cromdb` sobre dados históricos,
+distribui-se esse dicionário aos nós **uma vez**, e a partir daí um bloco reconhecido viaja como
+um identificador de 24 bytes em vez do conteúdo. O ganho não está em espremer bytes — está em
+**não retransmitir o que o outro lado já consegue reconstruir**.
 
-### O que o crompressor realmente é
-
-Um compressor **de domínio específico para pesos de LLM e tensores**, construído sobre três
-primitivas: CDC (chunking por conteúdo), VQ (quantização vetorial contra um codebook treinado) e
-XOR delta. Ele tem dois modos mutuamente exclusivos:
-
-| Modo | Compressão | Fidelidade | Uso declarado |
-|---|---|---|---|
-| **Edge** | ~5–8x | **Lossy** (MSE ~2,55) | inferência de borda, LLM em CPU |
-| **Archive** | ~1,5–2,5x | bit-exact | backup, cold storage, distribuição P2P |
-
-O número que dá sentido ao projeto é o **8x do modo Edge** — e ele custa perda. Funciona para
-pesos de rede neural porque o resíduo descartado é ruído que não muda a qualidade da inferência,
-exatamente como GPTQ e AWQ fazem.
-
-### Por que isso não serve para voxels
-
-**Id de bloco é símbolo discreto, não grandeza contínua.** Um peso de rede neural aproximado de
-0,732 para 0,729 continua funcionando; um bloco 3 (pedra) aproximado para 4 (areia) é um mundo
-corrompido, não um mundo levemente degradado. Não existe tolerância perceptual em id de bloco.
-
-Isso elimina o modo Edge — o único em que o crompressor supera o gzip. Resta o Archive, cujo
-teto de ~2,5x é **principiado, não um defeito**: o resíduo XOR de uma aproximação VQ é quase
-aleatório, e a própria tabela de benchmarks do projeto registra Archive sobre `urandom` = 1,0x
-com a nota *"resíduo XOR consome todo o espaço (limite de Shannon)"*.
-
-### Sobre a deduplicação em blocos, especificamente
-
-O ganho de dedup entre chunks medido foi **1,00x para os dois compressores**. Chunks de terreno
-não são duplicatas uns dos outros: cada um tem coordenada diferente, logo relevo diferente. A
-redundância de dado voxel é *local* — sequências longas do mesmo bloco dentro do chunk — e isso
-é o que LZ77/gzip explora. Deduplicação vence quando os **mesmos bytes** se repetem por um
-acervo, que não é o caso aqui nem com um codebook treinado.
-
-### Correção maior: eu medi o modo errado
-
-O artigo *"A ilusão da compressão: por que o Crompressor não é o novo gzip, e sim um Git para
-dados"* deixa explícito que **a comparação que fiz não é a que o projeto propõe**. O próprio
-autor afirma que, em uso isolado, o crompressor chega a **inflar o arquivo (125% do original)** —
-e que o ganho aparece quando ele opera como **motor de deduplicação de borda com codebook
-compartilhado**, onde reduz *"até 99,4% do tráfego de rede"*.
-
-Os números do artigo, no modo pretendido:
+Os números do autor, no modo pretendido:
 
 | Benchmark | Resultado |
 |---|---|
 | V5 (chunks de 128 B) | 80,5% de redução de tráfego — o limite dado o overhead de 24 B por chunk |
 | V6 (chunks de 4 KB) | 460,81 MB → **2,81 MB (99,38%)** em projetos reais |
 
-O modelo é o do Git, e a analogia é precisa: **não se transmite o que o outro lado já tem.**
-Treina-se um `.cromdb` sobre dados históricos, distribui-se esse dicionário aos nós uma vez, e a
-partir daí um bloco reconhecido viaja como um identificador de 24 bytes em vez do conteúdo.
+Casos declarados como bons: sincronizar imagens Docker por CDN, quadros de CCTV, ISOs de VM,
+deduplicação massiva de logs. Casos declarados como ruins: arquivo único sem redundância,
+formatos já comprimidos, e **compressão tradicional em sistema isolado** — que é exatamente o
+que eu havia medido.
 
-Ou seja: minha tabela mediu empacotamento autônomo, que é justamente o cenário que o autor
-classifica como mau uso. **A medição estava correta; a pergunta é que estava errada.**
+## Por que minha medição não respondeu à pergunta certa
 
-### A pergunta certa: esse modelo se aplica a este jogo?
+A tabela acima testou **empacotamento autônomo**: cada payload comprimido sozinho, sem dicionário
+compartilhado e sem segundo nó. O próprio autor classifica esse uso como inadequado e registra
+que nele o arquivo chega a **inflar (125% do original)**.
 
-Aqui a resposta continua sendo majoritariamente não, mas por um motivo **completamente
-diferente** do que eu havia registrado — e que vale mais que a discussão de razão de compressão:
+Os números que medi são coerentes com o que o projeto diz sobre uso isolado. **A medição estava
+correta; a pergunta é que estava errada.**
+
+## A pergunta certa: o modelo se aplica a este jogo?
+
+A resposta continua sendo majoritariamente não — mas por um motivo **completamente diferente** do
+que eu havia registrado, e mais interessante que qualquer razão de compressão:
 
 **O `full_sync` deste jogo já não transmite o dado redundante.** O terreno é gerado
-proceduralmente a partir da semente, e o convidado o regenera localmente. O que trafega são só
-as `blockMods` — as alterações do jogador. A redundância entre pares que o crompressor existe
-para eliminar **já foi eliminada por construção**, pela geração determinística.
+proceduralmente a partir da semente, e o convidado o regenera localmente. O que trafega são só as
+`blockMods` — as alterações do jogador. A redundância entre nós que a deduplicação existe para
+eliminar **já foi eliminada por construção**.
 
-É o mesmo princípio do artigo (não mandar o que o outro lado consegue obter sozinho), aplicado
-uma camada acima: em vez de um codebook de padrões, a semente. E o dicionário aqui custa 4 bytes.
+É o mesmo princípio do artigo — não mandar o que o outro lado obtém sozinho — aplicado uma camada
+acima: em vez de um dicionário de padrões, a semente. E esse dicionário custa 4 bytes.
 
-Onde o modelo do artigo *encostaria* neste projeto, e por que ainda não fecha:
+Onde o modelo *encostaria* aqui, e por que ainda não fecha:
 
 | Candidato | Avaliação |
 |---|---|
-| `full_sync` P2P | A redundância já foi removida pela semente; sobra o diff do jogador, que é único por mundo |
-| Snapshots da IA (`capture_multi_angle`) | 4 fotos quase idênticas — é literalmente o caso CCTV do artigo. Mas elas vão para a API do modelo, que precisa do PNG real |
-| Distribuição de mods entre usuários | **Caso mais forte.** Mods compartilham estruturas e blocos comuns; um codebook de padrões de mod dedupli­caria bem numa galeria |
-| Export de mundos numa plataforma de compartilhamento | Mesmo raciocínio, se muitos mundos partirem de templates comuns |
+| `full_sync` P2P | Redundância já removida pela semente; sobra o diff do jogador, único por mundo |
+| Snapshots da IA (`capture_multi_angle`) | 4 fotos quase idênticas — é o caso CCTV do artigo. Mas vão para a API do modelo, que precisa do PNG real |
+| **Galeria de mods entre usuários** | **Caso mais forte.** Mods compartilham estruturas e blocos comuns; um dicionário deduplicaria bem |
+| Compartilhamento de mundos | Mesmo raciocínio, se muitos partirem de templates comuns |
 
-Os dois últimos são reais, mas dependem de algo que ainda não existe: **uma plataforma de
-distribuição**. Com um usuário e um navegador, não há segundo nó para deduplicar contra.
+Os dois últimos são reais, mas dependem do que ainda não existe: **uma plataforma de
+distribuição**. Com um usuário e um navegador, falta o segundo nó contra o qual deduplicar.
 
-### O ponto do artigo que mais interessa a este projeto
+## O ponto do artigo que mais interessa a este projeto
 
-A afirmação sobre **"12,7x de ganho ao injetar o motor em simulações em RAM (pathfinding,
-física), deduplicando estados matemáticos repetidos"** é a mais relevante aqui — e não tem
-relação com tamanho de arquivo.
+A afirmação de **12,7x ao injetar o motor em simulações em RAM (pathfinding, física),
+deduplicando estados matemáticos repetidos** é a mais aplicável — e não tem relação com tamanho
+de arquivo.
 
-Este projeto acabou de ganhar A* ([`src/entities/Pathfinding.ts`](src/entities/Pathfinding.ts)),
-com vários mobs recalculando rota contra o mesmo jogador, no mesmo terreno, a cada 0,35 s. São
-estados repetidos, e hoje cada um é recomputado do zero. Isso é memoização de estado — parente
-próximo da deduplicação — e é mensurável sem depender de plataforma nenhuma.
-
-### Onde ele caberia neste projeto
-
-Há um caso real, e é específico: **se o jogo passar a embarcar um modelo de linguagem local**
-para o agente rodar sem API externa (o que a seção 30 prevê como capacidade de mod), pesos de
-LLM no navegador são exatamente o domínio do modo Edge, com os 8x documentados. Aí a conversa
-muda por completo.
-
-Para blocos, saves e P2P: não.
+Este projeto acabou de ganhar A* (`src/entities/Pathfinding.ts`), com vários mobs recalculando
+rota contra o mesmo jogador, no mesmo terreno, a cada 0,35 s. São estados repetidos, hoje
+recomputados do zero. É memoização de estado — parente direto da deduplicação — e é mensurável
+sem depender de plataforma nenhuma.
 
 ## Decisão tomada nesta rodada
 
@@ -1673,8 +1634,7 @@ ter o problema que ele resolve. Os itens 918-921 registram o que mudaria essa co
 - [ ] 908 `P2` Comprimir também o save de blocos no IndexedDB (mesma função, outro consumidor)
 - [ ] 909 `P2` Comprimir o export de mundo e de mod
 - [ ] 910 `P2` Delta entre revisões de mod, em vez de snapshot inteiro (ver item 645)
-- [ ] 911 `P3` **Reavaliar o crompressor se o jogo embarcar um LLM local** — pesos de rede são o domínio do modo Edge (8x documentados), diferente de id de bloco
-- [ ] 914 `P3` Se um dia houver LLM local no navegador, medir Edge do crompressor contra quantização padrão (GPTQ/AWQ)
+- [ ] 911 `P3` **Reavaliar o crompressor quando existir um segundo nó** — o modelo pressupõe dicionário compartilhado, e hoje há um usuário e um navegador
 - [ ] 915 `P3` Medir o cenário de codebook compartilhado: treinar sobre chunks reais, distribuir uma vez, e comparar só o tráfego de índices contra gzip
 - [ ] 916 `P3` Pré-requisito do anterior: expor `cromPack(bytes, codebook, modo)` no WASM — a API atual não recebe nenhum dos três
 - [ ] 917 `P3` Resolver a distribuição do codebook entre peers (ele próprio é grande, e vira um problema de sync)
