@@ -1900,3 +1900,103 @@ e nada mais tentava — o mouse ficava solto para sempre.*
 - [ ] 999 `P2` Testes de que ESC sempre devolve o controle da câmera
 - [ ] 1000 `P2` Testes de navegação entre telas sem estado preso
 
+---
+
+# Adendo — Rodada 7 de requisitos (itens 1001–1042)
+
+> Dois pedidos, ambos pesquisados antes de registrar: **aparição suave dos chunks** como no
+> Minecraft moderno, e um **céu noturno de verdade** — lua, estrelas por padrão, e noites com
+> claridade variável.
+
+## 38 — Engenheiro de Aparição de Chunk (*fade in*)
+
+*O que a pesquisa mostrou: no Java vanilla o chunk simplesmente **aparece** — o recorte seco que
+este projeto também tem. A aparição suave é padrão no **Bedrock**, e no Java vem de mods, sendo o
+[Chunks fade in](https://modrinth.com/mod/chunks-fade-in) o mais usado (4,2 milhões de downloads),
+com [implementação aberta](https://github.com/kerudion/chunksfadein). O
+[fade-in-chunks](https://github.com/Johni0702/fade-in-chunks) descreve o efeito explicitamente
+como "estilo Bedrock".*
+
+**A técnica, destrinchada:**
+
+1. Cada chunk guarda o instante em que sua malha ficou pronta.
+2. Durante ~0,4–0,8 s, a opacidade vai de 0 a 1. Algumas variantes somam um **deslocamento
+   vertical** (o chunk "sobe" para o lugar), que é o toque do Bedrock.
+3. Os chunks aparecem **escalonados**, um após o outro, e não todos no mesmo quadro — é isso que
+   diferencia de um simples fade global.
+
+**Duas armadilhas que a pesquisa deixa claras, e que valem registro aqui:**
+
+- **Material transparente custa caro e quebra a profundidade.** Fazer o fade exige `transparent`,
+  que desativa a escrita no *depth buffer* e reordena o desenho. Se o chunk ficar transparente
+  para sempre, o mundo inteiro passa a ser desenhado como translúcido. O material precisa
+  **voltar a opaco** ao terminar a animação.
+- **Interação com névoa.** Este projeto acabou de ganhar neblina (item 054), e ela já esconde
+  parte do surgimento. Fade e névoa precisam ser ajustados juntos, ou o chunk aparece com
+  opacidade cheia dentro de uma névoa que deveria escondê-lo.
+
+- [ ] 1001 `P0` Registrar o instante em que a malha de cada chunk fica pronta
+- [ ] 1002 `P0` Opacidade de 0 a 1 ao longo de ~0,6 s por chunk
+- [ ] 1003 `P0` Material volta a **opaco** ao terminar — transparente permanente derruba o desempenho e a profundidade
+- [ ] 1004 `P1` Deslocamento vertical opcional ("sobe para o lugar"), estilo Bedrock
+- [ ] 1005 `P1` Aparição escalonada entre chunks, não todos no mesmo quadro
+- [ ] 1006 `P1` Ajustar o fade à neblina, para não brigarem
+- [ ] 1007 `P1` Chunk re-meshado por alteração **não** refaz a animação — só os recém-carregados
+- [ ] 1008 `P2` Curva de suavização configurável (linear vs. ease-out)
+- [ ] 1009 `P2` Opção de desligar, junto do redutor de movimento (item 438)
+- [ ] 1010 `P2` A animação não pode atrasar a colisão: o chunk já colide antes de terminar de aparecer
+- [ ] 1011 `P2` Teste de que nenhum material fica transparente após a animação
+
+## 39 — Diretor de Céu Noturno
+
+*Pesquisa sobre o Minecraft, e uma diferença que importa: o vanilla tem
+[oito fases da lua](https://minecraft.wiki/w/Moon), que mudam ao fim de cada amanhecer — mas
+**a fase não altera a luminosidade**. A noite tem nível de luz 4 fixo, seja lua cheia ou nova; a
+fase só influencia o surgimento de slimes no pântano. Escurecer conforme a fase é justamente o
+que mods como [Dynamic Darkness](https://www.curseforge.com/minecraft/mc-mods/dynamic-darkness)
+acrescentam.*
+
+*Ou seja: **o pedido vai além do vanilla**, e vai numa direção melhor. Fazer a lua nova ser
+realmente escura dá função à fase lunar — a mesma caverna, a mesma base, mudam de dificuldade
+conforme a noite. É o tipo de variação que faz o jogador olhar para o céu antes de sair.*
+
+*O motor de luz deste projeto já separa luz de céu de luz de bloco e aplica um `sunScale`
+contínuo, então a claridade variável entra sem recalcular nada — basta o `sunScale` noturno
+depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se quer.*
+
+- [ ] 1012 `P0` Lua desenhada no céu, com posição oposta à do sol
+- [ ] 1013 `P0` Oito fases lunares, avançando uma por dia
+- [ ] 1014 `P0` Fase persistida no save, junto de `timeOfDay`
+- [ ] 1015 `P0` **Claridade da noite variando com a fase** — lua nova quase preta, cheia navegável
+- [ ] 1016 `P0` Estrelas por padrão, visíveis só à noite
+- [ ] 1017 `P1` Estrelas surgindo no anoitecer e sumindo no amanhecer, com transição suave
+- [ ] 1018 `P1` Posição das estrelas determinística pela semente do mundo
+- [ ] 1019 `P1` Brilho das estrelas reduzido nas noites de lua cheia
+- [ ] 1020 `P1` A lua projeta luz direcional fraca, com sombra suave própria
+- [ ] 1021 `P1` Piso de luminosidade que nunca chega ao preto absoluto, para a silhueta continuar legível
+- [ ] 1022 `P1` `api.time` expõe a fase lunar aos mods
+- [ ] 1023 `P1` A fase aparece no painel de diagnóstico e em `get_world_summary`
+- [ ] 1024 `P2` Spawn de hostis mais intenso em noite escura — liga a fase à mecânica (ver item 255)
+- [ ] 1025 `P2` Céu com gradiente noturno próprio, não só o diurno escurecido
+- [ ] 1026 `P2` Via láctea ou faixa de estrelas mais densa, para o céu não ser uniforme
+- [ ] 1027 `P2` Nuvens escurecidas à noite, recortando o céu estrelado
+- [ ] 1028 `P2` Eclipse raro como evento de mundo
+- [ ] 1029 `P2` Ferramenta MCP para consultar e ajustar a fase lunar
+- [ ] 1030 `P2` Teste de que a fase avança uma vez por dia e volta ao ciclo após oito
+- [ ] 1031 `P2` Teste de que a lua nova é mais escura que a cheia, e que nenhuma é preto absoluto
+
+## Como isso conversa com o que já existe
+
+| Já entregue | O que o pedido acrescenta |
+|---|---|
+| Ciclo dia/noite com `sunScale` contínuo (245) | O `sunScale` noturno passa a depender da fase lunar |
+| Luz de céu separada da de bloco (243) | A tocha mantém o valor: só a luz de céu escurece |
+| Céu que muda de cor (246) | Ganha gradiente noturno próprio, lua e estrelas |
+| Spawn por nível de luz (255) | Noite escura vira noite perigosa, sem regra nova |
+| Neblina atmosférica (054) | Precisa ser conciliada com o fade de chunk |
+| Re-mesh em degraus de `sunScale` (245) | A variação por fase muda de degrau uma vez por dia, não por frame |
+
+**Ordem recomendada:** 1012–1016 primeiro (lua, fases, claridade variável, estrelas) — é o que o
+usuário descreveu e o que muda a experiência. O *fade* de chunk (1001–1003) depois, porque mexe
+em material e profundidade, e um erro ali degrada o desempenho do mundo inteiro.
+
