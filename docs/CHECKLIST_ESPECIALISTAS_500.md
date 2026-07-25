@@ -758,6 +758,7 @@ carvão 1,24% → ferro 0,92% → ouro 0,12% → diamante 0,022%.
 | Ordem | Item | Por quê |
 |---|---|---|
 | 1 | 665–669 (biomas com recursos próprios) | Desenhado e registrado; é o que dá razão para explorar o mapa |
+| 1b | 721–728 (`mod.env` + cofre) | Pré-requisito de qualquer integração externa; ver a ordem da seção 30 |
 | 2 | 681–684 (construções espalhadas) | Não há nada para encontrar explorando hoje |
 | 3 | 642 (painel de mods na UI) | Versionamento e rollback existem, mas só via ferramenta da IA |
 | 4 | 704–705 (atribuir blocos ao mod da sessão) | Fecha o cerco: hoje `set_block` ainda escreve fora do escopo |
@@ -1041,4 +1042,176 @@ malfeito. Falta fechar o cerco nas ferramentas que ainda escrevem fora do escopo
 - [ ] 718 `P2` Limite de contexto: resumir a sessão longa preservando as decisões
 - [ ] 719 `P3` Agente propõe o plano do mod antes de executar, e o usuário aprova
 - [ ] 720 `P2` Teste de que nenhuma ferramenta de escrita funciona em sessão livre
+
+---
+
+# Adendo — Rodada 4 de requisitos (itens 721–800)
+
+> Requisito: **todo mod nasce com um arquivo de configuração estilo `.env`** para as chaves que
+> ele precisa, podendo herdar do ambiente global ou ser definido manualmente. E não só para IA:
+> APIs de terceiros em geral — clima local para simular uma cidade, captura de áudio do usuário,
+> geração de voz. Modular e escalável na horizontal, respeitando a estrutura vertical.
+>
+> Dois especialistas convocados. O segundo existe porque este requisito **cruza a premissa
+> arquitetural do projeto** (tudo client-side, o relay nunca vê dados do mundo) e mexe com
+> segredos que hoje não existem no sistema.
+
+| # | Especialista | Itens | Foco |
+|---|---|---|---|
+| 29 | Engenheiro de Configuração & Segredos | 721–760 | `mod.env`, herança, nunca vazar chave |
+| 30 | Arquiteto de Capacidades & Integrações | 761–800 | Rede, áudio, permissões, escala horizontal |
+
+## 29 — Engenheiro de Configuração & Segredos de Mod
+
+*Parecer: a ideia de herdar do ambiente global (`AI_API_MOD_KEY=AI_API_KEY`) é a parte elegante
+do pedido — o mod declara **de que chave precisa** sem nunca conter o valor. O perigo mora no
+caso oposto: assim que um mod puder guardar o valor literal, `export_mod` e o sync P2P viram
+vazamento de credencial. A regra que sustenta tudo: **o mod carrega a referência, o cofre carrega
+o valor.***
+
+**Formato proposto** (`mod.env` por mod, editável na UI e pelo agente):
+
+```
+# Referência: puxa do cofre global. O valor NUNCA fica no mod.
+AI_MOD_ROUTER=$AI_ROUTER
+AI_API_MOD_KEY=$AI_API_KEY
+
+# Literal: só para valores não sensíveis (modelo, idioma, limites)
+AI_MOD_MODEL=anthropic/claude-sonnet-4.5
+VOICE_LANG=pt-BR
+CITY_SIM_UNITS=metric
+```
+
+O `$` marca a herança. Sem ele é literal — e todo literal é tratado como público, porque é
+exatamente isso que ele será no momento em que alguém exportar o mod.
+
+- [ ] 721 `P0` Arquivo `mod.env` criado por padrão em todo mod novo, com cabeçalho explicativo
+- [ ] 722 `P0` Sintaxe de herança `CHAVE=$CHAVE_GLOBAL` resolvida em tempo de execução
+- [ ] 723 `P0` Valores literais para configuração não sensível (modelo, idioma, unidades)
+- [ ] 724 `P0` **`export_mod` exporta o esquema, nunca os valores** — segue `stripLocalState`
+- [ ] 725 `P0` **`mod_sync` no P2P nunca transporta valores de `mod.env`**
+- [ ] 726 `P0` Cofre global de segredos separado do pacote do mod (tabela própria, não em `mods`)
+- [ ] 727 `P0` Declaração de chaves obrigatórias vs opcionais, com descrição de cada uma
+- [ ] 728 `P0` Mod não carrega se faltar chave obrigatória — vai para quarentena com o motivo
+- [ ] 729 `P1` UI pede a chave que falta ao ativar o mod, explicando para que serve
+- [ ] 730 `P1` Importar um mod lista as chaves que ele exige antes de instalar
+- [ ] 731 `P1` Validação de formato por chave (URL, token, enum de modelos)
+- [ ] 732 `P1` Editar `mod.env` pela UI, com os campos sensíveis mascarados
+- [ ] 733 `P1` Ferramenta MCP `read_mod_env` — devolve o esquema e quais chaves estão preenchidas, **nunca o valor**
+- [ ] 734 `P1` Ferramenta MCP `set_mod_env` para as chaves não sensíveis (modelo, idioma)
+- [ ] 735 `P0` Agente **não consegue ler valor de segredo** por nenhuma ferramenta
+- [ ] 736 `P0` Segredo nunca aparece em log, toast, snapshot ou mensagem de erro
+- [ ] 737 `P1` Redação automática: qualquer valor de segredo é mascarado ao ser impresso
+- [ ] 738 `P1` `mod.env` versionado junto do mod (o esquema entra no `ModRevision`)
+- [ ] 739 `P1` Rollback de mod restaura o esquema, não os valores
+- [ ] 740 `P1` Chave global editável em um lugar só, e todos os mods que a herdam acompanham
+- [ ] 741 `P1` Sobrescrita por mod: herdar do global por padrão, poder fixar um valor próprio
+- [ ] 742 `P2` Perfis de ambiente (dev/prod) por mundo
+- [ ] 743 `P2` Verificar a chave contra o provedor antes de salvar ("testar conexão")
+- [ ] 744 `P2` Aviso de expiração / falha de autenticação atribuída ao mod certo
+- [ ] 745 `P2` Chave de um mod não é visível para outro mod
+- [ ] 746 `P2` Escopo: mod declara quais chaves usa, e só recebe essas
+- [ ] 747 `P2` Rotação de chave sem reeditar cada mod
+- [ ] 748 `P2` Importar/exportar o cofre separadamente, com aviso explícito
+- [ ] 749 `P2` Cofre opcionalmente cifrado com senha do usuário
+- [ ] 750 `P2` Limpar todas as chaves de uma vez ("sair da máquina")
+- [ ] 751 `P1` Documentar no `mod.env` gerado que literais são públicos ao exportar
+- [ ] 752 `P1` Bloquear salvar em literal algo com cara de segredo (`sk-`, `Bearer`, JWT)
+- [ ] 753 `P2` Sugerir converter literal suspeito em referência ao cofre
+- [ ] 754 `P2` Herança encadeada com valor padrão (`$CHAVE:-padrao`)
+- [ ] 755 `P2` Comentários preservados ao editar o arquivo pela UI
+- [ ] 756 `P2` `mod.env.example` gerado no export, para quem importa saber o que preencher
+- [ ] 757 `P2` Diff de esquema entre revisões ("+1 chave obrigatória")
+- [ ] 758 `P2` Migração quando um mod passa a exigir uma chave nova
+- [ ] 759 `P2` Testes de que nenhum caminho de export/sync carrega valor de segredo
+- [ ] 760 `P2` Testes de resolução de herança, sobrescrita e chave faltante
+
+## 30 — Arquiteto de Capacidades & Integrações Externas
+
+*Parecer: aqui está o item mais delicado de todo o checklist, e vale dizer por quê antes de
+listar tarefas.*
+
+*O Crom Planebox é **100% client-side** — é premissa declarada do projeto (seção 25), e o relay
+existe só para sinalização WebRTC. Mods que chamam APIs de terceiros não quebram essa premissa
+(a chamada sai do navegador do usuário, não de um servidor do jogo), mas **abrem três frentes
+que hoje não existem**:*
+
+1. *Exfiltração. Um mod que lê o mundo e faz `fetch` para um host arbitrário pode mandar para
+   fora qualquer coisa que enxergue. O agente escreve o código do mod, e o agente pode ser
+   manipulado por injeção de prompt vinda de um mod importado.*
+2. *Superfície sensível. Microfone e geolocalização são pedidos do usuário aqui, mas passam a
+   ser capacidades que **qualquer** mod poderia solicitar depois.*
+3. *Confiança transitiva. Importar mod de terceiro passa a significar executar as integrações
+   dele, não só carregar blocos.*
+
+*Nada disso é motivo para não fazer — é motivo para o desenho começar por **capacidades
+declaradas e consentidas**, em vez de um `fetch` livre que depois precisaria ser retirado. Sobre
+a escala pedida: a horizontal vem das capacidades (cada mod declara as suas, e elas se somam sem
+se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já existente
+(pacote → blocos/entidades/estruturas → env → capacidades).*
+
+**Manifesto de capacidades proposto** (declarativo, no mesmo espírito do `mod.env`):
+
+```jsonc
+{
+  "capabilities": {
+    "network": { "allow": ["api.openweathermap.org", "api.elevenlabs.io"] },
+    "microphone": { "reason": "comandos de voz do jogador" },
+    "geolocation": { "reason": "clima local para simular a cidade", "precision": "cidade" }
+  }
+}
+```
+
+- [ ] 761 `P0` Manifesto de capacidades por mod, declarativo e versionado
+- [ ] 762 `P0` **Allowlist de hosts por mod** — sem host declarado, sem rede
+- [ ] 763 `P0` Consentimento explícito do usuário na primeira ativação, host a host
+- [ ] 764 `P0` `fetch` do mod passa por um wrapper que aplica a allowlist
+- [ ] 765 `P0` Mod **nunca** recebe acesso ao `fetch` global (hoje o escopo do script vaza)
+- [ ] 766 `P0` Capacidade sensível (microfone, geolocalização) exige consentimento separado
+- [ ] 767 `P0` Revogar capacidade a qualquer momento, sem desinstalar o mod
+- [ ] 768 `P0` Log de auditoria: que mod chamou que host, quando, com que volume
+- [ ] 769 `P1` Painel mostrando as capacidades ativas por mod, em linguagem simples
+- [ ] 770 `P1` Importar mod de terceiro exibe as capacidades pedidas **antes** de instalar
+- [ ] 771 `P1` Rate limit e cota de chamadas por mod, por sessão
+- [ ] 772 `P1` Timeout e retry com backoff no wrapper, para o jogo não travar na rede
+- [ ] 773 `P1` Falha de rede não derruba o mod — degrada para o comportamento offline
+- [ ] 774 `P1` Modo offline global desliga toda integração externa de uma vez
+- [ ] 775 `P0` **Nada do mundo é enviado sem o mod declarar que envia** (dados de saída também são capacidade)
+- [ ] 776 `P1` Resposta de API externa é tratada como **não confiável**: nunca vira código nem instrução para o agente
+- [ ] 777 `P1` Sanitizar resposta externa antes de exibir na UI ou no chat
+- [ ] 778 `P1` Documentar o modelo de ameaça de mods com rede em `docs/`
+- [ ] 779 `P1` CORS: documentar que só APIs com CORS aberto funcionam do navegador
+- [ ] 780 `P1` Mensagem clara quando a API falha por CORS, em vez de erro genérico
+- [ ] 781 `P1` Cache de resposta por mod, com TTL declarado
+- [ ] 782 `P2` Capacidade "áudio de entrada": captura de microfone com indicador visível de gravação
+- [ ] 783 `P2` Capacidade "áudio de saída": geração/reprodução de voz
+- [ ] 784 `P2` Capacidade "geolocalização" com precisão reduzida por padrão (cidade, não coordenada)
+- [ ] 785 `P2` Capacidade "clima" como integração de exemplo, documentada ponta a ponta
+- [ ] 786 `P2` Mod de exemplo: cidade que reage ao clima real do jogador
+- [ ] 787 `P2` Mod de exemplo: comando de voz mapeado para ferramenta do jogo
+- [ ] 788 `P2` Capacidade "LLM próprio": o mod usa um modelo diferente do agente principal
+- [ ] 789 `P2` Orçamento de tokens/custo por mod, visível ao usuário
+- [ ] 790 `P2` Fila de chamadas externas fora do frame, para não travar o render
+- [ ] 791 `P2` Web Worker dedicado para integrações, isolado do `window`
+- [ ] 792 `P2` Capacidades compõem sem se conhecer (escala horizontal de verdade)
+- [ ] 793 `P2` Registro de capacidades extensível: uma nova não exige mudar o núcleo
+- [ ] 794 `P2` Versionar o contrato de capacidade, com migração
+- [ ] 795 `P2` Mod declara o que faz **sem** rede, para funcionar degradado
+- [ ] 796 `P2` Indicador no HUD quando um mod está usando rede, microfone ou localização
+- [ ] 797 `P2` Multiplayer: capacidades do mod do anfitrião não valem no cliente do convidado
+- [ ] 798 `P2` Quarentena automática de mod que abusa da cota ou chama host não declarado
+- [ ] 799 `P2` Testes de que o wrapper bloqueia host fora da allowlist
+- [ ] 800 `P2` Testes de que revogar capacidade interrompe as chamadas em andamento
+
+### Ordem recomendada para esta área
+
+O caminho seguro é o inverso do intuitivo: **não comece pelo `fetch`.**
+
+| Ordem | Itens | Por quê |
+|---|---|---|
+| 1 | 721–728 | `mod.env` com herança e o cofre separado — sem isso não há onde guardar chave |
+| 2 | 724–725, 735–737 | Fechar o vazamento **antes** de existir o que vazar |
+| 3 | 761–765 | Manifesto e wrapper de rede com allowlist, já no lugar do `fetch` livre |
+| 4 | 763, 766–770 | Consentimento e auditoria, antes da primeira integração real |
+| 5 | 785–787 | Só então os exemplos pedidos: clima, voz, cidade reativa |
 
