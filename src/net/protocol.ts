@@ -3,6 +3,8 @@
 // diretamente entre os clientes depois que a conexão P2P é estabelecida.
 // Ver docs/NETWORK_PROTOCOL.md para a descrição completa.
 
+import { Appearance } from '../player/Appearance';
+
 export interface BlockUpdateMsg {
   type: 'block_update';
   x: number; y: number; z: number; blockType: number;
@@ -18,6 +20,12 @@ export interface PlayerStateMsg {
   playerId: string; name: string;
   x: number; y: number; z: number; yaw: number; pitch: number;
   gameMode: string; health: number; hunger: number;
+  /**
+   * Aparência do personagem, para os outros verem o boneco customizado em vez de um genérico.
+   * Opcional: um peer de versão antiga simplesmente não manda, e cai no padrão.
+   * SEMPRE passar por `sanitizeAppearance` ao receber — vem de outro cliente.
+   */
+  appearance?: Appearance;
 }
 
 export interface ChatMessageMsg {
@@ -36,7 +44,7 @@ export interface FullSyncMsg {
   players: { playerId: string; name: string; isOp: boolean }[];
 }
 
-export interface PlayerJoinedMsg { type: 'player_joined'; playerId: string; name: string }
+export interface PlayerJoinedMsg { type: 'player_joined'; playerId: string; name: string; appearance?: Appearance }
 export interface PlayerLeftMsg { type: 'player_left'; playerId: string }
 export interface OpChangedMsg { type: 'op_changed'; playerId: string; isOp: boolean }
 export interface KickMsg { type: 'kick'; playerId: string }

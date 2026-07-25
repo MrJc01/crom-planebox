@@ -10,15 +10,29 @@ import { UndoManager, BlockChange } from '../storage/UndoManager';
 import { UIExecutors } from './UIExecutors';
 import { getStructureTemplate } from '../crafting/StructureTemplates';
 import { SCALE } from '../world/chunk';
+import { ModService } from '../mods/ModService';
+import { resolveBlockRef } from '../mods/ModRegistry';
+
+/**
+ * `modsForLookup` é preenchido pelo `MCPExecutors` ativo para que `parseBlockType` também
+ * reconheça blocos de mod — tanto pelo nome exibido quanto pela referência simbólica
+ * ("meumod:cristal_azul"). Sem isso, pedir `set_block` com um bloco recém-criado pela própria
+ * IA cairia no fallback silencioso `B.STONE`.
+ */
+let modsForLookup: any[] = [];
 
 function parseBlockType(name: string): number {
   const upper = (name || '').toUpperCase().trim();
   for (let i = 0; i < BLOCKS.length; i++) {
     const def = BLOCKS[i];
-    if (def && def.name.toUpperCase() === upper) {
+    if (def && !def.reserved && def.name.toUpperCase() === upper) {
       return i;
     }
   }
+
+  // Blocos de mod por chave simbólica, antes dos aliases fixos da paleta base.
+  const modHit = resolveBlockRef(name, null, modsForLookup);
+  if (modHit !== null && modHit >= 0) return modHit;
   if (upper === 'AIR' || upper === 'AR') return B.AIR;
   if (upper === 'STONE' || upper === 'PEDRA') return B.STONE;
   if (upper === 'DIRT' || upper === 'TERRA') return B.DIRT;
@@ -48,6 +62,20 @@ function parseBlockType(name: string): number {
   return B.STONE;
 }
 
+/** Alguns modelos mandam arrays como string JSON; aceita as duas formas sem quebrar. */
+function safeJsonArray(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export interface ScriptErrorLog {
   timestamp: number;
   code: string;
@@ -65,6 +93,8 @@ export class MCPExecutors {
   public eventSystem?: EventSystem;
   public undoManager?: UndoManager;
   public uiExecutors: UIExecutors;
+  /** Sistema de mods: cria e persiste blocos, entidades e estruturas inéditas no mundo. */
+  public modService: ModService;
   /** Log das últimas falhas de execute_voxel_script, para a IA se autocorrigir sem o usuário colar erros manualmente. */
   private recentErrors: ScriptErrorLog[] = [];
   /** Notifica blocos alterados pela IA — usado pelo host para retransmitir via PeerSync. */
@@ -90,11 +120,27 @@ export class MCPExecutors {
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
     this.uiExecutors = new UIExecutors(currentWorldId);
+    this.modService = new ModService(world, currentWorldId, entitySystem);
+    this.modService.onBlocksChanged = (mods) => this.onBlocksChanged(mods);
   }
 
   public setWorldId(worldId: string): void {
     this.currentWorldId = worldId;
     this.uiExecutors.setWorldId(worldId);
+  }
+
+  /**
+   * Recarrega os mods do mundo (blocos nos ids salvos + entidades colocadas) e mantém a tabela
+   * de lookup de `parseBlockType` sincronizada. Chamado por `main.ts` ao trocar de mundo.
+   */
+  public async loadModsForWorld(worldId: string): Promise<{ mods: number; blocks: number; entities: number }> {
+    const summary = await this.modService.loadForWorld(worldId);
+    modsForLookup = this.modService.getMods();
+    return summary;
+  }
+
+  private syncModLookup(): void {
+    modsForLookup = this.modService.getMods();
   }
 
   private snapshotFrom(cx: number, cy: number, cz: number, tx: number, ty: number, tz: number): string {
@@ -103,6 +149,15 @@ export class MCPExecutors {
     snapCam.lookAt(tx, ty, tz);
     this.renderer.render(this.scene, snapCam);
     return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  /** Altura da primeira superfície sólida em (x, z) — para spawnar sem enterrar nem flutuar. */
+  private groundYAt(x: number, z: number): number {
+    for (let y = 120; y >= 0; y--) {
+      const b = this.world.getBlock(Math.floor(x), y, Math.floor(z));
+      if (b !== B.AIR && b !== B.WATER) return y;
+    }
+    return 4;
   }
 
   private logScriptError(code: string, message: string): void {
@@ -492,6 +547,12 @@ export class MCPExecutors {
           await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
           this.onBlocksChanged(mods);
 
+          // Blocos criados com `registerCustomBlock` dentro do script não pertencem a nenhum mod
+          // ainda. Adotá-los aqui é o que impede o bug antigo: sem isso o bloco existia só em
+          // memória, e no reload as posições salvas apontavam para um id inexistente.
+          const adopted = await this.modService.adoptOrphanBlocks();
+          if (adopted > 0) this.syncModLookup();
+
           // Capturar snapshot visual automático do centro da construção para a IA ver a foto
           let snapDataUrl: string | undefined = undefined;
           if (mods.length > 0) {
@@ -506,9 +567,12 @@ export class MCPExecutors {
           const errorSuffix = subScriptErrors.length > 0
             ? `\n⚠️ Erros durante a execução (verifique e corrija): ${subScriptErrors.join(' | ')}`
             : '';
+          const modSuffix = adopted > 0
+            ? `\n🧩 ${adopted} bloco(s) customizados criados no script foram salvos no mod "mod-avulsos" e continuarão existindo depois de recarregar o mundo.`
+            : '';
 
           return {
-            result: `Script executado! ${mods.length} blocos gerados pela IA e aplicados no mundo 3D em tempo real.${errorSuffix}`,
+            result: `Script executado! ${mods.length} blocos gerados pela IA e aplicados no mundo 3D em tempo real.${errorSuffix}${modSuffix}`,
             snapshotImage: snapDataUrl
           };
         } catch (err: any) {
@@ -517,6 +581,123 @@ export class MCPExecutors {
           this.logScriptError(rawCode, msg);
           return { result: `Erro ao executar script de código da IA: ${msg}\nUse a ferramenta 'list_recent_errors' se precisar consultar novamente este e outros erros recentes.` };
         }
+      }
+
+      // --- Sistema de Mods ------------------------------------------------------------------
+      case 'create_mod': {
+        const res = await this.modService.createMod(String(args.name || 'Mod sem nome'), String(args.description || ''), args.mod_id);
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'define_mod_block': {
+        const res = await this.modService.addBlock(String(args.mod_id || ''), {
+          key: String(args.key || args.name || ''),
+          name: String(args.name || ''),
+          topColor: args.top_color,
+          sideColor: args.side_color,
+          bottomColor: args.bottom_color,
+          solid: args.solid,
+          opaque: args.opaque,
+          decor: args.decor,
+          gravity: args.gravity,
+          structural: args.structural,
+          minToolTier: args.min_tool_tier,
+          lightLevel: args.light_level,
+          interactive: args.interactive,
+        });
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'define_mod_entity': {
+        const parts = Array.isArray(args.parts) ? args.parts : safeJsonArray(args.parts);
+        const res = await this.modService.addEntity(String(args.mod_id || ''), {
+          key: String(args.key || args.name || ''),
+          name: String(args.name || 'Criatura'),
+          faction: args.faction,
+          role: args.role,
+          health: args.health,
+          parts: parts as any,
+          behaviorScript: args.behavior_script,
+        });
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'define_mod_structure': {
+        const blocks = Array.isArray(args.blocks) ? args.blocks : safeJsonArray(args.blocks);
+        const res = await this.modService.addStructure(String(args.mod_id || ''), {
+          key: String(args.key || args.name || ''),
+          name: String(args.name || 'Estrutura'),
+          blocks: blocks as any,
+        });
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'spawn_mod_entity': {
+        const x = Number(args.x) || 0;
+        const z = Number(args.z) || 0;
+        // Sem `y`, encaixa na superfície — evita a criatura nascer enterrada ou flutuando.
+        const y = args.y !== undefined ? Number(args.y) : this.groundYAt(x, z) + 1;
+        const res = await this.modService.spawnEntity(String(args.mod_id || ''), String(args.entity_key || ''), x, y, z);
+        return { result: res.message };
+      }
+
+      case 'place_mod_structure': {
+        const res = await this.modService.placeStructure(
+          String(args.mod_id || ''),
+          String(args.structure_key || ''),
+          Number(args.x) || 0,
+          Number(args.y) || 0,
+          Number(args.z) || 0,
+        );
+        if (!res.ok) return { result: res.message };
+
+        const snap = this.snapshotFrom(
+          (Number(args.x) || 0) + 18, (Number(args.y) || 0) + 14, (Number(args.z) || 0) + 18,
+          Number(args.x) || 0, Number(args.y) || 0, Number(args.z) || 0,
+        );
+        return { result: res.message, snapshotImage: snap };
+      }
+
+      case 'list_mods': {
+        const list = this.modService.list();
+        if (list.length === 0) {
+          return { result: 'Nenhum mod instalado neste mundo ainda. Use create_mod para começar uma modificação nova.' };
+        }
+        return { result: list };
+      }
+
+      case 'set_mod_enabled': {
+        const res = await this.modService.setEnabled(String(args.mod_id || ''), !!args.enabled);
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'delete_mod': {
+        const res = await this.modService.deleteMod(String(args.mod_id || ''), args.purge_placed_blocks !== false);
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'export_mod': {
+        const pkg = this.modService.exportMod(String(args.mod_id || ''));
+        if (!pkg) return { result: `Mod "${args.mod_id}" não encontrado.` };
+        return { result: JSON.stringify(pkg, null, 2) };
+      }
+
+      case 'import_mod': {
+        let payload: any;
+        try {
+          payload = typeof args.mod_json === 'string' ? JSON.parse(args.mod_json) : args.mod_json;
+        } catch (err: any) {
+          return { result: `JSON de mod inválido: ${err?.message || err}` };
+        }
+        const res = await this.modService.importMod(payload);
+        this.syncModLookup();
+        return { result: res.message };
       }
 
       case 'search_chat_and_code': {

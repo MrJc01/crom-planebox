@@ -6,9 +6,10 @@
 
 import * as THREE from 'three';
 import { World } from './world';
-import { B, BLOCKS, isSolid, isSupport, isLog, isLeaves, isDecor, isReplaceable } from './blocks';
+import { B, BLOCKS, isSolid, isSupport, isLog, isLeaves, isDecor, isReplaceable, isFluid } from './blocks';
 import { WATER_LEVEL } from './worldgen';
 import { CY } from './chunk';
+import { FluidSystem, findSlideTarget } from './fluids';
 
 const GRAVITY = 78; // 26 m/s² em mini-voxels (3/m)
 const MAX_DEBRIS = 1000;
@@ -34,10 +35,20 @@ export class VoxelPhysics {
   private dummy = new THREE.Object3D();
   private waterQueue: [number, number, number][] = [];
   private gravityQueue: [number, number, number][] = [];
+  /** Escoamento finito de água e lava em mini-voxels (ver `fluids.ts`). */
+  readonly fluids: FluidSystem;
+  /** Contador de passos, usado para desempatar a direção do desmoronamento de areia. */
+  private slideTick = 0;
   /** callback para conceder recursos ao jogador (ex.: árvore derrubada) */
   onDrop: (blockType: number, count: number) => void = () => {};
+  /**
+   * Blocos alterados pela própria simulação (fluido escoando, areia desmoronando).
+   * O host usa para persistir e retransmitir no P2P — tudo continua client-side.
+   */
+  onSimulatedBlocks: (changes: { x: number; y: number; z: number; blockType: number }[]) => void = () => {};
 
   constructor(private world: World, scene: THREE.Scene) {
+    this.fluids = new FluidSystem(world);
     const geo = new THREE.BoxGeometry(1, 1, 1);
     geo.translate(0.5, 0.5, 0.5);
     const mat = new THREE.MeshLambertMaterial();
@@ -62,12 +73,16 @@ export class VoxelPhysics {
         for (let x = sx - 1; x <= sx + c; x++) {
           const t = this.world.getBlock(x, y, z);
           if (t === B.AIR) {
-            // água invade célula vazia abaixo do nível do mar
+            // Oceano: abaixo do nível do mar a massa d'água é tratada como reservatório e
+            // preenche cavidades recém-abertas. Acima disso, nada de fonte infinita — a água
+            // colocada pelo jogador ou pela IA é finita e escoa pelo `FluidSystem`.
             if (y <= WATER_LEVEL && this.touchesWater(x, y, z)) {
               this.waterQueue.push([x, y, z]);
             }
+            this.fluids.disturb(x, y, z); // poça vizinha volta a escoar para o vazio novo
             continue;
           }
+          if (isFluid(t)) this.fluids.activate(x, y, z);
           if (BLOCKS[t]?.gravity) this.gravityQueue.push([x, y, z]);
           if (isDecor(t) && !isSolid(this.world.getBlock(x, y - 1, z))) {
             this.world.setBlock(x, y, z, B.AIR, false);
@@ -216,18 +231,39 @@ export class VoxelPhysics {
 
   /** Processa filas de física (orçamento por tick) e anima os destroços. */
   update(dt: number): void {
-    // gravidade de areia/cascalho
+    // Gravidade de areia/cascalho: primeiro a queda vertical; se o chão embaixo aguenta, ainda
+    // resta o ângulo de repouso — um grão na beira de um degrau escorrega para o lado em vez de
+    // sustentar uma parede vertical de areia (o "items tumble down slopes" do Lay of the Land).
     let budget = 80;
+    this.slideTick++;
     while (this.gravityQueue.length > 0 && budget-- > 0) {
       const [x, y, z] = this.gravityQueue.shift()!;
       const t = this.world.getBlock(x, y, z);
       if (!BLOCKS[t]?.gravity) continue;
+
       const below = this.world.getBlock(x, y - 1, z);
       if (below === B.AIR || below === B.WATER || isDecor(below)) {
         this.world.setBlock(x, y, z, B.AIR, false);
         this.spawnDebris(t, x, y, z, 'settle');
         this.onBlockChanged(x, y, z);
+        continue;
       }
+
+      const slide = findSlideTarget(this.world, x, y, z, this.slideTick + x + z);
+      if (slide) {
+        this.world.setBlock(x, y, z, B.AIR, false);
+        // Empurrãozinho horizontal na direção do desmoronamento, para o grão visivelmente
+        // rolar ladeira abaixo em vez de simplesmente teleportar para a célula vizinha.
+        this.spawnDebris(t, x, y, z, 'settle', (slide.x - x) * 2.4, 0, (slide.z - z) * 2.4);
+        this.onBlockChanged(x, y, z);
+      }
+    }
+
+    // Escoamento finito de água e lava.
+    const fluidChanges = this.fluids.step(120);
+    if (fluidChanges.length > 0) {
+      for (const c of fluidChanges) this.onBlockChanged(c.x, c.y, c.z);
+      this.onSimulatedBlocks(fluidChanges);
     }
 
     // propagação de água (animada, orçamento por tick)

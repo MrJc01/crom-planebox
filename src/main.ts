@@ -5,6 +5,7 @@ import { Chunk, chunkKey, CX, CZ } from './world/chunk';
 import { WorldGen } from './world/worldgen';
 import { meshChunk } from './world/mesher';
 import { VoxelPhysics } from './world/physics';
+import { isSolid } from './world/blocks';
 import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
@@ -17,6 +18,10 @@ import { PauseMenu } from './ui/PauseMenu';
 import { MainMenu } from './ui/MainMenu';
 import { WorldCreationWizard } from './ui/WorldCreationWizard';
 import { UIManager } from './ui/UIManager';
+import { CharacterCreator } from './ui/CharacterCreator';
+import { PlayerModel } from './player/PlayerModel';
+import { AvatarManager } from './player/AvatarManager';
+import { Appearance, DEFAULT_APPEARANCE } from './player/Appearance';
 import { InventoryModal } from './ui/InventoryModal';
 import { EntitySystem } from './entities/EntitySystem';
 import { EventSystem } from './events/EventSystem';
@@ -209,6 +214,31 @@ async function bootstrap() {
   // World simulation systems
   const undoManager = new UndoManager(world);
   const entitySystem = new EntitySystem(world, gs.scene);
+
+  // --- Personagem do jogador ---------------------------------------------------------------
+  // O boneco existe sempre na cena, mas só fica visível em terceira pessoa: em primeira pessoa
+  // a câmera está dentro da cabeça e o modelo apareceria como uma parede de textura.
+  let localAppearance: Appearance = DEFAULT_APPEARANCE;
+  const playerModel = new PlayerModel(localAppearance);
+  playerModel.setVisible(false);
+  gs.scene.add(playerModel.group);
+
+  const avatars = new AvatarManager(gs.scene);
+
+  const characterCreator = new CharacterCreator(localAppearance);
+  characterCreator.onSave = (appearance) => {
+    localAppearance = appearance;
+    playerModel.setAppearance(appearance);
+    WorldRepository.saveAppearance(appearance);
+    hud.showToast(`Personagem "${appearance.name}" salvo — os outros jogadores já veem este visual.`);
+  };
+
+  // Aparência é global ao jogador: carregada uma vez no boot, não por mundo.
+  WorldRepository.getAppearance().then((saved) => {
+    localAppearance = saved;
+    playerModel.setAppearance(saved);
+    characterCreator.setAppearance(saved);
+  });
   const eventSystem = new EventSystem(world, currentWorld.id);
 
   // MCP AI Integration
@@ -330,8 +360,20 @@ async function bootstrap() {
         break;
       case 'player_left':
         remotePlayers.delete(msg.playerId);
+        avatars.remove(msg.playerId);
         chatOverlay.receiveWorldChatMessage('', 'Um jogador saiu do mundo.', true);
         break;
+      case 'player_state': {
+        if (msg.playerId === localPlayerId) break;
+        // `appearance` vem de outro cliente: o AvatarManager higieniza antes de virar cor/escala.
+        avatars.updateFromState(msg.playerId, msg.name, msg.x, msg.y, msg.z, msg.yaw, msg.pitch, msg.appearance);
+        const known = remotePlayers.get(msg.playerId);
+        if (known) known.name = msg.name;
+        // Topologia estrela: os convidados só falam com o anfitrião, então é ele quem repassa
+        // o estado de cada um para todos os outros.
+        if (peerSync.role === 'host') peerSync.broadcast(msg, fromPeerId);
+        break;
+      }
       case 'op_changed':
         if (msg.playerId === localPlayerId) localIsOp = msg.isOp;
         break;
@@ -376,6 +418,17 @@ async function bootstrap() {
   };
   inter.onBlockChange = (x, y, z, blockType) => {
     if (peerSync.role === 'host') peerSync.broadcast({ type: 'block_update', x, y, z, blockType });
+  };
+
+  // Fluido escoando e areia desmoronando alteram o mundo sozinhos. O host é a autoridade:
+  // ele salva o resultado e replica para os convidados, para a poça não escoar de um jeito
+  // na tela de cada um. Tudo continua rodando no cliente — o relay só faz sinalização.
+  physics.onSimulatedBlocks = (changes) => {
+    if (peerSync.role === 'guest') return;
+    if (currentWorld.id) WorldRepository.saveBlockModBatch(currentWorld.id, changes);
+    for (const c of changes) {
+      peerSync.broadcast({ type: 'block_update', x: c.x, y: c.y, z: c.z, blockType: c.blockType });
+    }
   };
 
   // --- Modos de Jogo ---
@@ -467,6 +520,7 @@ async function bootstrap() {
     eventSystem.setWorldId(worldId);
     entitySystem.clearAll();
     itemDropSystem.clearAll();
+    avatars.clear();
     await chatOverlay.setWorldId(worldId);
 
     for (const key of Array.from(meshes.keys())) disposeChunkMesh(key);
@@ -478,6 +532,14 @@ async function bootstrap() {
 
     seed = wRecord.seed || (Math.random() * 0xffffffff) >>> 0;
     worker.postMessage({ type: 'init', seed });
+
+    // Os mods vêm ANTES dos blocos salvos: eles registram os blocos customizados nos ids que o
+    // save referencia. Na ordem inversa, o mundo aplicaria ids sem definição e o mesher
+    // renderizaria "bloco ausente" até o registro chegar.
+    const modSummary = await mcpExecutors.loadModsForWorld(worldId);
+    if (modSummary.mods > 0) {
+      hud.showToast(`🧩 ${modSummary.mods} mod(s) carregados: ${modSummary.blocks} bloco(s), ${modSummary.entities} entidade(s)`);
+    }
 
     const mods = await WorldRepository.getBlockModsForWorld(worldId);
     console.log(`🧱 [main.ts] Carregadas ${mods.size} modificações de blocos salvas para "${wRecord.name}"`);
@@ -517,8 +579,13 @@ async function bootstrap() {
 
   // --- Gerenciador central de UI (Pause / Inventário bloqueantes; Chat flutuante) ---
   const uiManager = new UIManager();
-  uiManager.configureLock(gs.renderer.domElement, () => cameraManager.mode === 'fps' || cameraManager.mode === 'ghost');
+  uiManager.configureLock(
+    gs.renderer.domElement,
+    () => cameraManager.mode === 'fps' || cameraManager.mode === 'thirdperson' || cameraManager.mode === 'ghost',
+  );
+  cameraManager.isSolidAt = (x, y, z) => isSolid(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
   uiManager.registerBlocking(inventoryModal);
+  uiManager.registerBlocking(characterCreator);
   uiManager.registerFloating(chatOverlay);
 
   const pauseMenu = new PauseMenu({
@@ -539,6 +606,11 @@ async function bootstrap() {
   let gameStarted = false;
   async function startGame(worldId: string): Promise<void> {
     await loadWorldById(worldId);
+
+    // O jogo começa sempre em primeira pessoa — é a visão padrão do gênero e a que dá o senso
+    // de escala do mundo. F5 alterna para a terceira pessoa a qualquer momento.
+    cameraManager.setMode('fps');
+
     if (!gameStarted) {
       gameStarted = true;
       hud.setVisible(true);
@@ -677,7 +749,19 @@ async function bootstrap() {
         else hud.showToast('Visão Top-Down só é acessível no Modo Criativo.');
         return;
       }
+      if (e.code === 'F5') {
+        e.preventDefault();
+        cameraManager.setMode(cameraManager.mode === 'thirdperson' ? 'fps' : 'thirdperson');
+        hud.showToast(cameraManager.mode === 'thirdperson' ? 'Terceira pessoa' : 'Primeira pessoa');
+        return;
+      }
+      if (e.code === 'F4') {
+        e.preventDefault();
+        uiManager.openBlocking('character-creator');
+        return;
+      }
       if (e.ctrlKey && e.code === 'Digit2') { e.preventDefault(); cameraManager.setMode('fps'); return; }
+      if (e.ctrlKey && e.code === 'Digit4') { e.preventDefault(); cameraManager.setMode('thirdperson'); return; }
       if (e.ctrlKey && e.code === 'Digit3') { e.preventDefault(); cameraManager.setMode('ghost'); return; }
 
       if (!e.ctrlKey && e.code.startsWith('Digit')) {
@@ -702,6 +786,7 @@ async function bootstrap() {
   const clock = new THREE.Clock();
   let streamAccum = 0;
   let saveAccum = 0;
+  let netAccum = 0;
 
   function tick(): void {
     requestAnimationFrame(tick);
@@ -723,6 +808,16 @@ async function bootstrap() {
     if (rules.hasSurvival) survivalSystem.update(dt);
     itemDropSystem.update(dt);
 
+    // O boneco só aparece em terceira pessoa; nos outros modos fica na cena, porém oculto.
+    const showModel = cameraManager.mode === 'thirdperson';
+    playerModel.setVisible(showModel);
+    if (showModel) {
+      playerModel.group.position.set(player.pos.x, player.pos.y, player.pos.z);
+      const speed = Math.hypot(player.vel.x, player.vel.z);
+      playerModel.update(dt, speed, player.onGround ?? true, player.yaw, player.pitch);
+    }
+    avatars.update(dt);
+
     cameraManager.update();
     physics.update(dt);
     entitySystem.update(dt);
@@ -735,6 +830,27 @@ async function bootstrap() {
 
     saveAccum += dt;
     if (saveAccum > 5) { saveAccum = 0; savePlayerNow(); }
+
+    // Estado do jogador para os outros: ~10 Hz é suficiente porque o AvatarManager interpola.
+    netAccum += dt;
+    if (netAccum > 0.1) {
+      netAccum = 0;
+      if (peerSync.role !== 'offline') {
+        const stateMsg: NetMessage = {
+          type: 'player_state',
+          playerId: localPlayerId,
+          name: localAppearance.name || localPlayerName,
+          x: player.pos.x, y: player.pos.y, z: player.pos.z,
+          yaw: player.yaw, pitch: player.pitch,
+          gameMode: gameModeManager.mode,
+          health: survivalSystem.health,
+          hunger: survivalSystem.hunger,
+          appearance: localAppearance,
+        };
+        if (peerSync.role === 'host') peerSync.broadcast(stateMsg);
+        else peerSync.sendToHost(stateMsg);
+      }
+    }
 
     gs.renderer.render(gs.scene, cameraManager.activeCamera);
   }

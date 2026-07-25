@@ -346,6 +346,216 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  // --- Sistema de Mods: criar modificações inteiras que ficam salvas no mundo ---------------
+  //
+  // Estas ferramentas são o caminho correto para "crie um bloco/criatura/estrutura nova".
+  // Diferente de `execute_voxel_script`, o que é definido aqui é **persistido no mundo** e
+  // recarregado automaticamente na próxima sessão.
+  {
+    type: 'function',
+    function: {
+      name: 'create_mod',
+      description: 'Cria uma MODIFICAÇÃO (mod) nova e vazia no mundo atual — o recipiente onde você agrupa blocos, criaturas e estruturas inéditas. Use SEMPRE isto como primeiro passo quando o usuário pedir conteúdo novo ("crie um bioma de cristal", "faça um mod de dragões"). Tudo que for adicionado ao mod fica salvo no mundo e volta sozinho quando o jogo é reaberto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Nome do mod, ex.: "Reino de Cristal"' },
+          description: { type: 'string', description: 'O que este mod adiciona ao jogo' },
+          mod_id: { type: 'string', description: 'Id opcional. Se omitido, é derivado do nome.' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'define_mod_block',
+      description: 'Adiciona um BLOCO inédito a um mod. O bloco recebe um id estável, é registrado na hora (já dá para usar em set_block/fill_box) e fica salvo no mundo para sempre. Referencie-o depois como "mod_id:chave" ou pelo nome.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string', description: 'Id do mod devolvido por create_mod' },
+          key: { type: 'string', description: 'Chave curta única no mod, ex.: "cristal_azul"' },
+          name: { type: 'string', description: 'Nome exibido no inventário, ex.: "Cristal Azul"' },
+          top_color: { type: 'string', description: 'Cor do topo em hexadecimal, ex.: "#38bdf8"' },
+          side_color: { type: 'string', description: 'Cor das laterais (padrão: igual ao topo)' },
+          bottom_color: { type: 'string', description: 'Cor da base (padrão: igual à lateral)' },
+          solid: { type: 'boolean', description: 'Colide com o jogador (padrão true)' },
+          opaque: { type: 'boolean', description: 'Bloqueia a visão das faces vizinhas (padrão true; use false para vidro/cristal)' },
+          decor: { type: 'boolean', description: 'Renderiza como tufo pequeno tipo capim/flor' },
+          gravity: { type: 'boolean', description: 'Cai quando não há suporte embaixo, tipo areia' },
+          structural: { type: 'boolean', description: 'Participa do colapso estrutural de construções' },
+          min_tool_tier: { type: 'number', description: 'Tier mínimo de ferramenta para dropar (0=mão, 1=madeira, 2=pedra, 3=ferro)' },
+          light_level: { type: 'number', description: 'Luz emitida, 0 a 15' },
+          interactive: { type: 'boolean', description: 'Aparece na aba de blocos especiais do inventário' },
+        },
+        required: ['mod_id', 'name', 'top_color'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'define_mod_entity',
+      description: 'Adiciona uma ESPÉCIE de criatura/NPC a um mod, montando a anatomia 3D com caixas (partes) e um script de comportamento opcional. Isto define o molde e o salva no mundo; use spawn_mod_entity para colocar indivíduos no mapa.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string' },
+          key: { type: 'string', description: 'Chave curta única no mod, ex.: "dragao_dourado"' },
+          name: { type: 'string', description: 'Nome exibido acima da criatura' },
+          faction: { type: 'string' },
+          role: { type: 'string' },
+          health: { type: 'number' },
+          parts: {
+            type: 'array',
+            description: 'Partes 3D da anatomia. Cada parte é uma caixa com offset relativo ao centro e cor.',
+            items: {
+              type: 'object',
+              properties: {
+                offsetX: { type: 'number' }, offsetY: { type: 'number' }, offsetZ: { type: 'number' },
+                sizeX: { type: 'number' }, sizeY: { type: 'number' }, sizeZ: { type: 'number' },
+                color: { type: 'string', description: 'Cor hexadecimal, ex.: "#eab308"' },
+              },
+            },
+          },
+          behavior_script: {
+            type: 'string',
+            description: 'JS rodado a cada frame com (dt, entity, Math, THREE) no escopo. Ex.: "entity.walkCycle += dt; entity.pos.y += Math.sin(entity.walkCycle)*dt; entity.mesh.position.copy(entity.pos);"',
+          },
+        },
+        required: ['mod_id', 'name', 'parts'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'define_mod_structure',
+      description: 'Adiciona uma ESTRUTURA reutilizável a um mod (templo, casa, estátua), como lista de blocos relativos à origem (0,0,0). Pode usar blocos do próprio mod pela chave simbólica. Depois carimbe quantas vezes quiser com place_mod_structure.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string' },
+          key: { type: 'string', description: 'Chave curta única no mod, ex.: "templo_cristal"' },
+          name: { type: 'string' },
+          blocks: {
+            type: 'array',
+            description: 'Blocos relativos à origem. `block` aceita id numérico, nome base ("STONE") ou chave do mod ("cristal_azul" / "mod_id:cristal_azul").',
+            items: {
+              type: 'object',
+              properties: {
+                dx: { type: 'number' }, dy: { type: 'number' }, dz: { type: 'number' },
+                block: { type: 'string' },
+              },
+            },
+          },
+        },
+        required: ['mod_id', 'name', 'blocks'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'spawn_mod_entity',
+      description: 'Coloca no mundo um indivíduo de uma espécie definida por define_mod_entity. Diferente de spawn_entity, esta instância é SALVA no mundo e reaparece quando o jogo é recarregado.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string' },
+          entity_key: { type: 'string', description: 'Chave da espécie dentro do mod' },
+          x: { type: 'number' },
+          y: { type: 'number', description: 'Altura; se omitido, encaixa no chão' },
+          z: { type: 'number' },
+        },
+        required: ['mod_id', 'entity_key', 'x', 'z'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'place_mod_structure',
+      description: 'Carimba no mundo uma estrutura definida por define_mod_structure, na origem (x, y, z). Os blocos são salvos no mundo normalmente.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string' },
+          structure_key: { type: 'string' },
+          x: { type: 'number' },
+          y: { type: 'number' },
+          z: { type: 'number' },
+        },
+        required: ['mod_id', 'structure_key', 'x', 'y', 'z'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_mods',
+      description: 'Lista os mods instalados neste mundo com seus blocos, espécies e estruturas. Consulte ANTES de criar conteúdo novo, para reaproveitar o que já existe em vez de duplicar.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_mod_enabled',
+      description: 'Liga ou desliga um mod sem apagá-lo. Desligado, os blocos dele saem do registro mas as definições continuam salvas.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string' },
+          enabled: { type: 'boolean' },
+        },
+        required: ['mod_id', 'enabled'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_mod',
+      description: 'Remove um mod do mundo permanentemente e limpa os blocos dele que já estavam colocados, para não deixar buracos no save. Confirme com o usuário antes de usar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string' },
+          purge_placed_blocks: { type: 'boolean', description: 'Padrão true: apaga do mundo os blocos deste mod já colocados.' },
+        },
+        required: ['mod_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'export_mod',
+      description: 'Devolve o JSON completo de um mod, para o usuário salvar em arquivo ou levar para outro mundo.',
+      parameters: {
+        type: 'object',
+        properties: { mod_id: { type: 'string' } },
+        required: ['mod_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'import_mod',
+      description: 'Instala neste mundo um mod a partir do JSON gerado por export_mod. Os ids de bloco são realocados automaticamente para não colidir com o que já existe aqui.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_json: { type: 'string', description: 'Conteúdo JSON do mod' },
+        },
+        required: ['mod_json'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

@@ -1,4 +1,6 @@
-import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord } from './Database';
+import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord } from './Database';
+import { ModPackage } from '../mods/ModTypes';
+import { Appearance, sanitizeAppearance } from '../player/Appearance';
 
 export interface ExportedWorldPackage {
   version: number;
@@ -6,6 +8,10 @@ export interface ExportedWorldPackage {
   world: WorldRecord;
   blockMods: { x: number; y: number; z: number; blockType: number }[];
   chatMessages: Omit<ChatMessageRecord, 'id'>[];
+  /** Mods do mundo. Ausente em pacotes exportados antes da v2 — tratado como lista vazia. */
+  mods?: ModPackage[];
+  /** Entidades de mod colocadas no mundo. Ausente em pacotes v1. */
+  modEntities?: Omit<ModEntityInstanceRecord, 'worldId'>[];
 }
 
 export class WorldRepository {
@@ -23,12 +29,26 @@ export class WorldRepository {
     return world.id;
   }
 
+  /**
+   * Apaga o mundo e **tudo** que pertence a ele. Antes só limpava worlds/blockMods/chatMessages,
+   * deixando players, threads de chat, customizações de UI e (agora) mods órfãos no IndexedDB —
+   * lixo que nunca mais era referenciado e ainda consumia a quota do navegador.
+   */
   static async deleteWorld(id: string): Promise<void> {
-    await db.transaction('rw', [db.worlds, db.blockMods, db.chatMessages], async () => {
-      await db.worlds.delete(id);
-      await db.blockMods.where('worldId').equals(id).delete();
-      await db.chatMessages.where('worldId').equals(id).delete();
-    });
+    await db.transaction(
+      'rw',
+      [db.worlds, db.blockMods, db.chatMessages, db.chatThreads, db.players, db.uiCustomizations, db.mods, db.modEntities],
+      async () => {
+        await db.worlds.delete(id);
+        await db.blockMods.where('worldId').equals(id).delete();
+        await db.chatMessages.where('worldId').equals(id).delete();
+        await db.chatThreads.where('worldId').equals(id).delete();
+        await db.players.where('worldId').equals(id).delete();
+        await db.uiCustomizations.where('worldId').equals(id).delete();
+        await db.mods.where('worldId').equals(id).delete();
+        await db.modEntities.where('worldId').equals(id).delete();
+      },
+    );
   }
 
   static async saveBlockMod(worldId: string, x: number, y: number, z: number, blockType: number): Promise<void> {
@@ -218,6 +238,20 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
    - ETAPA 4 [ENTIDADES E SERES 3D]: Programe e gere as entidades habitando o local usando 'createEntity'. Use 'capture_multi_angle' (tira 4 fotos automáticas: frente/direita/trás/esquerda) como verificação final obrigatória de QUALQUER construção terminada — é mais confiável que um único 'capture_snapshot' porque revela erros escondidos atrás da construção. Se notar qualquer imperfeição em qualquer uma das fotos, corrija imediatamente!
    - Se algo der errado no meio de um script, use 'list_recent_errors' para ver os últimos erros desta sessão antes de tentar de novo — evita repetir o mesmo engano.
 
+1.05 CONTEÚDO INÉDITO = SISTEMA DE MODS (NÃO use execute_voxel_script para isso):
+   Quando o pedido for para CRIAR ALGO NOVO no jogo — um bloco que não existe, uma criatura nova,
+   uma estrutura reutilizável, ou "um mod inteiro de X" — use as ferramentas de mod, NUNCA
+   registerCustomBlock solto dentro de um script. Só as ferramentas de mod salvam no mundo:
+   o que elas criam continua existindo depois que o usuário fecha e reabre o navegador.
+   Fluxo obrigatório:
+     1. 'list_mods' para ver o que já existe e não duplicar.
+     2. 'create_mod' para criar o recipiente da modificação.
+     3. 'define_mod_block' / 'define_mod_entity' / 'define_mod_structure' para encher o mod.
+     4. 'place_mod_structure' / 'spawn_mod_entity' para colocar no mundo.
+   Blocos de mod podem ser usados normalmente em 'set_block' e 'fill_box' pelo nome ou pela
+   referência "mod_id:chave". Continue usando 'execute_voxel_script' para construções pontuais
+   feitas com blocos que já existem.
+
 1.1 ATALHO PARA ESTRUTURAS COMUNS (árvore, casa pequena, torre, muro):
    Em vez de reconstruir do zero via 'execute_voxel_script' toda vez que o pedido for uma dessas estruturas simples, prefira a ferramenta 'stamp_structure(template_id, x, y, z)' — ela carimba a estrutura inteira de uma vez, de forma confiável e rápida. Use 'execute_voxel_script' para tudo que for customizado, único ou não coberto pelos templates.
 
@@ -285,11 +319,17 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
 
     const modsRecords = await db.blockMods.where('worldId').equals(worldId).toArray();
     const chatRecords = await db.chatMessages.where('worldId').equals(worldId).sortBy('timestamp');
+    const modPackages = await this.getMods(worldId);
+    const modEntityRecords = await this.getModEntityInstances(worldId);
 
     const pkg: ExportedWorldPackage = {
-      version: 1,
+      // v2 passou a carregar os mods junto. Sem eles, exportar um mundo com blocos criados pela
+      // IA gerava um arquivo que, ao ser importado, mostrava buracos no lugar desses blocos.
+      version: 2,
       exportedAt: Date.now(),
       world,
+      mods: modPackages,
+      modEntities: modEntityRecords.map((e) => ({ id: e.id, modId: e.modId, entityKey: e.entityKey, x: e.x, y: e.y, z: e.z })),
       blockMods: modsRecords.map(m => ({ x: m.x, y: m.y, z: m.z, blockType: m.blockType })),
       chatMessages: chatRecords.map(c => ({
         worldId: c.worldId,
@@ -316,8 +356,20 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
     const newWorldId = pkg.world.id;
     pkg.world.updatedAt = Date.now();
 
-    await db.transaction('rw', [db.worlds, db.blockMods, db.chatMessages], async () => {
+    await db.transaction('rw', [db.worlds, db.blockMods, db.chatMessages, db.mods, db.modEntities], async () => {
       await db.worlds.put(pkg.world);
+
+      // Mods primeiro: os blockMods abaixo podem referenciar ids de bloco que só existem
+      // porque um mod os declara.
+      await db.mods.where('worldId').equals(newWorldId).delete();
+      for (const m of pkg.mods || []) {
+        await db.mods.put({ worldId: newWorldId, id: m.id, pkg: m, updatedAt: Date.now() });
+      }
+
+      await db.modEntities.where('worldId').equals(newWorldId).delete();
+      for (const e of pkg.modEntities || []) {
+        await db.modEntities.put({ worldId: newWorldId, ...e });
+      }
 
       // Replace block mods
       await db.blockMods.where('worldId').equals(newWorldId).delete();
@@ -366,6 +418,79 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
       rec.updatedAt = Date.now();
       await db.players.put(rec);
     }
+  }
+
+  // --- Mods (blocos, entidades e estruturas criados pela IA), persistidos por mundo ---------
+  //
+  // Sem isto, `registerCustomBlock` só existia em memória: o mundo salvava posições apontando
+  // para ids de bloco que deixavam de existir no reload. Ver docs/CHECKLIST_ESPECIALISTAS_500.md
+  // (itens 289-320).
+
+  static async getMods(worldId: string): Promise<ModPackage[]> {
+    const records = await db.mods.where('worldId').equals(worldId).toArray();
+    return records.map((r) => r.pkg);
+  }
+
+  static async getMod(worldId: string, modId: string): Promise<ModPackage | undefined> {
+    const rec = await db.mods.get([worldId, modId]);
+    return rec?.pkg;
+  }
+
+  static async saveMod(worldId: string, pkg: ModPackage): Promise<void> {
+    pkg.updatedAt = Date.now();
+    const record: ModRecord = { worldId, id: pkg.id, pkg, updatedAt: pkg.updatedAt };
+    await db.mods.put(record);
+  }
+
+  /** Remove o mod e as instâncias de entidade que ele havia colocado no mundo. */
+  static async deleteMod(worldId: string, modId: string): Promise<void> {
+    await db.transaction('rw', [db.mods, db.modEntities], async () => {
+      await db.mods.delete([worldId, modId]);
+      await db.modEntities.where('[worldId+modId]').equals([worldId, modId]).delete();
+    });
+  }
+
+  /**
+   * Apaga do mundo todos os blocos colocados cujos ids pertencem ao mod — usado ao remover um
+   * mod, para o save não ficar com referências órfãs. Devolve as posições afetadas para o
+   * chamador também limpá-las do mundo em memória.
+   */
+  static async purgeBlocksOfTypes(worldId: string, blockIds: number[]): Promise<{ x: number; y: number; z: number }[]> {
+    if (blockIds.length === 0) return [];
+    const targets = new Set(blockIds);
+    const mods = await db.blockMods.where('worldId').equals(worldId).toArray();
+    const hits = mods.filter((m) => targets.has(m.blockType));
+    const ids = hits.map((m) => m.id).filter((id): id is number => id !== undefined);
+    if (ids.length > 0) await db.blockMods.bulkDelete(ids);
+    return hits.map((m) => ({ x: m.x, y: m.y, z: m.z }));
+  }
+
+  // Instâncias de entidade de mod colocadas no mundo (o molde fica no ModPackage)
+  static async getModEntityInstances(worldId: string): Promise<ModEntityInstanceRecord[]> {
+    return await db.modEntities.where('worldId').equals(worldId).toArray();
+  }
+
+  static async saveModEntityInstance(rec: ModEntityInstanceRecord): Promise<void> {
+    await db.modEntities.put(rec);
+  }
+
+  static async deleteModEntityInstance(worldId: string, id: string): Promise<void> {
+    await db.modEntities.delete([worldId, id]);
+  }
+
+  // --- Perfil do jogador (aparência do personagem) ----------------------------------------
+  // Global ao jogador, não por mundo: o personagem criado acompanha todos os mundos e é o que
+  // os outros veem numa sessão P2P.
+
+  static async getAppearance(): Promise<Appearance> {
+    const rec = await db.profiles.get('local');
+    return sanitizeAppearance(rec?.appearance);
+  }
+
+  static async saveAppearance(appearance: Appearance): Promise<Appearance> {
+    const clean = sanitizeAppearance(appearance);
+    await db.profiles.put({ key: 'local', appearance: clean, updatedAt: Date.now() });
+    return clean;
   }
 
   // Customizações de UI feitas pela IA (agentic frontend), persistidas por mundo

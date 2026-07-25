@@ -6,7 +6,7 @@
 //  - decoração (capim/flores/junco) como caixinhas menores
 
 import * as THREE from 'three';
-import { B, BLOCKS, isOpaque, isDecor } from './blocks';
+import { B, getBlockDef, isOpaque, isDecor } from './blocks';
 import { CX, CY, CZ } from './chunk';
 import { hash3 } from '../core/rng';
 
@@ -126,7 +126,7 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
         if (t === B.WATER) {
           // água: só o topo (quando exposto) e laterais contra o ar
           const jr = 0.95 + hash3(wx, y, wz, 999) * 0.1;
-          const def = BLOCKS[t];
+          const def = getBlockDef(t);
           for (let f = 0; f < FACES.length; f++) {
             const face = FACES[f];
             const nb = padded[pidx(x + face.n[0], y + face.n[1], z + face.n[2])];
@@ -139,7 +139,7 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
           continue;
         }
 
-        const def = BLOCKS[t];
+        const def = getBlockDef(t);
         const j = (hash3(wx, y, wz, 4242) * 2 - 1) * 0.045;
 
         for (let f = 0; f < FACES.length; f++) {
@@ -192,7 +192,7 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
 /** Capim/flores/junco: na escala mini-voxel viram cubinhos quase cheios,
  *  com jitter posicional e variação de tom — os "tufos" do Lay of the Land. */
 function addDecor(buf: GeoBuffer, t: number, x: number, y: number, z: number, wx: number, wz: number): void {
-  const def = BLOCKS[t];
+  const def = getBlockDef(t);
   const h1 = hash3(wx, y, wz, 777);
   const h2 = hash3(wx, 0, wz, 888); // mesmo jitter na coluna toda (pilhas alinhadas)
   const jx = (h2 - 0.5) * 0.22;

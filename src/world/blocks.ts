@@ -47,6 +47,16 @@ export interface BlockDef {
   minToolTier?: number;
   /** Blocos com comportamento especial (luminoso, fluido) — usado para separar em aba própria no inventário criativo. */
   interactive?: boolean;
+  /** Luz emitida pelo bloco (0-15). Reservado para a propagação de luz; por ora só metadado de mod. */
+  lightLevel?: number;
+  /** Veio de um mod (criado pela IA ou importado), não faz parte da paleta base. */
+  custom?: boolean;
+  /** Slot vazio entre ids de mod — nunca é renderizado nem listado no inventário. */
+  reserved?: boolean;
+  /** Mod que declarou este bloco (só para blocos custom). */
+  modId?: string;
+  /** Chave simbólica do bloco dentro do mod, ex.: 'rubi' em 'meumod:rubi'. */
+  key?: string;
 }
 
 function c(hex: number): number[] {
@@ -102,26 +112,164 @@ BLOCKS[B.BRICK] = def('tijolo', 0xb91c1c, 0x991b1b, 0x7f1d1d, { structural: true
 BLOCKS[B.DARK_STONE] = def('pedra escura', 0x334155, 0x1e293b, 0x0f172a, { structural: true, drops: B.DARK_STONE, minToolTier: 1 });
 BLOCKS[B.LAVA] = def('lava', 0xea580c, 0xc2410c, 0x9a3412, { solid: false, opaque: false, interactive: true });
 
-export function registerCustomBlock(defData: {
+// --- Blocos customizados (sistema de mods) ---------------------------------
+//
+// Antes, `registerCustomBlock` fazia `BLOCKS[BLOCKS.length] = ...`: o id dependia da ordem de
+// chamada dentro da sessão e nada era salvo. Ao recarregar o mundo o array voltava a ter só os
+// blocos base, mas os `blockMods` no IndexedDB continuavam apontando para ids ≥ 29 — e o mesher
+// (`mesher.ts`, `const def = BLOCKS[t]` seguido de `def.colors`) quebrava o chunk inteiro num id
+// órfão. Ou seja, todo bloco criado pela IA corrompia o mundo no reload.
+//
+// Agora o id é **atribuído pelo mod e persistido junto com ele** (ver `src/mods/`), alocado a
+// partir de uma base fixa. A base deixa uma folga entre a paleta base e os mods para que
+// adicionar blocos nativos no futuro nunca colida com ids já gravados em saves existentes.
+
+/** Quantidade de blocos da paleta base. Ids abaixo disso nunca pertencem a mods. */
+export const VANILLA_BLOCK_COUNT = BLOCKS.length;
+
+/** Primeiro id disponível para blocos de mod. A folga 29..63 é reserva para blocos nativos futuros. */
+export const CUSTOM_BLOCK_ID_BASE = 64;
+
+/** Teto de blocos de mod por mundo (ids 64..319). */
+export const MAX_CUSTOM_BLOCKS = 256;
+
+/**
+ * Devolvido por `getBlockDef` quando um id não tem definição — acontece quando um save
+ * referencia um bloco de um mod que foi removido ou não carregou. Renderiza em magenta
+ * (cor de "textura faltando", convenção de engine) em vez de derrubar o mesher.
+ */
+export const MISSING_BLOCK: BlockDef = def('bloco ausente', 0xff00ff, 0xd400d4, 0xa800a8);
+
+/** Slot vazio entre ids de mod: existe só para o array não ter buracos `undefined`. */
+function reservedSlot(): BlockDef {
+  const d = def('', 0, 0, 0, { solid: false, opaque: false });
+  d.reserved = true;
+  return d;
+}
+
+/**
+ * Leitura segura de definição de bloco. Use no lugar de `BLOCKS[t]` em qualquer caminho que
+ * desreferencie o resultado (mesher, física, UI) — um id órfão vira `MISSING_BLOCK` visível
+ * em vez de um `TypeError` que apaga o chunk.
+ */
+export function getBlockDef(t: number): BlockDef {
+  const d = BLOCKS[t];
+  if (!d || d.reserved) return MISSING_BLOCK;
+  return d;
+}
+
+export interface CustomBlockSpec {
   name: string;
   topColor: number | string;
   sideColor?: number | string;
   bottomColor?: number | string;
   solid?: boolean;
   opaque?: boolean;
-}): number {
-  const top = typeof defData.topColor === 'string' ? parseInt(defData.topColor.replace('#', ''), 16) : (defData.topColor || 0x38bdf8);
-  const side = typeof defData.sideColor === 'string' ? parseInt(defData.sideColor.replace('#', ''), 16) : (defData.sideColor ?? top);
-  const bottom = typeof defData.bottomColor === 'string' ? parseInt(defData.bottomColor.replace('#', ''), 16) : (defData.bottomColor ?? side);
+  decor?: boolean;
+  gravity?: boolean;
+  structural?: boolean;
+  drops?: number;
+  minToolTier?: number;
+  interactive?: boolean;
+  lightLevel?: number;
+  modId?: string;
+  key?: string;
+}
 
-  const blockId = BLOCKS.length;
-  BLOCKS[blockId] = def(defData.name, top, side, bottom, {
-    solid: defData.solid ?? true,
-    opaque: defData.opaque ?? true
+function toHex(value: number | string | undefined, fallback: number): number {
+  if (typeof value === 'string') {
+    const parsed = parseInt(value.replace('#', ''), 16);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Registra um bloco de mod **num id explícito e estável**. É o caminho usado ao reaplicar um
+ * mod salvo: o id vem do pacote persistido, então o mesmo bloco recebe o mesmo id em toda
+ * sessão e os `blockMods` gravados continuam válidos.
+ */
+export function registerCustomBlockAt(blockId: number, spec: CustomBlockSpec): number {
+  if (!Number.isInteger(blockId) || blockId < CUSTOM_BLOCK_ID_BASE) {
+    throw new Error(`Id de bloco customizado inválido: ${blockId} (mínimo ${CUSTOM_BLOCK_ID_BASE}).`);
+  }
+  if (blockId >= CUSTOM_BLOCK_ID_BASE + MAX_CUSTOM_BLOCKS) {
+    throw new Error(`Id de bloco customizado ${blockId} excede o limite de ${MAX_CUSTOM_BLOCKS} blocos por mundo.`);
+  }
+
+  // Preenche o intervalo com slots reservados para o array nunca ter buracos `undefined`.
+  for (let i = BLOCKS.length; i < blockId; i++) BLOCKS[i] = reservedSlot();
+
+  const top = toHex(spec.topColor, 0x38bdf8);
+  const side = toHex(spec.sideColor, top);
+  const bottom = toHex(spec.bottomColor, side);
+
+  const created = def(spec.name || `bloco ${blockId}`, top, side, bottom, {
+    solid: spec.solid ?? true,
+    opaque: spec.opaque ?? true,
+    decor: spec.decor ?? false,
+    gravity: spec.gravity ?? false,
+    structural: spec.structural ?? false,
+    drops: spec.drops ?? blockId,
+    minToolTier: spec.minToolTier ?? 0,
+    interactive: spec.interactive ?? false,
   });
-  console.log(`🧱 [blocks.ts] Novo Bloco Personalizado registrado ID: ${blockId} ("${defData.name}")!`);
+  created.custom = true;
+  created.lightLevel = spec.lightLevel ?? 0;
+  created.modId = spec.modId;
+  created.key = spec.key;
+
+  BLOCKS[blockId] = created;
   return blockId;
 }
+
+/** Menor id livre a partir da base — usado ao criar um bloco novo, antes de persisti-lo. */
+export function nextFreeCustomBlockId(): number {
+  for (let id = CUSTOM_BLOCK_ID_BASE; id < CUSTOM_BLOCK_ID_BASE + MAX_CUSTOM_BLOCKS; id++) {
+    const d = BLOCKS[id];
+    if (!d || d.reserved) return id;
+  }
+  throw new Error(`Limite de ${MAX_CUSTOM_BLOCKS} blocos customizados atingido neste mundo.`);
+}
+
+/**
+ * Compatibilidade com o escopo de `execute_voxel_script`: aloca o próximo id livre.
+ * Diferente da versão antiga, o bloco criado aqui é capturado pelo `ModService` e salvo no
+ * mundo — não desaparece mais no reload.
+ */
+export function registerCustomBlock(spec: CustomBlockSpec): number {
+  const blockId = nextFreeCustomBlockId();
+  registerCustomBlockAt(blockId, spec);
+  console.log(`🧱 [blocks.ts] Bloco customizado "${spec.name}" registrado no id ${blockId}.`);
+  return blockId;
+}
+
+/** Remove um bloco de mod, deixando o slot reservado (o id não é reciclado). */
+export function unregisterCustomBlock(blockId: number): void {
+  if (blockId < CUSTOM_BLOCK_ID_BASE || blockId >= BLOCKS.length) return;
+  BLOCKS[blockId] = reservedSlot();
+}
+
+/** Descarta todos os blocos de mod. Chamado ao trocar de mundo, antes de reaplicar os mods dele. */
+export function resetCustomBlocks(): void {
+  BLOCKS.length = VANILLA_BLOCK_COUNT;
+}
+
+/** Blocos de mod ativos, com seus ids. */
+export function listCustomBlocks(): { id: number; def: BlockDef }[] {
+  const out: { id: number; def: BlockDef }[] = [];
+  for (let id = CUSTOM_BLOCK_ID_BASE; id < BLOCKS.length; id++) {
+    const d = BLOCKS[id];
+    if (d && !d.reserved) out.push({ id, def: d });
+  }
+  return out;
+}
+
+/** Água e lava: voxels de fluido finito, com escoamento próprio (ver `src/world/fluids.ts`). */
+export function isFluid(t: number): boolean { return t === B.WATER || t === B.LAVA; }
+
+/** Célula que um voxel de fluido pode ocupar ao escoar (ar ou vegetação decorativa, que é levada junto). */
+export function isFluidPassable(t: number): boolean { return t === B.AIR || isDecor(t); }
 
 export function isSolid(t: number): boolean { return BLOCKS[t]?.solid ?? false; }
 export function isOpaque(t: number): boolean { return BLOCKS[t]?.opaque ?? false; }

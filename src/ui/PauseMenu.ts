@@ -300,8 +300,15 @@ export class PauseMenu {
     const camSelect = document.createElement('select');
     camSelect.style.cssText = inputStyle;
     const isCreative = this.deps.gameModeManager.mode === 'creative';
-    const camModes: CameraMode[] = isCreative ? ['topdown', 'fps', 'ghost'] : ['fps', 'ghost'];
-    const camLabels: Record<CameraMode, string> = { topdown: 'Top-Down (só no Criativo)', fps: 'Primeira Pessoa', ghost: 'Fantasma/Fly' };
+    const camModes: CameraMode[] = isCreative
+      ? ['topdown', 'fps', 'thirdperson', 'ghost']
+      : ['fps', 'thirdperson', 'ghost'];
+    const camLabels: Record<CameraMode, string> = {
+      topdown: 'Top-Down (só no Criativo)',
+      fps: 'Primeira Pessoa',
+      thirdperson: 'Terceira Pessoa',
+      ghost: 'Fantasma/Fly',
+    };
     for (const m of camModes) {
       const opt = document.createElement('option'); opt.value = m; opt.textContent = camLabels[m];
       if (m === this.deps.cameraManager.mode) opt.selected = true;

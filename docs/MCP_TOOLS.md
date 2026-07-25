@@ -61,3 +61,67 @@ Altera as configurações de geração do mundo em chunks.
 
 ### `search_project_context`
 Permite que a LLM pesquise no histórico de chat do mundo atual e leia dados sobre o ambiente e o estado dos blocos.
+
+---
+
+## 🧩 Sistema de Mods — modificações inteiras salvas no mundo
+
+Estas ferramentas são o caminho correto quando o usuário pede **conteúdo novo** ("crie um bioma
+de cristal", "faça um mod de dragões"). A diferença para `execute_voxel_script` é decisiva:
+o que é definido aqui é **persistido no mundo** e recarregado automaticamente na sessão seguinte.
+
+> **Por que isso existe.** Antes, `registerCustomBlock` só criava o bloco em memória. Ao recarregar,
+> o registro voltava ao estado base enquanto o mundo continuava guardando posições que apontavam
+> para o id perdido — e o mesher quebrava o chunk inteiro. Todo bloco criado pela IA corrompia o
+> mundo no reload. O pacote de mod carrega o `blockId` junto, e é isso que dá identidade estável.
+
+### Fluxo típico
+1. `list_mods` — veja o que já existe antes de duplicar.
+2. `create_mod` — crie o recipiente.
+3. `define_mod_block` / `define_mod_entity` / `define_mod_structure` — encha o mod.
+4. `place_mod_structure` / `spawn_mod_entity` — coloque no mundo.
+5. `export_mod` — entregue o JSON ao usuário, se ele pedir.
+
+### `create_mod`
+Cria a modificação. Devolve o `mod_id` usado em todas as outras chamadas.
+- `name` (obrigatório), `description`, `mod_id` (opcional; derivado do nome).
+
+### `define_mod_block`
+Adiciona um bloco inédito, com id estável, utilizável imediatamente em `set_block`/`fill_box`.
+- `mod_id`, `name`, `top_color` (obrigatórios).
+- `key`, `side_color`, `bottom_color`, `solid`, `opaque`, `decor`, `gravity`, `structural`,
+  `min_tool_tier`, `light_level`, `interactive`.
+- Referenciável depois como `"mod_id:chave"` ou pelo nome exibido.
+
+### `define_mod_entity`
+Adiciona uma **espécie** (molde) de criatura, montada com caixas 3D.
+- `mod_id`, `name`, `parts` (obrigatórios); `key`, `faction`, `role`, `health`, `behavior_script`.
+
+### `define_mod_structure`
+Adiciona uma estrutura reutilizável como lista de blocos relativos a (0,0,0).
+- `mod_id`, `name`, `blocks` (obrigatórios); `key`.
+- Cada bloco aceita id numérico, nome da paleta base (`"STONE"`) ou chave do mod (`"cristal_azul"`).
+- A ferramenta **recusa** a estrutura se citar um bloco inexistente, em vez de carimbar buracos.
+
+### `spawn_mod_entity`
+Coloca um indivíduo da espécie no mundo. **A instância é salva** e reaparece no reload.
+- `mod_id`, `entity_key`, `x`, `z` (obrigatórios); `y` (sem ele, encaixa no chão).
+
+### `place_mod_structure`
+Carimba a estrutura na origem indicada; os blocos são salvos normalmente.
+- `mod_id`, `structure_key`, `x`, `y`, `z`.
+
+### `list_mods`
+Lista os mods instalados com blocos, espécies e estruturas de cada um.
+
+### `set_mod_enabled`
+Liga/desliga sem apagar. Desligado, os blocos saem do registro mas as definições ficam salvas.
+- `mod_id`, `enabled`.
+
+### `delete_mod`
+Remove o mod e limpa do mundo os blocos que ele havia colocado. **Confirme com o usuário antes.**
+- `mod_id`; `purge_placed_blocks` (padrão `true`).
+
+### `export_mod` / `import_mod`
+`export_mod(mod_id)` devolve o JSON portátil. `import_mod(mod_json)` instala em outro mundo,
+**realocando os ids de bloco** para não colidir com o que já existe ali.

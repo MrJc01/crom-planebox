@@ -1,0 +1,277 @@
+// Núcleo do sistema de mods: validação, alocação de ids e aplicação no registro global de blocos.
+//
+// Este módulo é deliberadamente **puro** — depende só de `blocks.ts`, sem Three.js, sem Dexie e
+// sem DOM. Toda a lógica que pode corromper um save (id de bloco, referência simbólica,
+// duplicidade de chave) mora aqui justamente para poder ser testada em Node sem navegador.
+//
+// A persistência fica no `WorldRepository` e a aplicação no runtime 3D no `ModService`.
+
+import {
+  BLOCKS,
+  CUSTOM_BLOCK_ID_BASE,
+  MAX_CUSTOM_BLOCKS,
+  registerCustomBlockAt,
+  resetCustomBlocks,
+  unregisterCustomBlock,
+} from '../world/blocks';
+import { ModBlockDef, ModPackage, ModStructureBlock } from './ModTypes';
+
+const KEY_PATTERN = /^[a-z0-9][a-z0-9_]*$/;
+
+/** Normaliza uma chave livre digitada pela IA ('Rubi Bruto') para o formato canônico ('rubi_bruto'). */
+export function normalizeKey(raw: string): string {
+  return (raw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Valida um pacote antes de persistir. Devolve a lista de problemas (vazia = válido).
+ * Falhar aqui é sempre melhor que gravar: um mod inconsistente corrompe o mundo silenciosamente.
+ */
+export function validateModPackage(pkg: ModPackage): string[] {
+  const errors: string[] = [];
+
+  if (!pkg.id || !pkg.id.trim()) errors.push('O mod precisa de um id.');
+  if (!pkg.name || !pkg.name.trim()) errors.push('O mod precisa de um nome.');
+
+  const seenBlockKeys = new Set<string>();
+  for (const b of pkg.blocks || []) {
+    if (!KEY_PATTERN.test(b.key)) {
+      errors.push(`Chave de bloco inválida: "${b.key}" (use minúsculas, dígitos e _).`);
+    }
+    if (seenBlockKeys.has(b.key)) errors.push(`Chave de bloco duplicada no mod: "${b.key}".`);
+    seenBlockKeys.add(b.key);
+
+    if (!b.name || !b.name.trim()) errors.push(`O bloco "${b.key}" precisa de um nome exibível.`);
+    if (b.topColor === undefined || b.topColor === null) {
+      errors.push(`O bloco "${b.key}" precisa de topColor.`);
+    }
+    if (b.blockId !== undefined && b.blockId !== null) {
+      if (!Number.isInteger(b.blockId) || b.blockId < CUSTOM_BLOCK_ID_BASE) {
+        errors.push(`O bloco "${b.key}" tem blockId inválido (${b.blockId}).`);
+      }
+    }
+  }
+
+  const seenEntityKeys = new Set<string>();
+  for (const e of pkg.entities || []) {
+    if (!KEY_PATTERN.test(e.key)) errors.push(`Chave de entidade inválida: "${e.key}".`);
+    if (seenEntityKeys.has(e.key)) errors.push(`Chave de entidade duplicada no mod: "${e.key}".`);
+    seenEntityKeys.add(e.key);
+    if (!e.parts || e.parts.length === 0) {
+      errors.push(`A entidade "${e.key}" precisa de pelo menos uma parte 3D.`);
+    }
+  }
+
+  const seenStructureKeys = new Set<string>();
+  for (const s of pkg.structures || []) {
+    if (!KEY_PATTERN.test(s.key)) errors.push(`Chave de estrutura inválida: "${s.key}".`);
+    if (seenStructureKeys.has(s.key)) errors.push(`Chave de estrutura duplicada no mod: "${s.key}".`);
+    seenStructureKeys.add(s.key);
+    if (!s.blocks || s.blocks.length === 0) {
+      errors.push(`A estrutura "${s.key}" está vazia.`);
+    }
+  }
+
+  return errors;
+}
+
+/** Todos os ids de bloco já comprometidos por um conjunto de mods (inclusive os desabilitados). */
+export function collectUsedBlockIds(mods: ModPackage[]): Set<number> {
+  const used = new Set<number>();
+  for (const mod of mods) {
+    for (const b of mod.blocks || []) {
+      if (Number.isInteger(b.blockId)) used.add(b.blockId);
+    }
+  }
+  return used;
+}
+
+/**
+ * Atribui `blockId` aos blocos que ainda não têm um, evitando os ids já usados por **qualquer**
+ * mod do mundo — inclusive desabilitados, porque um mod desabilitado pode ser reativado e os
+ * blocos dele ainda podem estar colocados no mundo.
+ *
+ * Mods desabilitados serem contados aqui é o que impede o cenário clássico de corrupção:
+ * desabilitar o mod A, criar o mod B que reusa o id 64, reabilitar A — e as construções de A
+ * virarem blocos de B.
+ */
+export function allocateBlockIds(pkg: ModPackage, otherMods: ModPackage[] = []): ModPackage {
+  const used = collectUsedBlockIds([...otherMods, pkg]);
+  let cursor = CUSTOM_BLOCK_ID_BASE;
+
+  for (const b of pkg.blocks || []) {
+    if (Number.isInteger(b.blockId) && b.blockId >= CUSTOM_BLOCK_ID_BASE) continue;
+
+    while (used.has(cursor)) cursor++;
+    if (cursor >= CUSTOM_BLOCK_ID_BASE + MAX_CUSTOM_BLOCKS) {
+      throw new Error(
+        `Limite de ${MAX_CUSTOM_BLOCKS} blocos customizados por mundo atingido. ` +
+          `Remova um mod antigo antes de criar novos blocos.`,
+      );
+    }
+    b.blockId = cursor;
+    used.add(cursor);
+    cursor++;
+  }
+
+  return pkg;
+}
+
+/** Registra os blocos de um mod no array global `BLOCKS`, nos ids que o pacote já carrega. */
+export function applyModBlocks(pkg: ModPackage): number[] {
+  const applied: number[] = [];
+  for (const b of pkg.blocks || []) {
+    if (!Number.isInteger(b.blockId)) {
+      throw new Error(`O bloco "${b.key}" do mod "${pkg.id}" não tem blockId — chame allocateBlockIds antes de aplicar.`);
+    }
+    registerCustomBlockAt(b.blockId, {
+      name: b.name,
+      topColor: b.topColor,
+      sideColor: b.sideColor,
+      bottomColor: b.bottomColor,
+      solid: b.solid,
+      opaque: b.opaque,
+      decor: b.decor,
+      gravity: b.gravity,
+      structural: b.structural,
+      drops: b.drops,
+      minToolTier: b.minToolTier,
+      interactive: b.interactive,
+      lightLevel: b.lightLevel,
+      modId: pkg.id,
+      key: b.key,
+    });
+    applied.push(b.blockId);
+  }
+  return applied;
+}
+
+/** Tira do registro global os blocos de um mod (ao desabilitar ou remover). */
+export function revokeModBlocks(pkg: ModPackage): number[] {
+  const revoked: number[] = [];
+  for (const b of pkg.blocks || []) {
+    if (Number.isInteger(b.blockId)) {
+      unregisterCustomBlock(b.blockId);
+      revoked.push(b.blockId);
+    }
+  }
+  return revoked;
+}
+
+/**
+ * Ponto de entrada ao carregar um mundo: limpa o registro de blocos customizados da sessão
+ * anterior e reaplica só os mods habilitados deste mundo.
+ */
+export function applyAllMods(mods: ModPackage[]): { blocksApplied: number; modsApplied: number } {
+  resetCustomBlocks();
+  let blocksApplied = 0;
+  let modsApplied = 0;
+  for (const mod of mods) {
+    if (!mod.enabled) continue;
+    blocksApplied += applyModBlocks(mod).length;
+    modsApplied++;
+  }
+  return { blocksApplied, modsApplied };
+}
+
+/**
+ * Resolve a referência de bloco de uma estrutura para um id numérico.
+ *
+ * Aceita, em ordem: id numérico já pronto; `'meumod:rubi'`; `'rubi'` (procurado primeiro no mod
+ * dono da estrutura, depois nos demais); e nome de bloco base (`'STONE'`, `'pedra'`).
+ * Devolve `null` quando não resolve — o chamador decide se pula o bloco ou aborta, em vez de
+ * cair silenciosamente num bloco errado.
+ */
+export function resolveBlockRef(
+  ref: number | string,
+  ownerMod: ModPackage | null,
+  allMods: ModPackage[] = [],
+): number | null {
+  if (typeof ref === 'number') {
+    return Number.isInteger(ref) && ref >= 0 ? ref : null;
+  }
+  const raw = String(ref || '').trim();
+  if (!raw) return null;
+
+  const asNumber = Number(raw);
+  if (Number.isInteger(asNumber) && raw !== '' && !Number.isNaN(asNumber)) return asNumber;
+
+  const findInMod = (mod: ModPackage | null, key: string): number | null => {
+    if (!mod) return null;
+    const hit = (mod.blocks || []).find((b) => b.key === key);
+    return hit && Number.isInteger(hit.blockId) ? hit.blockId : null;
+  };
+
+  if (raw.includes(':')) {
+    const [modId, blockKey] = raw.split(':', 2);
+    const key = normalizeKey(blockKey);
+    const target = allMods.find((m) => m.id === modId) || (ownerMod?.id === modId ? ownerMod : null);
+    return findInMod(target, key);
+  }
+
+  const key = normalizeKey(raw);
+  const own = findInMod(ownerMod, key);
+  if (own !== null) return own;
+
+  for (const mod of allMods) {
+    const hit = findInMod(mod, key);
+    if (hit !== null) return hit;
+  }
+
+  // Por último, nome de bloco da paleta base ('STONE', 'pedra', 'stone_brick').
+  const wanted = normalizeKey(raw);
+  for (let i = 0; i < BLOCKS.length; i++) {
+    const d = BLOCKS[i];
+    if (!d || d.reserved) continue;
+    if (normalizeKey(d.name) === wanted) return i;
+  }
+
+  return null;
+}
+
+/**
+ * Converte os blocos de uma estrutura em posições absolutas já com ids resolvidos.
+ * Referências que não resolvem são reportadas em `unresolved` em vez de virarem pedra silenciosa.
+ */
+export function resolveStructureBlocks(
+  blocks: ModStructureBlock[],
+  originX: number,
+  originY: number,
+  originZ: number,
+  ownerMod: ModPackage | null,
+  allMods: ModPackage[] = [],
+): { placements: { x: number; y: number; z: number; blockType: number }[]; unresolved: string[] } {
+  const placements: { x: number; y: number; z: number; blockType: number }[] = [];
+  const unresolved: string[] = [];
+
+  for (const b of blocks || []) {
+    const id = resolveBlockRef(b.block, ownerMod, allMods);
+    if (id === null) {
+      const label = String(b.block);
+      if (!unresolved.includes(label)) unresolved.push(label);
+      continue;
+    }
+    placements.push({ x: originX + b.dx, y: originY + b.dy, z: originZ + b.dz, blockType: id });
+  }
+
+  return { placements, unresolved };
+}
+
+/** Resumo legível para a IA inspecionar o que já existe antes de criar algo duplicado. */
+export function summarizeMods(mods: ModPackage[]): any[] {
+  return mods.map((m) => ({
+    id: m.id,
+    name: m.name,
+    version: m.version,
+    enabled: m.enabled,
+    description: m.description || '',
+    blocks: (m.blocks || []).map((b: ModBlockDef) => ({ key: b.key, name: b.name, blockId: b.blockId })),
+    entities: (m.entities || []).map((e) => ({ key: e.key, name: e.name, parts: e.parts?.length ?? 0 })),
+    structures: (m.structures || []).map((s) => ({ key: s.key, name: s.name, blocks: s.blocks?.length ?? 0 })),
+  }));
+}
