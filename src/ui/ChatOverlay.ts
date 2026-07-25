@@ -383,8 +383,10 @@ export class ChatOverlay {
     const threads = await WorldRepository.getChatThreads(this.currentWorldId);
     if (threads.length > 0) {
       this.currentThreadId = threads[0].id;
+      this.onSessionChanged(threads[0].id, threads[0].modId);
     } else {
       this.currentThreadId = null;
+      this.onSessionChanged(null, undefined);
     }
     await this.refreshMessages();
   }
@@ -449,8 +451,9 @@ export class ChatOverlay {
       openBtn.textContent = '▶ Abrir';
       openBtn.style.cssText = 'background: #0284c7; color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;';
       openBtn.onclick = async () => {
-        console.log(`💬 [ChatOverlay] Abrindo conversa ID: "${t.id}"`);
+        console.log(`💬 [ChatOverlay] Abrindo conversa ID: "${t.id}"${t.modId ? ` (mod "${t.modId}")` : ' (livre)'}`);
         this.currentThreadId = t.id;
+        this.onSessionChanged(t.id, t.modId);
         await this.toggleThreadsList();
       };
 
@@ -574,10 +577,58 @@ export class ChatOverlay {
     this.messageList.appendChild(wrapper);
   }
 
+  /**
+   * Avisa quem controla o jogo qual sessão está ativa e qual mod ela edita.
+   * É por aqui que o `ModService` sabe onde as ferramentas devem escrever.
+   */
+  public onSessionChanged: (threadId: string | null, modId?: string) => void = () => {};
+
+  /** Lista de mods do mundo, para o seletor ao criar sessão. Preenchida pelo `main`. */
+  public listMods: () => { id: string; name: string }[] = () => [];
+
+  /**
+   * Nova sessão de chat. Pergunta a que mod ela pertence, porque a sessão **é** a modificação:
+   *
+   *  - continuar um mod existente (uma conversa nova, sem herdar o histórico antigo no contexto);
+   *  - começar um mod novo (o agente cria e vincula na primeira ferramenta);
+   *  - sessão livre, sem mod — para perguntar e inspecionar sem poder alterar nada.
+   */
   private async handleNewChat(): Promise<void> {
-    const thread = await WorldRepository.createChatThread(this.currentWorldId);
-    console.log(`✨ [ChatOverlay] Nova thread de conversa criada com ID: "${thread.id}"`);
+    const mods = this.listMods();
+    let modId: string | undefined;
+    let titulo: string | undefined;
+
+    const opcoes = mods.map((m, i) => `${i + 1}. ${m.name} (${m.id})`).join('\n');
+    const escolha = prompt(
+      'Nova sessão de chat.\n\n' +
+        'Cada sessão corresponde a uma modificação do jogo.\n' +
+        '  • Digite o NÚMERO de um mod para continuar editando ele\n' +
+        '  • Digite um NOME novo para começar uma modificação nova\n' +
+        '  • Deixe VAZIO para uma sessão livre (só leitura, não altera o mundo)\n\n' +
+        (mods.length > 0 ? `Mods deste mundo:\n${opcoes}` : 'Ainda não há mods neste mundo.'),
+      '',
+    );
+
+    if (escolha === null) return; // cancelou
+
+    const limpo = escolha.trim();
+    if (limpo) {
+      const indice = Number(limpo);
+      if (Number.isInteger(indice) && indice >= 1 && indice <= mods.length) {
+        modId = mods[indice - 1].id;
+        titulo = `${mods[indice - 1].name} — continuação`;
+      } else {
+        // Nome novo: a sessão nasce livre e o agente cria o mod na primeira ferramenta de
+        // escrita. Criar o pacote aqui deixaria mods vazios para trás se a conversa não fosse
+        // adiante.
+        titulo = limpo;
+      }
+    }
+
+    const thread = await WorldRepository.createChatThread(this.currentWorldId, titulo, modId);
+    console.log(`✨ [ChatOverlay] Nova sessão "${thread.id}"${modId ? ` vinculada ao mod "${modId}"` : ' (livre)'}`);
     this.currentThreadId = thread.id;
+    this.onSessionChanged(thread.id, modId);
     this.inputField.value = '';
     if (this.isShowingThreadsList) {
       await this.toggleThreadsList();
@@ -601,8 +652,11 @@ export class ChatOverlay {
     if (!text) return;
 
     if (!this.currentThreadId) {
+      // Sessão criada implicitamente ao mandar a primeira mensagem: nasce livre, e vira sessão
+      // de mod quando o agente chamar `create_mod`.
       const newThread = await WorldRepository.createChatThread(this.currentWorldId, text.slice(0, 30));
       this.currentThreadId = newThread.id;
+      this.onSessionChanged(newThread.id, undefined);
     }
 
     console.log(`💬 [ChatOverlay] Prompt enviado na conversa [${this.currentThreadId}]: "${text}"`);

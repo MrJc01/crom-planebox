@@ -135,3 +135,46 @@ save**. Use quando o usuário disser que não gostou do resultado, em vez de apa
 > nenhuma construção da IA era reversível. Agora `execute_voxel_script` registra o lote, e o
 > undo também grava a reversão no IndexedDB (antes ela só existiria em memória e a construção
 > antiga reapareceria no próximo carregamento).
+
+---
+
+## 🧵 Sessões: cada conversa é uma modificação
+
+O vínculo entre chat e mod é a espinha dorsal do sistema. **A sessão de chat em que você está
+define qual mod você edita** — por isso `mod_id` é opcional em todas as ferramentas de escrita.
+
+### Os três estados de uma sessão
+
+| Estado | Pode ler | Pode escrever | Quando acontece |
+|---|---|---|---|
+| **Vinculada a um mod** | tudo | só nesse mod | criada escolhendo um mod, ou após `create_mod` |
+| **Livre** | tudo | nada | sessão nova sem mod, ou após soltar o vínculo |
+| **Mod em quarentena** | tudo | bloqueado | o mod falhou ao aplicar e foi isolado |
+
+Uma sessão livre existe de propósito: permite perguntar, inspecionar o mundo e ler outros mods
+sem risco de alterar o jogo por engano. Ao tentar escrever nela, você recebe uma orientação
+dizendo para usar `create_mod` ou `attach_session_to_mod`.
+
+**Um mod pode ter várias sessões.** Continuar um mod antigo numa conversa nova não obriga a
+carregar todo o histórico anterior no contexto — abra uma sessão e vincule-a ao mod.
+
+### `get_session_context`
+Diz onde você está: qual mod a sessão edita, em que revisão ele está e o que ele já contém.
+**Chame no início da conversa**, antes de modificar qualquer coisa.
+
+### `attach_session_to_mod`
+Vincula esta sessão a um mod existente (`mod_id`), ou a solta (sem parâmetro).
+
+### `list_mod_revisions` / `rollback_mod`
+Cada alteração salva um instantâneo do estado **anterior**. `rollback_mod(revision)` volta o mod
+para aquele ponto, revertendo mundo e save — e salva o estado atual antes, para o rollback também
+poder ser desfeito. O histórico é linear: a revisão avança mesmo quando o conteúdo retrocede.
+
+### Isolamento
+Um mod que falhe ao ser aplicado é posto em **quarentena**: fica desabilitado, o motivo é
+registrado e o mundo carrega normalmente com os demais. Um mod corrompido nunca impede o jogo de
+abrir.
+
+### `export_mod` devolve a estrutura, não a conversa
+O JSON exportado passa por `stripLocalState`: saem a sessão de origem, o estado de quarentena e
+os ids de bloco locais. Sobra o conteúdo do mod — que é o que faz sentido levar a outro mundo.

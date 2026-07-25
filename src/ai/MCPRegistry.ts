@@ -375,7 +375,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          mod_id: { type: 'string', description: 'Id do mod devolvido por create_mod' },
+          mod_id: { type: 'string', description: 'Id do mod. Omita para editar o mod desta sessão de chat.' },
           key: { type: 'string', description: 'Chave curta única no mod, ex.: "cristal_azul"' },
           name: { type: 'string', description: 'Nome exibido no inventário, ex.: "Cristal Azul"' },
           top_color: { type: 'string', description: 'Cor do topo em hexadecimal, ex.: "#38bdf8"' },
@@ -390,7 +390,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
           light_level: { type: 'number', description: 'Luz emitida, 0 a 15' },
           interactive: { type: 'boolean', description: 'Aparece na aba de blocos especiais do inventário' },
         },
-        required: ['mod_id', 'name', 'top_color'],
+        required: ['name', 'top_color'],
       },
     },
   },
@@ -425,7 +425,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
             description: 'JS rodado a cada frame com (dt, entity, Math, THREE) no escopo. Ex.: "entity.walkCycle += dt; entity.pos.y += Math.sin(entity.walkCycle)*dt; entity.mesh.position.copy(entity.pos);"',
           },
         },
-        required: ['mod_id', 'name', 'parts'],
+        required: ['name', 'parts'],
       },
     },
   },
@@ -452,7 +452,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
             },
           },
         },
-        required: ['mod_id', 'name', 'blocks'],
+        required: ['name', 'blocks'],
       },
     },
   },
@@ -470,7 +470,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
           y: { type: 'number', description: 'Altura; se omitido, encaixa no chão' },
           z: { type: 'number' },
         },
-        required: ['mod_id', 'entity_key', 'x', 'z'],
+        required: ['entity_key', 'x', 'z'],
       },
     },
   },
@@ -488,7 +488,56 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
           y: { type: 'number' },
           z: { type: 'number' },
         },
-        required: ['mod_id', 'structure_key', 'x', 'y', 'z'],
+        required: ['structure_key', 'x', 'y', 'z'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'attach_session_to_mod',
+      description: 'Vincula ESTA sessão de chat a um mod existente, passando a editá-lo. Cada sessão de conversa corresponde a uma modificação: é isso que dá escopo às ferramentas e evita alterar o mod errado. Sem `mod_id`, a sessão volta a ser LIVRE (lê tudo, não escreve nada).',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string', description: 'Id do mod a editar nesta sessão. Omita para soltar o vínculo.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_session_context',
+      description: 'Diz qual mod esta sessão está editando (ou que ela é livre) e resume o conteúdo dele. Chame no início de uma conversa para saber onde você está antes de modificar qualquer coisa.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_mod_revisions',
+      description: 'Lista o histórico de versões de um mod, da mais recente para a mais antiga, com um resumo do que mudou em cada uma.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string', description: 'Omita para usar o mod desta sessão.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'rollback_mod',
+      description: 'Volta um mod para uma revisão anterior, revertendo mundo e save. O estado atual é salvo como revisão antes de voltar, então dá para desfazer o rollback. Use quando o usuário disser que a última alteração piorou o mod.',
+      parameters: {
+        type: 'object',
+        properties: {
+          revision: { type: 'number', description: 'Número da revisão de destino (veja em list_mod_revisions)' },
+          mod_id: { type: 'string', description: 'Omita para usar o mod desta sessão.' },
+        },
+        required: ['revision'],
       },
     },
   },

@@ -567,3 +567,222 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
     expect(echoes[0]).toBe(details.modId);
   });
 });
+
+describe('ModService — sessão de chat como modificação', () => {
+  beforeEach(() => {
+    resetCustomBlocks();
+    fake.mods.clear();
+    fake.entities.clear();
+    fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
+  });
+
+  it('sessão sem mod é livre e a orientação diz o que fazer', () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-1', undefined);
+
+    expect(svc.isFreeSession()).toBe(true);
+    expect(svc.resolveTargetMod()).toBeUndefined();
+    expect(svc.freeSessionHint('criar um bloco')).toContain('create_mod');
+  });
+
+  it('criar um mod vincula a sessão atual a ele', async () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-1');
+
+    const { details } = await svc.createMod('Cristal');
+
+    expect(svc.isFreeSession()).toBe(false);
+    expect(svc.getActiveModId()).toBe(details.modId);
+    expect(fake.threadMods.get('thread-1')).toBe(details.modId);
+  });
+
+  it('o mod guarda a sessão de origem, mas o vínculo autoritativo é da thread', async () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-origem');
+    const { details } = await svc.createMod('Cristal');
+
+    expect(svc.getMod(details.modId)!.originThreadId).toBe('thread-origem');
+
+    // Uma segunda sessão pode continuar o MESMO mod — 1 mod, N sessões.
+    svc.setActiveSession('thread-2');
+    await svc.attachActiveSession(details.modId);
+    expect(svc.getModForActiveThread()!.id).toBe(details.modId);
+    expect(fake.threadMods.get('thread-2')).toBe(details.modId);
+  });
+
+  it('ferramentas escrevem no mod da sessão sem precisar do id', async () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-1');
+    const { details } = await svc.createMod('Cristal');
+
+    const alvo = svc.resolveTargetMod();
+    expect(alvo!.id).toBe(details.modId);
+
+    // Id explícito continua tendo precedência.
+    await svc.createMod('Outro', '', 'mod-outro');
+    expect(svc.resolveTargetMod('mod-outro')!.id).toBe('mod-outro');
+  });
+
+  it('soltar o vínculo devolve a sessão ao estado livre', async () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-1');
+    await svc.createMod('Cristal');
+
+    await svc.attachActiveSession(undefined);
+    expect(svc.isFreeSession()).toBe(true);
+  });
+
+  it('recusa vincular a um mod inexistente', async () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-1');
+    const res = await svc.attachActiveSession('mod-fantasma');
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe('ModService — versionamento e rollback', () => {
+  beforeEach(() => {
+    resetCustomBlocks();
+    fake.mods.clear();
+    fake.entities.clear();
+    fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
+  });
+
+  it('cada alteração grava uma revisão do estado anterior', async () => {
+    const { svc } = newService();
+    const { details } = await svc.createMod('Cristal');
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'b', name: 'B', topColor: 0 });
+
+    const revs = await svc.listRevisions(details.modId);
+    expect(revs.length).toBe(2);
+    expect(revs[0].summary).toContain('"b"');
+  });
+
+  it('a revisão do mod avança a cada mudança', async () => {
+    const { svc } = newService();
+    const { details } = await svc.createMod('Cristal');
+    expect(svc.getMod(details.modId)!.revision).toBe(1);
+
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    expect(svc.getMod(details.modId)!.revision).toBe(2);
+  });
+
+  it('CRÍTICO: rollback devolve o mod ao conteúdo da revisão escolhida', async () => {
+    const { svc } = newService();
+    const { details } = await svc.createMod('Cristal');
+    await svc.addBlock(details.modId, { key: 'bom', name: 'Bom', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'ruim', name: 'Ruim', topColor: 0 });
+    expect(svc.getMod(details.modId)!.blocks).toHaveLength(2);
+
+    // Revisão 2 é o estado logo após "bom" e antes de "ruim".
+    const res = await svc.rollbackMod(details.modId, 2);
+
+    expect(res.ok).toBe(true);
+    const depois = svc.getMod(details.modId)!;
+    expect(depois.blocks.map((b) => b.key)).toEqual(['bom']);
+  });
+
+  it('o rollback é reversível: o estado anterior vira uma revisão nova', async () => {
+    const { svc } = newService();
+    const { details } = await svc.createMod('Cristal');
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'b', name: 'B', topColor: 0 });
+
+    const antes = (await svc.listRevisions(details.modId)).length;
+    await svc.rollbackMod(details.modId, 2);
+    const depois = await svc.listRevisions(details.modId);
+
+    expect(depois.length).toBe(antes + 1);
+    expect(depois[0].summary).toContain('voltar');
+  });
+
+  it('a revisão avança mesmo voltando no conteúdo — histórico linear, nunca reescrito', async () => {
+    const { svc } = newService();
+    const { details } = await svc.createMod('Cristal');
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    const antes = svc.getMod(details.modId)!.revision;
+
+    await svc.rollbackMod(details.modId, 1);
+    expect(svc.getMod(details.modId)!.revision).toBeGreaterThan(antes);
+  });
+
+  it('recusa revisão inexistente informando as disponíveis', async () => {
+    const { svc } = newService();
+    const { details } = await svc.createMod('Cristal');
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+
+    const res = await svc.rollbackMod(details.modId, 99);
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain('Disponíveis');
+  });
+});
+
+describe('ModService — isolamento e export', () => {
+  beforeEach(() => {
+    resetCustomBlocks();
+    fake.mods.clear();
+    fake.entities.clear();
+    fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
+  });
+
+  it('CRÍTICO: mod corrompido é isolado e o mundo carrega assim mesmo', async () => {
+    // Grava direto no repositório um pacote inválido, simulando corrupção no save.
+    fake.mods.set('mod-quebrado', {
+      id: 'mod-quebrado', name: '', version: '1', enabled: true, revision: 1,
+      blocks: [{ key: 'CHAVE INVÁLIDA', name: '', blockId: 64, topColor: 0 }],
+      entities: [], structures: [], createdAt: 0, updatedAt: 0,
+    } as any);
+    fake.mods.set('mod-bom', {
+      id: 'mod-bom', name: 'Bom', version: '1', enabled: true, revision: 1,
+      blocks: [{ key: 'ok', name: 'OK', blockId: 70, topColor: 0 }],
+      entities: [], structures: [], createdAt: 0, updatedAt: 0,
+    } as any);
+
+    const { svc } = newService();
+    const isolados: string[] = [];
+    svc.onModQuarantined = (m) => isolados.push(m.id);
+
+    const resumo = await svc.loadForWorld('mundo-1');
+
+    expect(isolados).toContain('mod-quebrado');
+    expect(svc.getMod('mod-quebrado')!.quarantined).toBe(true);
+    // O mod saudável continuou funcionando — é o ponto do isolamento.
+    expect(resumo.mods).toBe(1);
+    expect(BLOCKS[70].name).toBe('OK');
+  });
+
+  it('mod em quarentena não é reaplicado nos carregamentos seguintes', async () => {
+    fake.mods.set('mod-x', {
+      id: 'mod-x', name: 'X', version: '1', enabled: true, revision: 1, quarantined: true,
+      blocks: [{ key: 'a', name: 'A', blockId: 64, topColor: 0 }],
+      entities: [], structures: [], createdAt: 0, updatedAt: 0,
+    } as any);
+
+    const { svc } = newService();
+    const resumo = await svc.loadForWorld('mundo-1');
+    expect(resumo.mods).toBe(0);
+    expect(getBlockDef(64)).toBe(MISSING_BLOCK);
+  });
+
+  it('export entrega a ESTRUTURA do mod, sem a conversa nem os ids locais', async () => {
+    const { svc } = newService();
+    svc.setActiveSession('thread-secreta');
+    const { details } = await svc.createMod('Cristal');
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: '#38bdf8' });
+
+    const pkg = svc.exportMod(details.modId)!;
+
+    expect(pkg.mod.originThreadId).toBeUndefined();
+    expect(pkg.mod.quarantined).toBeUndefined();
+    expect(pkg.mod.blocks[0].blockId).toBeUndefined();
+    // Mas o conteúdo que importa continua lá.
+    expect(pkg.mod.blocks[0]).toMatchObject({ key: 'a', name: 'A', topColor: '#38bdf8' });
+  });
+});

@@ -143,6 +143,16 @@ export class MCPExecutors {
     modsForLookup = this.modService.getMods();
   }
 
+  /**
+   * Resolve o mod que a ferramenta vai editar, ou devolve a orientação de sessão livre.
+   * Centralizado para todas as ferramentas de escrita recusarem da mesma forma.
+   */
+  private targetMod(args: any, acao: string): { modId: string } | { erro: string } {
+    const mod = this.modService.resolveTargetMod(args?.mod_id);
+    if (!mod) return { erro: this.modService.freeSessionHint(acao) };
+    return { modId: mod.id };
+  }
+
   private snapshotFrom(cx: number, cy: number, cz: number, tx: number, ty: number, tz: number): string {
     const snapCam = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 1000);
     snapCam.position.set(cx, cy, cz);
@@ -596,7 +606,9 @@ export class MCPExecutors {
       }
 
       case 'define_mod_block': {
-        const res = await this.modService.addBlock(String(args.mod_id || ''), {
+        const alvo = this.targetMod(args, 'criar um bloco');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const res = await this.modService.addBlock(alvo.modId, {
           key: String(args.key || args.name || ''),
           name: String(args.name || ''),
           topColor: args.top_color,
@@ -616,8 +628,10 @@ export class MCPExecutors {
       }
 
       case 'define_mod_entity': {
+        const alvo = this.targetMod(args, 'criar uma criatura');
+        if ('erro' in alvo) return { result: alvo.erro };
         const parts = Array.isArray(args.parts) ? args.parts : safeJsonArray(args.parts);
-        const res = await this.modService.addEntity(String(args.mod_id || ''), {
+        const res = await this.modService.addEntity(alvo.modId, {
           key: String(args.key || args.name || ''),
           name: String(args.name || 'Criatura'),
           faction: args.faction,
@@ -631,8 +645,10 @@ export class MCPExecutors {
       }
 
       case 'define_mod_structure': {
+        const alvo = this.targetMod(args, 'criar uma estrutura');
+        if ('erro' in alvo) return { result: alvo.erro };
         const blocks = Array.isArray(args.blocks) ? args.blocks : safeJsonArray(args.blocks);
-        const res = await this.modService.addStructure(String(args.mod_id || ''), {
+        const res = await this.modService.addStructure(alvo.modId, {
           key: String(args.key || args.name || ''),
           name: String(args.name || 'Estrutura'),
           blocks: blocks as any,
@@ -646,13 +662,17 @@ export class MCPExecutors {
         const z = Number(args.z) || 0;
         // Sem `y`, encaixa na superfície — evita a criatura nascer enterrada ou flutuando.
         const y = args.y !== undefined ? Number(args.y) : this.groundYAt(x, z) + 1;
-        const res = await this.modService.spawnEntity(String(args.mod_id || ''), String(args.entity_key || ''), x, y, z);
+        const alvo = this.targetMod(args, 'colocar uma criatura no mundo');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const res = await this.modService.spawnEntity(alvo.modId, String(args.entity_key || ''), x, y, z);
         return { result: res.message };
       }
 
       case 'place_mod_structure': {
+        const alvo = this.targetMod(args, 'carimbar uma estrutura');
+        if ('erro' in alvo) return { result: alvo.erro };
         const res = await this.modService.placeStructure(
-          String(args.mod_id || ''),
+          alvo.modId,
           String(args.structure_key || ''),
           Number(args.x) || 0,
           Number(args.y) || 0,
@@ -665,6 +685,53 @@ export class MCPExecutors {
           Number(args.x) || 0, Number(args.y) || 0, Number(args.z) || 0,
         );
         return { result: res.message, snapshotImage: snap };
+      }
+
+      case 'attach_session_to_mod': {
+        const res = await this.modService.attachActiveSession(args.mod_id ? String(args.mod_id) : undefined);
+        this.syncModLookup();
+        return { result: res.message };
+      }
+
+      case 'get_session_context': {
+        const mod = this.modService.getModForActiveThread();
+        if (!mod) {
+          return {
+            result: {
+              sessao: 'livre',
+              explicacao: this.modService.freeSessionHint('modificar o mundo'),
+              modsDisponiveis: this.modService.list().map((m: any) => ({ id: m.id, name: m.name, blocos: m.blocks.length })),
+            },
+          };
+        }
+        return {
+          result: {
+            sessao: 'vinculada',
+            mod: { id: mod.id, name: mod.name, revisao: mod.revision, habilitado: mod.enabled },
+            conteudo: {
+              blocos: (mod.blocks || []).map((b) => ({ key: b.key, name: b.name, blockId: b.blockId })),
+              entidades: (mod.entities || []).map((e) => e.key),
+              estruturas: (mod.structures || []).map((st) => st.key),
+            },
+            observacao: 'As ferramentas de escrita editam este mod por padrão; não é preciso repetir mod_id.',
+          },
+        };
+      }
+
+      case 'list_mod_revisions': {
+        const alvo = this.targetMod(args, 'consultar o histórico');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const revs = await this.modService.listRevisions(alvo.modId);
+        if (revs.length === 0) return { result: `O mod "${alvo.modId}" ainda não tem revisões anteriores.` };
+        return { result: revs };
+      }
+
+      case 'rollback_mod': {
+        const alvo = this.targetMod(args, 'reverter uma versão');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const res = await this.modService.rollbackMod(alvo.modId, Number(args.revision));
+        this.syncModLookup();
+        return { result: res.message };
       }
 
       case 'list_mods': {

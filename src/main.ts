@@ -299,6 +299,15 @@ async function bootstrap() {
   hud.canUseTopdown = () => gameModeManager.mode === 'creative';
   undoManager.onToast = (msg) => hud.showToast(msg);
   const chatOverlay = new ChatOverlay(openRouterClient);
+  // A sessão de chat aberta define qual mod as ferramentas da IA editam. Sem este vínculo,
+  // toda conversa escreveria no mod errado — ou em nenhum.
+  chatOverlay.listMods = () => mcpExecutors.modService.getMods().map((m) => ({ id: m.id, name: m.name }));
+  chatOverlay.onSessionChanged = (threadId, modId) => {
+    mcpExecutors.modService.setActiveSession(threadId ?? undefined, modId);
+  };
+  mcpExecutors.modService.onModQuarantined = (mod, reason) => {
+    hud.showToast(`⚠️ Mod "${mod.name}" foi isolado: ${reason}`);
+  };
   hud.setVisible(false);
   inventoryModal.setHotbarVisible(false);
   chatOverlay.hide();

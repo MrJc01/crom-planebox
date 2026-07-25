@@ -202,7 +202,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [ ] 126 `P1` Afogamento com barra de oxigênio embaixo d'água
 - [ ] 127 `P1` Dano por lava e por queimadura persistente
 - [ ] 128 `P1` Temperatura por bioma exigindo abrigo ou roupa
-- [ ] 129 `P1` Durabilidade de ferramentas com quebra
+- [~] 129 `P1` **Durabilidade de ferramentas com quebra, e barra de desgaste na hotbar**
 - [ ] 130 `P1` Armadura reduzindo dano recebido
 - [ ] 131 `P2` Efeitos de status (veneno, regeneração, velocidade)
 - [ ] 132 `P2` Poções craftáveis
@@ -228,7 +228,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [~] 149 `P1` **Knockback ao receber dano, com componente vertical**
 - [~] 150 `P1` **Invulnerabilidade temporária pós-dano (i-frames) — impede stun lock**
 - [~] 151 `P1` **Barra de vida sobre entidades hostis, criada ao primeiro dano**
-- [ ] 152 `P1` Drops de inimigo com loot table
+- [~] 152 `P1` **Drops de inimigo alimentando o próprio ciclo (carvão → tocha; ferro → picareta)**
 - [ ] 153 `P2` Bloqueio/parry com escudo
 - [ ] 154 `P2` Ataque carregado
 - [ ] 155 `P2` Inimigos com resistências elementais
@@ -257,7 +257,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [x] 172 `P1` Script de comportamento por entidade compilado em runtime
 - [x] 173 `P1` Possessão de entidade pelo jogador (`takeControlOf`)
 - [~] 174 `P0` **Entidades persistidas no save e restauradas ao recarregar o mundo**
-- [ ] 175 `P0` Pathfinding A* respeitando colisão e altura de pulo
+- [~] 175 `P0` **Pathfinding A* respeitando colisão e altura de pulo — `src/entities/Pathfinding.ts`**
 - [~] 176 `P1` **Colisão de entidade com blocos — mobs pararam de atravessar parede**
 - [~] 177 `P1` **Máquina de estados (ocioso, perseguir, atacar)**
 - [~] 178 `P1` **Percepção com raio de visão (`aggroRange`)**
@@ -410,17 +410,17 @@ Nesta rodada o sistema foi reconstruído do zero com identidade estável e persi
 - [~] 302 `P1` **Validação do pacote antes de aplicar** (nome, cores, chaves duplicadas)
 - [~] 303 `P1` **Limite de blocos por mundo com erro claro em vez de corromper**
 - [~] 304 `P1` **Listar mods instalados com contagem de conteúdo**
-- [ ] 305 `P1` Dependências entre mods com ordem de carga resolvida
-- [ ] 306 `P1` Versionamento de mod com migração de conteúdo
+- [~] 305 `P1` **Dependências entre mods → ver seção 26 (item 655), redesenhado com o modelo de sessões**
+- [~] 306 `P1` **Versionamento de mod com histórico e rollback — `ModRevision` + `rollback_mod`**
 - [ ] 307 `P1` Conflito de chave entre mods detectado e reportado
 - [ ] 308 `P2` Mods registrando receitas de crafting
 - [ ] 309 `P2` Mods registrando itens não-bloco
 - [ ] 310 `P2` Mods registrando biomas
 - [ ] 311 `P2` Mods registrando eventos de mundo
 - [ ] 312 `P2` Mods assinando hooks (`onBlockPlaced`, `onTick`)
-- [ ] 313 `P2` Painel de gerenciamento de mods na UI do jogo
+- [~] 313 `P2` **Painel de gerenciamento de mods → parcialmente coberto pela seleção de mod na sessão**
 - [ ] 314 `P2` Recarga a quente de mod sem reiniciar o mundo
-- [ ] 315 `P2` Sandbox de permissões por mod (o que ele pode alterar)
+- [~] 315 `P2` **Sandbox de permissões por mod → escrita já escopada ao mod da sessão (item 701)**
 - [ ] 316 `P2` Galeria/compartilhamento de mods entre jogadores
 - [ ] 317 `P2` Sincronizar mods para os convidados no multiplayer P2P
 - [ ] 318 `P3` Mods com assets (sons, texturas) empacotados
@@ -682,6 +682,28 @@ Ou seja: **toda modificação de bloco criada pela IA corrompia o mundo no reloa
 marcados `[~]` acima são a correção estrutural: identidade de bloco estável, persistência por
 mundo, reaplicação no load e cobertura de testes.
 
+### Rodada 6 — concluído
+
+| Item | Entrega |
+|---|---|
+| 175 | A* em grade de voxels: os mobs contornam quinas em vez de encostar na parede e travar |
+| 129/152 | Durabilidade com quebra e loot que realimenta o ciclo de luz e de picareta |
+| 621–641 | **Mod = sessão de chat**, com versionamento, rollback e quarentena |
+| 701–703 | Escrita escopada ao mod da sessão; leitura continua ampla |
+
+**Decisão de modelagem que vale registrar:** o pedido original sugeria 1 sessão ↔ 1 mod. Amarrar
+assim obrigaria a carregar toda a conversa anterior no contexto para continuar um mod antigo. O
+vínculo autoritativo ficou em `ChatThreadRecord.modId` (1 mod → N sessões), e `originThreadId`
+guarda só a proveniência.
+
+**Sessão livre** foi acrescentada como terceiro estado: sem mod vinculado, o agente lê o mundo e
+os outros mods mas nenhuma ferramenta de escrita funciona. É o que impede uma conversa
+exploratória de alterar o jogo por engano.
+
+**Biomas e construções espalhadas** foram desenhados e registrados na seção 27, mas **não
+implementados** nesta rodada, a pedido — o esboço do `BiomeDef` e da regra de espalhamento está
+descrito lá para a implementação ser direta.
+
 ### Rodada 5 — concluído
 
 | Item | Entrega |
@@ -735,14 +757,14 @@ carvão 1,24% → ferro 0,92% → ouro 0,12% → diamante 0,022%.
 
 | Ordem | Item | Por quê |
 |---|---|---|
-| 1 | 175 (pathfinding A*) | Os mobs já colidem, mas ficam presos em quina — é o teto da qualidade do combate |
-| 2 | 148 (arco e flecha) | Sem ataque à distância, todo combate é encostar e bater |
-| 3 | 129–130 (durabilidade e armadura) | O combate existe, mas o equipamento ainda não é decisão |
-| 4 | 403 (mesh em worker) | O re-mesh do ciclo dia/noite tornou o custo de malha mais visível |
-| 5 | 152 (loot table de inimigo) | Os perfis já têm campo de drop, ainda sem conteúdo |
-| 6 | 609 (sync de entidades no P2P) | Última lacuna grande do multiplayer |
-| 7 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
-| 8 | 514 (CI) | Impede regressão silenciosa nos 246 testes |
+| 1 | 665–669 (biomas com recursos próprios) | Desenhado e registrado; é o que dá razão para explorar o mapa |
+| 2 | 681–684 (construções espalhadas) | Não há nada para encontrar explorando hoje |
+| 3 | 642 (painel de mods na UI) | Versionamento e rollback existem, mas só via ferramenta da IA |
+| 4 | 704–705 (atribuir blocos ao mod da sessão) | Fecha o cerco: hoje `set_block` ainda escreve fora do escopo |
+| 5 | 148 (arco e flecha) | Sem ataque à distância, todo combate é encostar e bater |
+| 6 | 130 (armadura) | O combate existe, mas defender-se ainda não é decisão |
+| 7 | 403 (mesh em worker) | O re-mesh do ciclo dia/noite tornou o custo de malha mais visível |
+| 8 | 514 (CI) | Impede regressão silenciosa nos 285 testes |
 
 ---
 
@@ -878,3 +900,145 @@ multiplayer. Vale registrá-la explicitamente para nenhuma feature futura quebra
 - [ ] 618 `P2` Validação de todas as mensagens P2P recebidas contra payload malicioso
 - [ ] 619 `P2` Limite de convidados configurável
 - [ ] 620 `P3` Servidor dedicado opcional, sem quebrar o modo local
+
+---
+
+# Adendo — Rodada 3 de requisitos (itens 621–720)
+
+> Três especialistas novos convocados para os requisitos de **mod como sessão de chat**,
+> **biomas com recursos próprios** e **construções espalhadas**.
+
+| # | Especialista | Itens | Foco |
+|---|---|---|---|
+| 26 | Arquiteto de Sessões & Versionamento | 621–664 | Mod = sessão de chat, versões, isolamento |
+| 27 | Designer de Biomas & Distribuição | 665–700 | Biomas com recursos exclusivos, estruturas espalhadas |
+| 28 | Engenheiro de Ferramentas do Agente | 701–720 | Escopo, leitura ampla, escrita restrita |
+
+## 26 — Arquiteto de Sessões & Versionamento ⭐
+
+*Parecer: o pedido tem uma intuição forte — se a conversa **é** a modificação, o agente sempre
+sabe onde escrever, e o usuário ganha um histórico legível do porquê de cada mudança. O risco a
+evitar era amarrar 1 sessão ↔ 1 mod: continuar um mod antigo obrigaria a carregar toda a conversa
+anterior no contexto. Resolvido com 1 mod → N sessões.*
+
+- [~] 621 `P0` **`ChatThreadRecord.modId` é o vínculo autoritativo entre sessão e mod**
+- [~] 622 `P0` **`ModPackage.originThreadId` guarda a proveniência (onde o mod nasceu)**
+- [~] 623 `P0` **Cardinalidade 1 mod → N sessões** — continuar um mod sem herdar o histórico
+- [~] 624 `P0` **Sessão livre (sem mod): lê tudo, não escreve nada**
+- [~] 625 `P0` **Criar sessão permite escolher mod existente, nomear um novo, ou ficar livre**
+- [~] 626 `P0` **`create_mod` vincula a sessão atual automaticamente**
+- [~] 627 `P0` **`attach_session_to_mod` troca ou solta o vínculo**
+- [~] 628 `P0` **`get_session_context` diz ao agente onde ele está antes de modificar**
+- [~] 629 `P0` **`mod_id` virou opcional nas ferramentas de escrita** (usa o mod da sessão)
+- [~] 630 `P0` **Snapshot do estado ANTES de cada alteração** (`ModRevision`)
+- [~] 631 `P0` **`list_mod_revisions` com resumo do que mudou em cada versão**
+- [~] 632 `P0` **`rollback_mod` reverte mundo e save**
+- [~] 633 `P0` **O rollback é reversível: o estado atual vira revisão antes de voltar**
+- [~] 634 `P1` **Histórico linear: a revisão avança mesmo voltando no conteúdo**
+- [~] 635 `P0` **Quarentena: mod que falha ao aplicar é isolado e o mundo carrega**
+- [~] 636 `P0` **Aplicação mod a mod** — antes uma exceção travava o carregamento inteiro
+- [~] 637 `P1` **Mod em quarentena não é reaplicado nos loads seguintes**
+- [~] 638 `P1` **Aviso na UI quando um mod é isolado, com o motivo**
+- [~] 639 `P0` **`export_mod` entrega a ESTRUTURA, sem conversa, quarentena ou ids locais**
+- [~] 640 `P1` **Database v6 com a tabela `modRevisions`**
+- [~] 641 `P1` **Cobertura de testes de sessão, versionamento e isolamento** (15 testes)
+- [ ] 642 `P0` Painel de mods na UI: listar, ativar, versões, rollback, exportar
+- [ ] 643 `P1` Aba de sessões mostrando a qual mod cada uma pertence
+- [ ] 644 `P1` Diff legível entre duas revisões ("+2 blocos, −1 estrutura")
+- [ ] 645 `P1` Limite de revisões por mod, com poda das mais antigas
+- [ ] 646 `P1` Rollback parcial (só os blocos, só as estruturas)
+- [ ] 647 `P1` Reverter do mundo os blocos colocados por uma revisão descartada
+- [ ] 648 `P1` Tirar da quarentena manualmente, depois de corrigir o mod
+- [ ] 649 `P1` Diagnóstico do motivo da quarentena legível para o usuário leigo
+- [ ] 650 `P2` Renomear e descrever a sessão a partir do conteúdo do mod
+- [ ] 651 `P2` Arquivar sessão sem apagar o mod
+- [ ] 652 `P2` Apagar sessão perguntando o que fazer com o mod
+- [ ] 653 `P2` Mesclar dois mods num só
+- [ ] 654 `P2` Dividir um mod em dois
+- [ ] 655 `P2` Dependência declarada entre mods, com ordem de carga
+- [ ] 656 `P2` Detectar conflito quando dois mods alteram a mesma coisa
+- [ ] 657 `P2` Marcar revisão como "estável" para servir de ponto de retorno
+- [ ] 658 `P2` Comparar o mod com a versão exportada (o que mudou desde então)
+- [ ] 659 `P2` Importar mod já vinculando a uma sessão nova
+- [ ] 660 `P2` Histórico de quem alterou o quê no multiplayer
+- [ ] 661 `P2` Exportar a sessão (conversa) separadamente, como registro de decisões
+- [ ] 662 `P3` Reproduzir um mod a partir da conversa, do zero
+- [ ] 663 `P2` Migração de mods antigos sem `revision` nem `originThreadId`
+- [ ] 664 `P2` Teste de que uma revisão restaurada gera exatamente o mesmo mundo
+
+## 27 — Designer de Biomas & Distribuição
+
+*Parecer: hoje o gerador escolhe o bloco de superfície por uma sequência de `if` dentro de
+`column()` — praia, montanha, rio. Isso descreve **relevo**, não bioma. Falta o que faz um bioma
+importar num jogo de sobrevivência: ter algo que só existe ali, obrigando a expedição. E o mundo
+não tem nenhuma construção espalhada — nada para encontrar explorando.*
+
+**Desenho proposto (já esboçado e guardado aqui em vez de implementado agora):**
+`BiomeDef` declarativo com faixa de clima, superfície, vegetação e **recursos com abundância
+própria**; seleção por pontuação contínua (`biomeScore`) em vez de teste booleano, para as
+fronteiras serem graduais e para um bioma de mod competir em igualdade com os base.
+
+- [ ] 665 `P0` `BiomeDef` declarativo: clima, superfície, vegetação, recursos
+- [ ] 666 `P0` Seleção por pontuação contínua, com fronteiras graduais
+- [ ] 667 `P0` Recursos com abundância por bioma (ouro no deserto, diamante na tundra)
+- [ ] 668 `P0` Recurso exclusivo de bioma — o que obriga a expedição
+- [ ] 669 `P0` Oito biomas base: planície, floresta, taiga, tundra, deserto, savana, pântano, montanha
+- [ ] 670 `P1` Vegetação por bioma (densidade de árvore, capim, decoração característica)
+- [ ] 671 `P1` Bioma influencia a paleta de superfície e subsolo
+- [ ] 672 `P1` Bioma de montanha condicionado à altura, não só ao clima
+- [ ] 673 `P1` Transição suave de altura entre biomas vizinhos
+- [ ] 674 `P1` Mob hostil característico por bioma
+- [ ] 675 `P1` Temperatura do bioma afetando o jogador (item 128)
+- [ ] 676 `P0` **Mods podem registrar biomas** — a base para o agente criar biomas
+- [ ] 677 `P0` `define_mod_biome` como ferramenta MCP
+- [ ] 678 `P1` Bioma de mod entra na seleção em igualdade com os base
+- [ ] 679 `P1` Nome do bioma atual no HUD e em `query_world_area`
+- [ ] 680 `P2` Mapa de biomas consultável pelo agente antes de construir
+- [ ] 681 `P0` **Construções espalhadas**: estruturas distribuídas proceduralmente pelo mundo
+- [ ] 682 `P0` Regra de espalhamento por bioma, raridade e espaçamento mínimo
+- [ ] 683 `P0` Uma estrutura por célula de grade, com vencedor único (como as árvores)
+- [ ] 684 `P0` Estrutura assenta no terreno (nivela a base, não flutua nem afunda)
+- [ ] 685 `P1` Ruínas, torres abandonadas e acampamentos como conteúdo base
+- [ ] 686 `P1` Baú de loot dentro da estrutura, com tabela por tipo
+- [ ] 687 `P1` Estruturas subterrâneas ligadas às cavernas
+- [ ] 688 `P1` Aldeias com várias estruturas e caminho ligando
+- [ ] 689 `P0` **Mods podem registrar regras de espalhamento** — base para mods de estrutura
+- [ ] 690 `P0` `define_mod_scatter` como ferramenta MCP
+- [ ] 691 `P1` Estrutura espalhada respeita o bioma declarado na regra
+- [ ] 692 `P1` Densidade de espalhamento configurável por mundo
+- [ ] 693 `P1` Estruturas espalhadas entram no save como blocos normais
+- [ ] 694 `P2` Marcar no mapa as estruturas já encontradas
+- [ ] 695 `P2` Estrutura com variação procedural (não duas iguais)
+- [ ] 696 `P2` Estrutura com entidades pré-posicionadas
+- [ ] 697 `P2` Comando/ferramenta para localizar a estrutura mais próxima
+- [ ] 698 `P2` Bioma corrompido que se espalha (item 503)
+- [ ] 699 `P2` Testes de determinismo do espalhamento por semente
+- [ ] 700 `P2` Testes de que nenhuma estrutura nasce dentro de outra
+
+## 28 — Engenheiro de Ferramentas do Agente
+
+*Parecer: o pedido separa bem **leitura** de **escrita** — o agente lê o projeto inteiro e os
+outros mods, mas só escreve dentro do mod da sessão. Isso é o que contém o estrago de um mod
+malfeito. Falta fechar o cerco nas ferramentas que ainda escrevem fora do escopo.*
+
+- [~] 701 `P0` **Escrita escopada ao mod da sessão** (`targetMod` + orientação padronizada)
+- [~] 702 `P0` **Leitura ampla continua liberada** (`list_mods`, `query_world_area`, snapshots)
+- [~] 703 `P1` **Mensagem única e acionável ao tentar escrever numa sessão livre**
+- [ ] 704 `P0` `set_block`/`fill_box`/`execute_voxel_script` também atribuídos ao mod da sessão
+- [ ] 705 `P0` Registrar no mod quais blocos do mundo ele colocou, para reverter com precisão
+- [ ] 706 `P1` `read_mod` para inspecionar outro mod sem poder alterá-lo
+- [ ] 707 `P1` Ferramenta de leitura do projeto (arquivos/estrutura) para o agente se situar
+- [ ] 708 `P1` Orçamento de alterações por sessão, com aviso ao estourar
+- [ ] 709 `P1` Dry-run: simular a modificação e reportar o impacto antes de aplicar
+- [ ] 710 `P1` Toda ferramenta de escrita gera entrada no histórico da sessão
+- [ ] 711 `P2` Permissões por mod (o que ele pode tocar)
+- [ ] 712 `P2` Ferramentas de escrita desabilitadas em mod em quarentena
+- [ ] 713 `P2` Confirmação do usuário antes de operação destrutiva na sessão
+- [ ] 714 `P2` Log de auditoria por sessão, exportável
+- [ ] 715 `P2` Agente consegue citar a mensagem que originou cada alteração
+- [ ] 716 `P2` Sugerir automaticamente dividir a sessão quando o mod cresce demais
+- [ ] 717 `P2` Detectar que a conversa mudou de assunto e propor sessão nova
+- [ ] 718 `P2` Limite de contexto: resumir a sessão longa preservando as decisões
+- [ ] 719 `P3` Agente propõe o plano do mod antes de executar, e o usuário aprova
+- [ ] 720 `P2` Teste de que nenhuma ferramenta de escrita funciona em sessão livre
+
