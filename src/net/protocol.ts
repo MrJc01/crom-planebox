@@ -11,6 +11,17 @@ export interface BlockUpdateMsg {
   x: number; y: number; z: number; blockType: number;
 }
 
+/**
+ * Lote de blocos do mesmo frame.
+ *
+ * Uma construção da IA ou um desmoronamento altera centenas de blocos de uma vez. Mandar uma
+ * mensagem por bloco paga o cabeçalho centenas de vezes; agrupar paga uma.
+ */
+export interface BlockBatchMsg {
+  type: 'block_batch';
+  blocks: { x: number; y: number; z: number; blockType: number }[];
+}
+
 export interface EntityUpdateMsg {
   type: 'entity_update';
   id: string; x: number; y: number; z: number;
@@ -27,6 +38,11 @@ export interface PlayerStateMsg {
    * SEMPRE passar por `sanitizeAppearance` ao receber — vem de outro cliente.
    */
   appearance?: Appearance;
+  /**
+   * Hash da aparência que o remetente está usando. Vai em todo pacote binário; a aparência
+   * inteira só é enviada quando o hash muda. Ver `hashAppearance` em `codec.ts`.
+   */
+  appearanceHash?: number;
 }
 
 export interface ChatMessageMsg {
@@ -68,6 +84,7 @@ export interface KickMsg { type: 'kick'; playerId: string }
 
 export type NetMessage =
   | BlockUpdateMsg
+  | BlockBatchMsg
   | EntityUpdateMsg
   | PlayerStateMsg
   | ChatMessageMsg

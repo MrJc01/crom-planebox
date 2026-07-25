@@ -43,6 +43,7 @@ import { SignalingClient } from './net/SignalingClient';
 import { PeerSync } from './net/PeerSync';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
+import { hashAppearance } from './net/codec';
 import { WorldRecord, CURRENT_SAVE_VERSION } from './storage/Database';
 
 const MAX_INFLIGHT = 6;     // simultaneous generations in worker
@@ -345,9 +346,7 @@ async function bootstrap() {
   modRuntime.onBlocksChanged = (modId, changes) => {
     if (currentWorld.id) WorldRepository.saveBlockModBatch(currentWorld.id, changes, modId);
     relightBatch(changes);
-    if (peerSync.role === 'host') {
-      for (const c of changes) peerSync.broadcast({ type: 'block_update', x: c.x, y: c.y, z: c.z, blockType: c.blockType });
-    }
+    if (peerSync.role === 'host') enfileirarBlocos(changes);
   };
   modRuntime.onScriptDisabled = (modId, scriptKey, reason) => {
     hud.showToast(`⚠️ Script "${scriptKey}" do mod "${modId}" foi desligado: ${reason}`);
@@ -485,6 +484,9 @@ async function bootstrap() {
       case 'block_update':
         world.setBlock(msg.x, msg.y, msg.z, msg.blockType);
         break;
+      case 'block_batch':
+        for (const b of msg.blocks) world.setBlock(b.x, b.y, b.z, b.blockType);
+        break;
       case 'full_sync': {
         // Ordem obrigatória: registrar os mods primeiro, aplicar os blocos depois.
         const applyBlocks = () => {
@@ -578,7 +580,7 @@ async function bootstrap() {
     // aproximada, em vez de uma vez por bloco, senão o custo explode.
     relightBatch(mods);
     if (peerSync.role !== 'host') return;
-    for (const m of mods) peerSync.broadcast({ type: 'block_update', x: m.x, y: m.y, z: m.z, blockType: m.blockType });
+    enfileirarBlocos(mods);
   };
   /**
    * Recalcula a luz numa vizinhança e marca os chunks tocados para re-mesh. Colocar uma tocha
@@ -597,6 +599,28 @@ async function bootstrap() {
         if (c) c.dirty = true;
       }
     }
+  }
+
+  /**
+   * Fila de blocos alterados no frame (item 924).
+   *
+   * Uma construção da IA ou um desmoronamento altera centenas de blocos de uma vez. Enviar uma
+   * mensagem por bloco paga o cabeçalho centenas de vezes; agrupar paga uma só.
+   */
+  let filaBlocos: { x: number; y: number; z: number; blockType: number }[] = [];
+  function enfileirarBlocos(changes: { x: number; y: number; z: number; blockType: number }[]): void {
+    if (changes.length > 0) filaBlocos.push(...changes);
+  }
+  function despacharBlocos(): void {
+    if (filaBlocos.length === 0 || peerSync.role !== 'host') { filaBlocos.length = 0; return; }
+    // Um bloco só não justifica o cabeçalho do lote.
+    if (filaBlocos.length === 1) {
+      const b = filaBlocos[0];
+      peerSync.broadcast({ type: 'block_update', x: b.x, y: b.y, z: b.z, blockType: b.blockType });
+    } else {
+      peerSync.broadcast({ type: 'block_batch', blocks: filaBlocos.slice(0, 65535) });
+    }
+    filaBlocos = [];
   }
 
   /**
@@ -678,9 +702,7 @@ async function bootstrap() {
     relightBatch(changes);
     if (peerSync.role === 'guest') return;
     if (currentWorld.id) WorldRepository.saveBlockModBatch(currentWorld.id, changes);
-    for (const c of changes) {
-      peerSync.broadcast({ type: 'block_update', x: c.x, y: c.y, z: c.z, blockType: c.blockType });
-    }
+    enfileirarBlocos(changes);
   };
 
   // --- Modos de Jogo ---
@@ -1093,6 +1115,8 @@ async function bootstrap() {
   let streamAccum = 0;
   let saveAccum = 0;
   let netAccum = 0;
+  /** Hash da última aparência enviada, para reenviá-la só quando muda (item 923). */
+  let ultimoHashAparencia = -1;
 
   function tick(): void {
     requestAnimationFrame(tick);
@@ -1170,10 +1194,18 @@ async function bootstrap() {
     if (saveAccum > 5) { saveAccum = 0; savePlayerNow(); }
 
     // Estado do jogador para os outros: ~10 Hz é suficiente porque o AvatarManager interpola.
+    despacharBlocos();
+
     netAccum += dt;
     if (netAccum > 0.1) {
       netAccum = 0;
       if (peerSync.role !== 'offline') {
+        // A aparência tem ~200 bytes e muda quase nunca — mandá-la 10x por segundo era o maior
+        // desperdício do pacote. Agora só viaja quando o hash muda; nos demais, o pacote
+        // binário leva apenas o hash, e o receptor reaproveita o que já tem.
+        const hashAtual = hashAppearance(localAppearance);
+        const mudou = hashAtual !== ultimoHashAparencia;
+
         const stateMsg: NetMessage = {
           type: 'player_state',
           playerId: localPlayerId,
@@ -1183,8 +1215,11 @@ async function bootstrap() {
           gameMode: gameModeManager.mode,
           health: survivalSystem.health,
           hunger: survivalSystem.hunger,
-          appearance: localAppearance,
+          // Com aparência = vai em JSON (o codec binário não a transporta). Sem = vai binário.
+          ...(mudou ? { appearance: localAppearance } : {}),
         };
+        if (mudou) ultimoHashAparencia = hashAtual;
+
         if (peerSync.role === 'host') peerSync.broadcast(stateMsg);
         else peerSync.sendToHost(stateMsg);
       }

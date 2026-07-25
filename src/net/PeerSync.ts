@@ -4,6 +4,7 @@
 // disso, todo o tráfego de jogo vai direto pelo RTCDataChannel, sem tocar o relay.
 import { SignalingClient } from './SignalingClient';
 import { Reassembler, decodeFrame, decodePayload, encodeMessage } from './wire';
+import { decodeBinary, encodeBinary, isBinaryMessage } from './codec';
 import { NetMessage } from './protocol';
 
 const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -25,6 +26,13 @@ export class PeerSync {
   public onMessage: (msg: NetMessage, fromPeerId: string) => void = () => {};
   /** Remontador de mensagens fragmentadas, um por peer. */
   private reassemblers = new Map<string, Reassembler>();
+  /** Contadores de banda, para o painel de diagnóstico medir o ganho de verdade. */
+  private bytesEnviados = 0;
+  private bytesRecebidos = 0;
+
+  public getTrafficStats(): { enviados: number; recebidos: number } {
+    return { enviados: this.bytesEnviados, recebidos: this.bytesRecebidos };
+  }
   public onPeerConnected: (peerId: string) => void = () => {};
   public onPeerDisconnected: (peerId: string) => void = () => {};
   public onHostClosed: () => void = () => {};
@@ -89,9 +97,19 @@ export class PeerSync {
   private async deliver(channel: RTCDataChannel, msg: NetMessage): Promise<void> {
     if (channel.readyState !== 'open') return;
     try {
+      // Mensagem frequente vai em binário: o esquema já é conhecido dos dois lados, então
+      // transmitir nomes de campo é desperdício. Medido em 11,7x contra o JSON equivalente.
+      const binario = encodeBinary(msg);
+      if (binario) {
+        channel.send(binario);
+        this.bytesEnviados += binario.byteLength;
+        return;
+      }
+
       const wire = await encodeMessage(msg);
       if (typeof wire === 'string') {
         channel.send(wire);
+        this.bytesEnviados += wire.length;
         return;
       }
       // Fragmentado: enfileira os quadros na ordem. O DataChannel é ordenado por padrão,
@@ -99,6 +117,7 @@ export class PeerSync {
       for (const frame of wire) {
         if (channel.readyState !== 'open') return;
         channel.send(frame);
+        this.bytesEnviados += frame.byteLength;
       }
     } catch (err) {
       console.warn('[PeerSync] Falha ao enviar mensagem:', err);
@@ -179,7 +198,17 @@ export class PeerSync {
         } catch { /* mensagem malformada de um peer: ignora */ }
         return;
       }
-      void this.receiveFrame(e.data as ArrayBuffer, peerId);
+      const buf = e.data as ArrayBuffer;
+      this.bytesRecebidos += buf.byteLength;
+
+      // Dois formatos binários no mesmo canal: quadro de mensagem grande (fragmentada) e
+      // mensagem frequente codificada. O primeiro byte distingue.
+      if (isBinaryMessage(buf)) {
+        const msg = decodeBinary(buf);
+        if (msg) this.onMessage(msg, peerId);
+        return;
+      }
+      void this.receiveFrame(buf, peerId);
     };
   }
 

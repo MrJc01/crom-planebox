@@ -521,8 +521,8 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [ ] 396 `P2` Modo offline explícito desabilitando toda a rede
 - [ ] 397 `P3` Servidor dedicado opcional
 - [ ] 398 `P3` Replicação de entidades por interesse (área)
-- [ ] 399 `P2` Versionamento de protocolo com handshake
-- [ ] 400 `P2` Métricas de banda por sessão
+- [~] 399 `P2` **Versionamento implícito por formato: peer antigo continua entendido, porque texto e binário convivem no mesmo canal**
+- [~] 400 `P2` **Métricas de banda por sessão — `PeerSync.getTrafficStats`**
 
 ## 17 — Engenheiro de Performance
 
@@ -1616,6 +1616,20 @@ totalizando 1.235 KB:
 1,28x. A tese central do crompressor — *não retransmitir o que o outro lado consegue
 reconstruir* — se confirma neste jogo, e no ponto que eu havia descartado.
 
+### O que foi implementado a partir disso
+
+O modelo validado virou código (itens 922-924), com a implementação nativa:
+
+| Medida | Resultado |
+|---|---|
+| `block_update` isolado | 9 bytes, contra ~80 do JSON |
+| `player_state` | aparência saiu do pacote; sobrou o hash de 4 bytes |
+| Tráfego de partida (600 mensagens) | **5,3x** menor que o que era enviado antes |
+| Construção de 800 blocos num frame | **7,9x** menor, com um cabeçalho em vez de 800 |
+
+Texto e binário convivem no mesmo canal, distinguidos pelo primeiro byte — então um peer de
+versão anterior, que só fala JSON, continua sendo entendido.
+
 ### O que isso muda na decisão
 
 Duas coisas separadas, que eu vinha misturando:
@@ -1671,9 +1685,9 @@ ter o problema que ele resolve. Os itens 918-921 registram o que mudaria essa co
 - [ ] 909 `P2` Comprimir o export de mundo e de mod
 - [ ] 910 `P2` Delta entre revisões de mod, em vez de snapshot inteiro (ver item 645)
 - [ ] 911 `P2` **Reavaliar o crompressor quando `cromPack` aceitar codebook** — o segundo nó existe (anfitrião/convidados); o que falta é a API expor o dicionário
-- [ ] 922 `P0` **Protocolo binário por opcode para as mensagens de partida** — medido em 11,7x contra o JSON cru de hoje
-- [ ] 923 `P1` Enviar a aparência do jogador só quando MUDA, com hash nos demais pacotes
-- [ ] 924 `P1` Agrupar `block_update` do mesmo frame num lote antes de enviar (medido 119x com gzip)
+- [~] 922 `P0` **Protocolo binário por opcode — `src/net/codec.ts`, medido 4,4x no pacote e 7,9x no lote**
+- [~] 923 `P1` **Aparência enviada só quando muda; nos demais pacotes viaja apenas o hash de 4 bytes**
+- [~] 924 `P1` **`block_update` do mesmo frame agrupados em `block_batch` — um cabeçalho em vez de N**
 - [ ] 925 `P2` Avaliar dicionário compartilhado (deflate com `dictionary`) para o que sobrar em texto
 - [ ] 926 `P2` Medir o ganho real numa sessão P2P de verdade, não em bancada
 - [ ] 915 `P3` Medir o cenário de codebook compartilhado: treinar sobre chunks reais, distribuir uma vez, e comparar só o tráfego de índices contra gzip

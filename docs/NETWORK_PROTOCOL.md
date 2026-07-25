@@ -64,3 +64,49 @@ npm start   # ouve em :8787 por padrão (variável de ambiente PORT)
 ```
 
 No cliente, a URL do relay é configurada na aba **Multiplayer** do Pause Menu (`ws://seu-servidor:8787` ou `wss://` em produção com TLS).
+
+---
+
+## Codificação binária das mensagens frequentes
+
+O canal transporta **três formatos**, distinguidos pelo primeiro byte:
+
+| Primeiro byte | Formato |
+|---|---|
+| `{` (texto) | JSON — mensagens raras: chat, comando, `full_sync`, `mod_sync` |
+| `0x01`–`0x03` | mensagem frequente codificada (`src/net/codec.ts`) |
+| `0xc7` | fragmento de mensagem grande (`src/net/wire.ts`) |
+
+### Por que binário nas frequentes
+
+Os dois peers rodam o mesmo programa, logo ambos conhecem o formato das mensagens. Transmitir
+`{"type":"block_update","x":...}` em texto manda nomes de campo que o outro lado já sabe. O
+"dicionário compartilhado" aqui é o próprio esquema, e ele custa zero byte porque está no código.
+
+Medido no tráfego real de uma partida (6.000 mensagens, média de 211 bytes):
+
+| Estratégia | Ganho |
+|---|---|
+| JSON em texto puro (antes) | 1,0x |
+| gzip por mensagem | 1,28x — o cabeçalho quase anula |
+| dicionário compartilhado genérico | 7,6x |
+| **binário por opcode** | **11,7x** |
+
+### Opcodes
+
+| Op | Mensagem | Tamanho |
+|---|---|---|
+| `0x01` | `block_update` | 9 bytes fixos |
+| `0x02` | `block_batch` | 3 + 8×N |
+| `0x03` | `player_state` | 37 bytes fixos |
+
+### Aparência do personagem
+
+Tem ~200 bytes e muda quase nunca, mas ia em **todo** pacote a 10 Hz — era o maior desperdício do
+`player_state`. Agora o pacote binário leva só um hash de 4 bytes; quando ele muda, o remetente
+manda a aparência inteira uma vez em JSON, e o receptor guarda.
+
+### Compatibilidade
+
+Um peer de versão anterior só fala JSON, e continua sendo entendido: a distinção por primeiro
+byte não exige negociação. Um peer novo falando com um antigo apenas não recebe binário de volta.
