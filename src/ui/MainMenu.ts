@@ -2,6 +2,7 @@
 // Cobre o pedido: "antes de começar quero que apareça um menu".
 import { WorldRepository } from '../storage/WorldRepository';
 import { WorldRecord } from '../storage/Database';
+import { CAMADA, CORES, FONTE } from './theme';
 
 export interface OnlineWorldEntry {
   roomId: string;
@@ -26,26 +27,26 @@ export class MainMenu {
   constructor(private cb: MainMenuCallbacks) {
     this.overlay = document.createElement('div');
     this.overlay.id = 'main-menu';
+    // Página inteira, opaca: nada do jogo aparece atrás. É o que a distingue de um overlay.
     this.overlay.style.cssText = `
-      position: fixed; inset: 0; z-index: 2000;
-      background: radial-gradient(circle at 50% 20%, rgba(30,58,95,0.9), rgba(6,10,20,0.97));
+      position: fixed; inset: 0; z-index: ${CAMADA.menuInicial};
+      background: radial-gradient(circle at 50% 18%, #16273f, #060a14 70%);
       display: flex; align-items: center; justify-content: center;
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      color: #f8fafc;
+      font-family: ${FONTE}; color: ${CORES.texto};
     `;
 
     const panel = document.createElement('div');
     panel.style.cssText = `
-      width: 520px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
-      background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 20px; padding: 28px; box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+      width: 540px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+      background: ${CORES.fundo}; border: 1px solid ${CORES.borda};
+      border-radius: 18px; padding: 28px; box-shadow: 0 30px 60px rgba(0,0,0,0.55);
       display: flex; flex-direction: column; gap: 16px;
     `;
 
     panel.innerHTML = `
       <div style="text-align:center; margin-bottom: 8px;">
         <h1 style="margin:0; font-size:26px; letter-spacing: 2px;">CROM PLANEBOX</h1>
-        <p style="margin:4px 0 0; font-size:12px; color:#94a3b8;">sandbox voxel 3D · IA agentica · mundos online P2P</p>
+        <p style="margin:4px 0 0; font-size:12px; color:${CORES.textoFraco};">sandbox voxel 3D · IA agêntica · mundos online P2P</p>
       </div>
     `;
 
@@ -187,14 +188,25 @@ export class MainMenu {
     }
   }
 
+  /**
+   * Avisado quando a tela inicial abre ou fecha.
+   *
+   * O `main` usa para **suspender a simulação e esconder o canvas**: sem isso, voltar ao menu
+   * deixava o jogo rodando atrás dele — física, mobs e render continuavam consumindo o frame
+   * atrás de uma tela que o jogador acha que é outro lugar do programa.
+   */
+  public onVisibilidade: (aberto: boolean) => void = () => {};
+
   public open(): void {
     this.isOpen = true;
     this.overlay.style.display = 'flex';
     this.renderRoot();
+    this.onVisibilidade(true);
   }
 
   public close(): void {
     this.isOpen = false;
     this.overlay.style.display = 'none';
+    this.onVisibilidade(false);
   }
 }

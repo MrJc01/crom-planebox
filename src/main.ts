@@ -244,6 +244,21 @@ async function bootstrap() {
   const jobsEmVoo = new Map<string, number>();
   const MAX_MESH_EM_VOO = 3;
 
+  /**
+   * Pool dos buffers enviados ao worker.
+   *
+   * `padChunk` e `padLight` alocam ~150 KB cada, e todo re-mesh gerava 300 KB para o coletor
+   * recolher depois — o suficiente para produzir pausas de GC ao voar pelo mundo. Como os
+   * buffers são transferidos (a thread principal perde a posse), o worker os devolve e eles
+   * voltam para cá em vez de virar lixo.
+   */
+  const poolBuffers: ArrayBuffer[] = [];
+  const TAM_PAD = (CX + 2) * (CY + 2) * (CZ + 2);
+
+  function bufferDoPool(): ArrayBuffer {
+    return poolBuffers.pop() ?? new ArrayBuffer(TAM_PAD);
+  }
+
   function pedirMesh(c: Chunk): void {
     const key = chunkKey(c.cx, c.cz);
     if (jobsEmVoo.size >= MAX_MESH_EM_VOO && !jobsEmVoo.has(key)) return;
@@ -252,8 +267,8 @@ async function bootstrap() {
     jobsEmVoo.set(key, jobId);
     c.dirty = false; // marcado agora: se mudar durante a geração, vira dirty de novo e refaz
 
-    const padded = world.padChunk(c.cx, c.cz);
-    const light = world.padLight(c.cx, c.cz);
+    const padded = world.padChunkInto(c.cx, c.cz, new Uint8Array(bufferDoPool()));
+    const light = world.padLightInto(c.cx, c.cz, new Uint8Array(bufferDoPool()));
     meshWorker.postMessage(
       { type: 'mesh', jobId, cx: c.cx, cz: c.cz, padded: padded.buffer, light: light.buffer, sunScale: gs.getSunScale() },
       [padded.buffer, light.buffer],
@@ -261,8 +276,15 @@ async function bootstrap() {
   }
 
   meshWorker.onmessage = (ev: MessageEvent) => {
-    const { type, jobId, cx, cz, geo } = ev.data as { type: string; jobId: number; cx: number; cz: number; geo: ChunkGeometryRaw };
+    const { type, jobId, cx, cz, geo, padded, light } = ev.data as
+      { type: string; jobId: number; cx: number; cz: number; geo: ChunkGeometryRaw; padded: ArrayBuffer; light: ArrayBuffer };
     if (type !== 'meshed') return;
+
+    // Devolve os buffers ao pool antes de qualquer saída antecipada — inclusive quando o
+    // resultado é descartado, senão a reciclagem só funcionaria no caminho feliz.
+    if (padded?.byteLength === TAM_PAD) poolBuffers.push(padded);
+    if (light?.byteLength === TAM_PAD) poolBuffers.push(light);
+    if (poolBuffers.length > 8) poolBuffers.length = 8; // teto: não vira cache infinito
 
     const key = chunkKey(cx, cz);
     // Resultado obsoleto: o chunk foi alterado e um job mais novo já está a caminho.
@@ -1065,6 +1087,8 @@ async function bootstrap() {
 
   // --- Menu Principal & Wizard de Criação de Mundo ---
   let gameStarted = false;
+  /** Enquanto a tela inicial está aberta, o jogo não simula nem desenha. */
+  let noMenuInicial = true;
   async function startGame(worldId: string): Promise<void> {
     await loadWorldById(worldId);
 
@@ -1142,6 +1166,22 @@ async function bootstrap() {
     savePlayerNow();
     chatOverlay.hide();
     mainMenu.open();
+  };
+
+  // A tela inicial é uma PÁGINA, não uma camada sobre o jogo: enquanto ela está aberta, o
+  // canvas some e a simulação não roda. Antes, voltar ao menu deixava física, criaturas e
+  // render trabalhando atrás dele.
+  mainMenu.onVisibilidade = (aberto) => {
+    noMenuInicial = aberto;
+    gs.renderer.domElement.style.display = aberto ? 'none' : 'block';
+    if (aberto) {
+      hud.setVisible(false);
+      inventoryModal.setHotbarVisible(false);
+      if (document.pointerLockElement) document.exitPointerLock();
+    } else if (gameStarted) {
+      hud.setVisible(true);
+      inventoryModal.setHotbarVisible(true);
+    }
   };
 
   // Entrada direta via link de convite (?join=roomId&relay=...)
@@ -1297,6 +1337,10 @@ async function bootstrap() {
   function tick(): void {
     requestAnimationFrame(tick);
     const dt = Math.min(clock.getDelta(), 0.08);
+
+    // Na tela inicial o quadro é devolvido imediatamente. O `requestAnimationFrame` continua
+    // agendado para a volta ser instantânea, mas nada é simulado nem desenhado.
+    if (noMenuInicial) return;
 
     streamAccum += dt;
     if (streamAccum > 0.05) { streamAccum = 0; streamChunks(); }

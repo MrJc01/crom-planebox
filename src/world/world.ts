@@ -102,8 +102,13 @@ export class World {
    * sem ela, cada emenda de chunk apareceria como uma linha escura.
    */
   padLight(cx: number, cz: number): Uint8Array {
+    return this.padLightInto(cx, cz, new Uint8Array((CX + 2) * (CY + 2) * (CZ + 2)));
+  }
+
+  /** Espelho de `padChunkInto` para a luz. */
+  padLightInto(cx: number, cz: number, out: Uint8Array): Uint8Array {
     const PX = CX + 2, PZ = CZ + 2;
-    const out = new Uint8Array(PX * (CY + 2) * PZ);
+    out.fill(0);
     const nb: (Uint8Array | null)[] = [];
     for (let dz = -1; dz <= 1; dz++) {
       for (let dx = -1; dx <= 1; dx++) {
@@ -148,8 +153,21 @@ export class World {
 
   /** Copia o chunk + borda de 1 bloco para um array denso (mesh rápido). */
   padChunk(cx: number, cz: number): Uint8Array {
+    return this.padChunkInto(cx, cz, new Uint8Array((CX + 2) * (CY + 2) * (CZ + 2)));
+  }
+
+  /**
+   * Versão que escreve num buffer já existente.
+   *
+   * Cada `padChunk` aloca ~150 KB, e um re-mesh precisa de dois (blocos e luz) — 300 KB por
+   * chunk que o coletor teria de recolher depois. Ao voar pelo mundo isso vira pausa de GC.
+   * Com o buffer vindo de fora, ele pode ser reciclado entre a thread principal e o worker.
+   */
+  padChunkInto(cx: number, cz: number, out: Uint8Array): Uint8Array {
     const PX = CX + 2, PZ = CZ + 2;
-    const out = new Uint8Array(PX * (CY + 2) * PZ);
+    // O buffer é reaproveitado, então precisa ser limpo: sobras do chunk anterior apareceriam
+    // como blocos fantasma nas bordas.
+    out.fill(0);
     // referências diretas aos 9 chunks — evita lookup por string no loop quente
     const nb: (Uint8Array | null)[] = [];
     for (let dz = -1; dz <= 1; dz++) {

@@ -30,8 +30,13 @@ self.onmessage = (ev: MessageEvent<PedidoMesh>) => {
 
   const bruto = meshChunkRaw(padded, msg.cx, msg.cz, light, msg.sunScale);
 
+  // Os buffers de entrada voltam junto: a thread principal os reaproveita em vez de alocar
+  // 300 KB novos a cada re-mesh.
+  const devolver: Transferable[] = [...transferablesOf(bruto), msg.padded];
+  if (msg.light) devolver.push(msg.light);
+
   (self as unknown as Worker).postMessage(
-    { type: 'meshed', jobId: msg.jobId, cx: msg.cx, cz: msg.cz, geo: bruto },
-    transferablesOf(bruto),
+    { type: 'meshed', jobId: msg.jobId, cx: msg.cx, cz: msg.cz, geo: bruto, padded: msg.padded, light: msg.light },
+    devolver,
   );
 };

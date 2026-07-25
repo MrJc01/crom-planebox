@@ -530,7 +530,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 401b `P0` Save de blocos em lote (era 2N round-trips, virou 2 escritas)
 - [ ] 402 `P0` Orçamento de frame: limitar chunks re-meshados por frame
 - [~] 403 `P0` **Mesh em Web Worker — `src/world/meshWorker.ts`, com buffers transferidos nos dois sentidos**
-- [ ] 404 `P1` Pool de geometrias reaproveitadas em vez de realocar
+- [~] 404 `P1` **Pool de buffers reaproveitados em vez de realocar 300 KB por re-mesh**
 - [~] 405 `P1` **`dispose()` do chunk anterior ao aplicar a malha nova**
 - [ ] 406 `P1` Instanced mesh para decorativos e entidades repetidas
 - [ ] 407 `P1` Reduzir draw calls agrupando chunks vizinhos
@@ -1824,7 +1824,7 @@ mesher chamava `Math.pow` uma vez por face.*
 - [~] 969 `P0` **Fontes independentes revalidadas** contra o estado final, não o do momento em que foram vistas
 - [ ] 970 `P0` Medir o frame real no navegador com o painel de diagnóstico, não só em bancada
 - [~] 971 `P0` **Mesh em Web Worker: era o maior custo de frame depois da luz corrigida**
-- [ ] 972 `P1` Reaproveitar os buffers de `padChunk`/`padLight` em vez de alocar 300 KB por re-mesh
+- [~] 972 `P1` **Buffers de `padChunk`/`padLight` reciclados entre a thread principal e o worker**
 - [ ] 973 `P1` Orçamento de re-mesh por frame também no ciclo dia/noite (hoje marca tudo de uma vez)
 - [ ] 974 `P1` Painel F3 com FPS, chunks, entidades, vozes de áudio e custo por mod
 - [ ] 975 `P1` Distância de render adaptativa ao FPS medido
@@ -1841,8 +1841,12 @@ atalhos visíveis ao lado de cada um, volume por canal e saída para a tela inic
 **tema compartilhado** (`theme.ts`), porque cada tela escrevia o próprio `cssText` — a mesma cor
 de fundo aparecia com três valores diferentes e o mesmo botão tinha quatro paddings.
 
-Ainda pendente: a **página inicial separada da cena 3D** (item 982). O `MainMenu` existe e
-funciona, mas continua sendo um overlay sobre o canvas, não uma página própria.
+**Página inicial separada (982): entregue.** Enquanto ela está aberta, o canvas é escondido e o
+loop devolve o quadro imediatamente — antes, voltar ao menu deixava física, criaturas e render
+trabalhando atrás dele. O `requestAnimationFrame` continua agendado, para a volta ser instantânea.
+
+Ainda pendente na seção: opções de vídeo e controles (985), remapeamento de teclas (432) e o
+layout responsivo (998).
 
 
 *Parecer: o `MainMenu` existe, mas o jogo não tem uma **página inicial** de verdade — as telas
@@ -1857,7 +1861,7 @@ e nada mais tentava — o mouse ficava solto para sempre.*
 - [~] 979 `P0` **Retomada do ponteiro por clique**, que é o gesto que o navegador aceita
 - [~] 980 `P0` **Dica "clique para voltar ao jogo"** quando o controle está solto
 - [~] 981 `P0` **`pointerlockchange` detecta perda inesperada** e avisa, em vez de deixar o jogador sem saber
-- [ ] 982 `P0` Página inicial de verdade, separada da cena 3D
+- [~] 982 `P0` **Tela inicial como página: canvas escondido e simulação suspensa enquanto ela está aberta**
 - [~] 983 `P0` **Navegação comum entre as telas — hub em `src/ui/GameMenu.ts`, aberto pelo ESC**
 - [~] 984 `P0` **Porta única em vez de sete atalhos soltos; os atalhos viraram atalhos, não o único caminho**
 - [ ] 985 `P1` Tela de opções unificada: vídeo, áudio, controles, acessibilidade
@@ -1865,7 +1869,7 @@ e nada mais tentava — o mouse ficava solto para sempre.*
 - [~] 987 `P1` **Lista de atalhos visível dentro do jogo, ao lado de cada destino**
 - [~] 988 `P1` **Menu de pausa virou uma entrada do hub ("Mundo e rede"), em vez da única porta**
 - [~] 989 `P1` **Estilo compartilhado em `src/ui/theme.ts` — tokens e construtores no lugar de CSS repetido**
-- [ ] 990 `P1` Transição clara entre "no menu" e "jogando", com o ponteiro sempre coerente
+- [~] 990 `P1` **Transição clara entre "no menu" e "jogando", com o ponteiro coerente nos dois**
 - [~] 991 `P2` **Voltar sempre para o hub, e do hub para o jogo**
 - [ ] 992 `P2` Indicador de qual tela está aberta
 - [ ] 993 `P2` As telas herdam a customização de UI feita pela IA
