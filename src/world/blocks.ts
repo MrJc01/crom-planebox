@@ -36,6 +36,7 @@ export const enum B {
   IRON_ORE = 30,
   GOLD_ORE = 31,
   DIAMOND_ORE = 32,
+  TORCH = 33,
 }
 
 export interface BlockDef {
@@ -124,6 +125,12 @@ BLOCKS[B.COAL_ORE] = def('minério de carvão', 0x6b7280, 0x5f6672, 0x555b66, { 
 BLOCKS[B.IRON_ORE] = def('minério de ferro', 0xb0a89c, 0xa39a8e, 0x968d81, { drops: B.IRON_ORE, minToolTier: 1 });
 BLOCKS[B.GOLD_ORE] = def('minério de ouro', 0xc4b06a, 0xb5a05e, 0xa69053, { drops: B.GOLD_ORE, minToolTier: 2 });
 BLOCKS[B.DIAMOND_ORE] = def('minério de diamante', 0x7ba9b8, 0x6d9aa9, 0x5f8b9a, { drops: B.DIAMOND_ORE, minToolTier: 3 });
+// Tocha: decorativa (caixinha pequena, quebra na mão) e a principal fonte de luz portátil.
+// É `interactive` para aparecer na aba de blocos especiais do inventário criativo.
+BLOCKS[B.TORCH] = def('tocha', 0xfde047, 0x9a7d4d, 0x6e5230, {
+  solid: false, opaque: false, decor: true, drops: B.TORCH, interactive: true,
+});
+BLOCKS[B.TORCH].lightLevel = 14;
 
 // --- Blocos customizados (sistema de mods) ---------------------------------
 //

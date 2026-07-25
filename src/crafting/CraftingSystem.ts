@@ -25,6 +25,39 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   { id: 'glass_from_sand', name: 'Areia → Vidro', outputBlock: B.GLASS, outputCount: 1, ingredients: { [B.SAND]: 2 } },
   { id: 'brick_from_dirt', name: 'Terra → Tijolo', outputBlock: B.BRICK, outputCount: 1, ingredients: { [B.DIRT]: 2 } },
   { id: 'stonebrick_from_stone', name: 'Pedra → Tijolo de Pedra', outputBlock: B.STONE_BRICK, outputCount: 4, ingredients: { [B.STONE]: 4 } },
+  // Fecha o ciclo aberto pelas cavernas: minerar carvão vira luz portátil, que é o que torna
+  // a caverna explorável. Sem esta receita o carvão não teria uso nenhum.
+  {
+    id: 'torch_from_coal',
+    name: 'Carvão + Tronco → Tochas',
+    outputBlock: B.TORCH,
+    outputCount: 4,
+    shape: [
+      [B.COAL_ORE],
+      [B.LOG],
+    ],
+  },
+  {
+    id: 'iron_block_from_ore',
+    name: 'Minério de Ferro → Bloco de Ferro',
+    outputBlock: B.IRON_BLOCK,
+    outputCount: 1,
+    ingredients: { [B.IRON_ORE]: 4 },
+  },
+  {
+    id: 'gold_block_from_ore',
+    name: 'Minério de Ouro → Bloco de Ouro',
+    outputBlock: B.GOLD_BLOCK,
+    outputCount: 1,
+    ingredients: { [B.GOLD_ORE]: 4 },
+  },
+  {
+    id: 'diamond_block_from_ore',
+    name: 'Minério de Diamante → Bloco de Diamante',
+    outputBlock: B.DIAMOND_BLOCK,
+    outputCount: 1,
+    ingredients: { [B.DIAMOND_ORE]: 4 },
+  },
   {
     id: 'glowstone_cross',
     name: 'Cruz de Ouro → Pedra Luminosa',

@@ -18,8 +18,15 @@ export function chunkKey(cx: number, cz: number): string {
 
 export class Chunk {
   data: Uint8Array;
+  /**
+   * Luz por voxel, `(sol << 4) | bloco`. Não entra no save: é derivada dos blocos e
+   * recalculada ao carregar, então persistir só gastaria espaço e arriscaria ficar defasada.
+   */
+  light: Uint8Array;
   /** precisa re-gerar a malha */
   dirty = true;
+  /** a luz ainda não foi calculada para este chunk */
+  lightDirty = true;
   /** foi modificado pelo jogador (entra no save) */
   edited = false;
 
@@ -29,6 +36,7 @@ export class Chunk {
     data?: Uint8Array,
   ) {
     this.data = data ?? new Uint8Array(CHUNK_VOLUME);
+    this.light = new Uint8Array(CHUNK_VOLUME);
   }
 
   get(x: number, y: number, z: number): number {

@@ -281,7 +281,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [x] 193 `P0` Grade de crafting com receitas por padrão — `src/crafting/CraftingSystem.ts`
 - [x] 194 `P1` Templates de estrutura colocáveis como item — `src/crafting/StructureTemplates.ts`
 - [ ] 195 `P0` Árvore de receitas cobrindo todos os tiers de ferramenta
-- [ ] 196 `P0` Receitas sem forma (shapeless) além das com forma
+- [~] 196 `P0` **Receitas sem forma (shapeless) além das com forma — já existiam ambas; verificado**
 - [ ] 197 `P1` Livro de receitas na UI mostrando o que é craftável agora
 - [ ] 198 `P1` Fundição com receitas próprias
 - [ ] 199 `P1` Bancadas especializadas desbloqueando receitas
@@ -334,16 +334,16 @@ reload** e o pathfinding ignora obstáculos verticais.*
 
 - [x] 241 `P1` Sombreamento direcional por face no mesher
 - [x] 242 `P1` Blocos emissivos marcados como interativos (`GLOWSTONE`, `LAVA`)
-- [ ] 243 `P0` Propagação de luz por flood fill (luz solar + luz de bloco)
-- [ ] 244 `P0` Escuridão real em cavernas exigindo tocha
-- [ ] 245 `P1` Ciclo dia/noite com posição do sol animada
-- [ ] 246 `P1` Cor da luz variando ao amanhecer/entardecer
-- [ ] 247 `P1` Tochas colocáveis emitindo luz
-- [ ] 248 `P1` Recalcular luz incrementalmente ao colocar/quebrar bloco
-- [ ] 249 `P2` Luz atravessando blocos translúcidos com atenuação
+- [~] 243 `P0` **Propagação de luz por flood fill (luz solar + luz de bloco) — `src/world/lighting.ts`**
+- [~] 244 `P0` **Escuridão real em cavernas exigindo tocha**
+- [~] 245 `P1` **Ciclo dia/noite com sol animado em arco e céu que muda de cor**
+- [~] 246 `P1` **Cor da luz variando ao amanhecer/entardecer (laranja rasante)**
+- [~] 247 `P1` **Tochas colocáveis emitindo luz (bloco `TORCH`, craftável com carvão)**
+- [~] 248 `P1` **Recalcular luz incrementalmente ao colocar/quebrar bloco (`recalcRegion`)**
+- [~] 249 `P2` **Luz atravessando blocos translúcidos com atenuação (água, folhagem, vidro)**
 - [ ] 250 `P2` Luz da lua com intensidade por fase
 - [ ] 251 `P2` Luz colorida por bloco emissivo
-- [~] 252 `P1` **Mods podem definir nível de luz emitido pelo bloco** (`lightLevel`)
+- [~] 252 `P1` **Mods podem definir nível de luz emitido pelo bloco** (`lightLevel`) — na rodada 3 era só metadado; agora o motor de luz realmente o consome
 - [ ] 253 `P2` Sombra projetada por entidades
 - [ ] 254 `P2` Adaptação de exposição ao sair de uma caverna
 - [ ] 255 `P2` Spawn de inimigos condicionado ao nível de luz
@@ -353,9 +353,9 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [ ] 259 `P3` Reflexão de luz difusa entre blocos próximos
 - [ ] 260 `P2` Iluminação suave interpolada por vértice
 - [ ] 261 `P2` Bloco "barreira de luz" para builders
-- [ ] 262 `P1` Persistir o horário do mundo no save
+- [~] 262 `P1` **Persistir o horário do mundo no save (`WorldRecord.timeOfDay`)**
 - [ ] 263 `P2` Comando para fixar o horário
-- [ ] 264 `P2` Testes do algoritmo de propagação em grade conhecida
+- [~] 264 `P2` **Testes do algoritmo de propagação em grade conhecida (26 testes)**
 
 ## 12 — Engenheiro de Persistência
 
@@ -682,6 +682,23 @@ Ou seja: **toda modificação de bloco criada pela IA corrompia o mundo no reloa
 marcados `[~]` acima são a correção estrutural: identidade de bloco estável, persistência por
 mundo, reaplicação no load e cobertura de testes.
 
+### Rodada 4 — concluído
+
+| Item | Entrega |
+|---|---|
+| 243–244 | Motor de luz por flood fill: sol + luz de bloco, com escuridão real nas cavernas |
+| 245–246 | Ciclo dia/noite: sol em arco, céu azul → laranja → noite |
+| 247 | Tocha colocável (`B.TORCH`), craftável com carvão + tronco |
+| 248 | Recálculo incremental — colocar tocha ou furar o teto acende/apaga na hora |
+| 249/252 | Água, folhagem e vidro atenuam de formas diferentes; `lightLevel` de mod passou a valer |
+| 262 | Hora do mundo entrou no save |
+| — | Receitas de minério → bloco refinado, fechando a cadeia aberta na rodada 3 |
+
+**Bug real encontrado:** as folhas retornavam opacidade `Infinity` porque são `opaque` na paleta
+(para o mesher não desenhar as faces internas da copa). Para a luz isso significava que toda
+árvore projetaria uma sombra preta sólida. A folhagem agora é filtro (custo 1), tratada **antes**
+da checagem de opacidade.
+
 ### Rodada 3 — concluído
 
 | Item | Entrega |
@@ -700,13 +717,14 @@ carvão 1,24% → ferro 0,92% → ouro 0,12% → diamante 0,022%.
 
 | Ordem | Item | Por quê |
 |---|---|---|
-| 1 | 243–244 (luz propagada) | Agora que existem cavernas, elas são iluminadas como a superfície — sem escuridão, tocha e mineração não têm tensão |
-| 2 | 145–147 (combate) | O único pilar do gênero ainda totalmente ausente |
+| 1 | 145–147 (combate) | O único pilar do gênero ainda totalmente ausente |
+| 2 | 255 (spawn por nível de luz) | O motor de luz já entrega o dado; falta o inimigo para consumi-lo |
 | 3 | 175–176 (pathfinding + colisão de entidade) | NPCs atravessando parede quebram a imersão |
-| 4 | 195 (receitas por tier) | Os minérios já existem, mas ainda não viram ferramenta |
-| 5 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
-| 6 | 609 (sync de entidades no P2P) | Última lacuna grande do multiplayer |
-| 7 | 514 (CI) | Impede regressão silenciosa nos 165 testes |
+| 4 | 124–125 (comida e regeneração) | A fome já drena, mas não há como saciá-la |
+| 5 | 403 (mesh em worker) | O re-mesh do ciclo dia/noite tornou o custo de malha mais visível |
+| 6 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
+| 7 | 609 (sync de entidades no P2P) | Última lacuna grande do multiplayer |
+| 8 | 514 (CI) | Impede regressão silenciosa nos 195 testes |
 
 ---
 

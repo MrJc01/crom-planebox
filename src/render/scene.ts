@@ -41,6 +41,10 @@ export interface GameScene {
   updateSun(px: number, pz: number): void;
   /** ajusta a névoa ao alcance de render do LOD */
   setViewRange(voxels: number): void;
+  /** Aplica a hora do dia (0 = meia-noite, 0.5 = meio-dia) ao céu, ao sol e à luz ambiente. */
+  setTimeOfDay(t: number): void;
+  /** Intensidade atual da luz solar, 0..1 — o mesher usa para escurecer a luz de céu à noite. */
+  getSunScale(): number;
 }
 
 export function createScene(container: HTMLElement): GameScene {
@@ -106,11 +110,51 @@ export function createScene(container: HTMLElement): GameScene {
     renderer.setSize(innerWidth, innerHeight);
   });
 
+  // --- Ciclo dia/noite ---------------------------------------------------------------------
+  //
+  // `sunScale` sai de uma curva suave em torno do meio-dia, com um platô de noite fechada.
+  // Ele governa três coisas ao mesmo tempo: a cor do céu, a intensidade das luzes da cena e
+  // (via mesher) o quanto a luz de céu armazenada nos voxels de fato ilumina.
+  let sunScale = 1;
+  let sunAngle = 0;
+  const DAY_SKY = new THREE.Color(0x9fc7e8);
+  const NIGHT_SKY = new THREE.Color(0x0a1020);
+  const DUSK_SKY = new THREE.Color(0xe8956b);
+  const tmpSky = new THREE.Color();
+
+  function setTimeOfDay(t: number): void {
+    const frac = ((t % 1) + 1) % 1;
+    sunAngle = frac * Math.PI * 2;
+
+    // Altura do sol: -1 (meia-noite) a 1 (meio-dia).
+    const elevation = -Math.cos(frac * Math.PI * 2);
+    sunScale = Math.max(0.12, Math.min(1, elevation * 1.5 + 0.35));
+
+    // Céu: azul de dia, laranja rasante no nascer/pôr, azul-escuro à noite.
+    const duskAmount = Math.max(0, 1 - Math.abs(elevation) * 3.2);
+    tmpSky.copy(elevation > 0 ? DAY_SKY : NIGHT_SKY);
+    if (elevation <= 0) tmpSky.lerp(DAY_SKY, Math.max(0, (elevation + 0.35) / 0.35) * 0.5);
+    tmpSky.lerp(DUSK_SKY, duskAmount * 0.55);
+    (scene.background as THREE.Color).copy(tmpSky);
+    const fog = scene.fog as THREE.Fog | null;
+    if (fog) fog.color.copy(tmpSky);
+
+    sun.intensity = 2.2 * sunScale;
+    hemi.intensity = 0.75 * Math.max(0.25, sunScale);
+  }
+
+  function getSunScale(): number {
+    return sunScale;
+  }
+
   const SNAP = 8;
   function updateSun(px: number, pz: number): void {
     const cx = Math.round(px / SNAP) * SNAP;
     const cz = Math.round(pz / SNAP) * SNAP;
-    sun.position.set(cx + 60, 95, cz + 30);
+    // O sol descreve um arco de verdade em vez de ficar cravado: é o que dá o movimento das
+    // sombras ao longo do dia.
+    const h = Math.max(20, Math.cos(sunAngle - Math.PI) * 95);
+    sun.position.set(cx + Math.sin(sunAngle - Math.PI) * 70, h, cz + 30);
     sun.target.position.set(cx, 0, cz);
   }
 
@@ -122,5 +166,7 @@ export function createScene(container: HTMLElement): GameScene {
     }
   }
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange };
+  setTimeOfDay(0.35); // começa de manhã
+
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setTimeOfDay, getSunScale };
 }

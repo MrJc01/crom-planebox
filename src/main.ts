@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { createScene } from './render/scene';
 import { World } from './world/world';
-import { Chunk, chunkKey, CX, CZ } from './world/chunk';
+import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
 import { WorldGen } from './world/worldgen';
 import { meshChunk } from './world/mesher';
 import { VoxelPhysics } from './world/physics';
 import { isSolid } from './world/blocks';
+import { LightEngine } from './world/lighting';
 import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
@@ -54,6 +55,44 @@ async function bootstrap() {
   const physics = new VoxelPhysics(world, gs.scene);
   const inter = new Interaction(world, physics, player, gs.scene);
   const inventoryModal = new InventoryModal(inter);
+
+  // Motor de luz: o `World` implementa `LightGrid`, então a propagação atravessa a fronteira
+  // de chunks naturalmente (uma caverna iluminada por uma abertura no chunk vizinho funciona).
+  const lightEngine = new LightEngine(world, CY);
+
+  /** Hora do mundo em fração de dia (0 = meia-noite, 0.5 = meio-dia). */
+  let timeOfDay = 0.35;
+  /** Um dia completo em segundos reais. */
+  const DAY_LENGTH = 900;
+  // A luz de céu é assada na cor dos vértices, então mudar `sunScale` exige re-meshar. Refazer
+  // a cada frame seria inviável; refazemos em degraus perceptíveis — poucas vezes por dia.
+  let lastBakedSun = -1;
+
+  function computeChunkLight(c: Chunk): void {
+    const sun: any[] = [];
+    const blocks: any[] = [];
+    const baseX = c.cx * CX, baseZ = c.cz * CZ;
+
+    c.light.fill(0);
+    for (let z = 0; z < CZ; z++) {
+      for (let x = 0; x < CX; x++) lightEngine.seedSunColumn(baseX + x, baseZ + z, sun);
+    }
+    for (let y = 0; y < CY; y++) {
+      for (let z = 0; z < CZ; z++) {
+        for (let x = 0; x < CX; x++) lightEngine.seedBlockLight(baseX + x, y, baseZ + z, blocks);
+      }
+    }
+
+    lightEngine.propagateSun(sun);
+    lightEngine.propagateBlockLight(blocks);
+    c.lightDirty = false;
+
+    // A luz vaza para os vizinhos; eles precisam re-meshar para a emenda não ficar escura.
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = world.getChunk(c.cx + dx, c.cz + dz);
+      if (n && !n.lightDirty) n.dirty = true;
+    }
+  }
 
   const cameraManager = new CameraManager(gs.scene, gs.camera, gs.renderer, player);
   const gameModeManager = new GameModeManager(cameraManager, player);
@@ -157,6 +196,9 @@ async function bootstrap() {
     dirty.sort((a, b) => a[0] - b[0]);
     for (let i = 0; i < Math.min(meshBudget, dirty.length); i++) {
       const c = dirty[i][2];
+      // A luz é calculada aqui, e não quando o chunk chega do worker, porque precisa dos
+      // vizinhos prontos — o mesmo pré-requisito que o mesh já espera.
+      if (c.lightDirty) computeChunkLight(c);
       remeshChunk(c);
     }
 
@@ -176,7 +218,7 @@ async function bootstrap() {
     const key = chunkKey(c.cx, c.cz);
     disposeChunkMesh(key);
     const padded = world.padChunk(c.cx, c.cz);
-    const geo = meshChunk(padded, c.cx, c.cz);
+    const geo = meshChunk(padded, c.cx, c.cz, world.padLight(c.cx, c.cz), gs.getSunScale());
     const entry: ChunkMeshes = { solid: null, water: null, glass: null };
     if (geo.solid) {
       const mesh = new THREE.Mesh(geo.solid, gs.solidMaterial);
@@ -439,10 +481,47 @@ async function bootstrap() {
   };
 
   mcpExecutors.onBlocksChanged = (mods) => {
+    // Uma construção grande da IA pode mudar milhares de blocos: relumina uma vez por região
+    // aproximada, em vez de uma vez por bloco, senão o custo explode.
+    relightBatch(mods);
     if (peerSync.role !== 'host') return;
     for (const m of mods) peerSync.broadcast({ type: 'block_update', x: m.x, y: m.y, z: m.z, blockType: m.blockType });
   };
+  /**
+   * Recalcula a luz numa vizinhança e marca os chunks tocados para re-mesh. Colocar uma tocha
+   * ou abrir um buraco no teto precisa acender/apagar a área na hora — refazer o chunk inteiro
+   * a cada bloco custaria dezenas de milissegundos por clique.
+   */
+  function relight(x: number, y: number, z: number, radius = 10): void {
+    lightEngine.recalcRegion(Math.floor(x), Math.floor(y), Math.floor(z), radius);
+    const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const c = world.getChunk(cx + dx, cz + dz);
+        if (c) c.dirty = true;
+      }
+    }
+  }
+
+  /**
+   * Versão em lote: agrupa as alterações por célula grossa e relumina uma vez por célula.
+   * Sem isto, um `fill_box` de 5.000 blocos dispararia 5.000 flood fills sobrepostos.
+   */
+  function relightBatch(changes: { x: number; y: number; z: number }[]): void {
+    if (changes.length === 0) return;
+    const CELL = 16;
+    const seen = new Set<string>();
+    for (const c of changes) {
+      const key = `${Math.floor(c.x / CELL)},${Math.floor(c.y / CELL)},${Math.floor(c.z / CELL)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      relight(c.x, c.y, c.z, CELL);
+      if (seen.size > 64) break; // teto de segurança para construções enormes
+    }
+  }
+
   inter.onBlockChange = (x, y, z, blockType) => {
+    relight(x, y, z);
     if (peerSync.role === 'host') peerSync.broadcast({ type: 'block_update', x, y, z, blockType });
   };
 
@@ -456,6 +535,7 @@ async function bootstrap() {
   };
 
   physics.onSimulatedBlocks = (changes) => {
+    relightBatch(changes);
     if (peerSync.role === 'guest') return;
     if (currentWorld.id) WorldRepository.saveBlockModBatch(currentWorld.id, changes);
     for (const c of changes) {
@@ -521,6 +601,8 @@ async function bootstrap() {
   // --- Autosave do jogador (posição, vida, fome, modo, inventário) ---
   function savePlayerNow(): void {
     if (!currentWorld.id) return;
+    currentWorld.timeOfDay = timeOfDay;
+    WorldRepository.saveWorld(currentWorld);
     WorldRepository.savePlayer({
       worldId: currentWorld.id,
       playerId: localPlayerId,
@@ -579,6 +661,11 @@ async function bootstrap() {
       const [x, y, z] = key.split(',').map(Number);
       world.setBlock(x, y, z, blockType);
     }
+
+    // A hora do mundo faz parte do save: voltar sempre às 8h apagaria o progresso da noite.
+    timeOfDay = typeof wRecord.timeOfDay === 'number' ? wRecord.timeOfDay : 0.35;
+    gs.setTimeOfDay(timeOfDay);
+    lastBakedSun = -1;
 
     gameModeManager.setMode(wRecord.defaultGameMode || 'classic');
     survivalSystem.reset();
@@ -849,6 +936,17 @@ async function bootstrap() {
       playerModel.update(dt, speed, player.onGround ?? true, player.yaw, player.pitch);
     }
     avatars.update(dt);
+
+    // Ciclo dia/noite. A luz de céu está assada na cor dos vértices, então o mundo só é
+    // re-meshado quando `sunScale` muda o suficiente para ser perceptível — algumas vezes por
+    // dia de jogo, e não a cada frame.
+    timeOfDay = (timeOfDay + dt / DAY_LENGTH) % 1;
+    gs.setTimeOfDay(timeOfDay);
+    const sunScale = gs.getSunScale();
+    if (Math.abs(sunScale - lastBakedSun) > 0.06) {
+      lastBakedSun = sunScale;
+      for (const c of world.chunks.values()) c.dirty = true;
+    }
 
     cameraManager.update();
     physics.update(dt);

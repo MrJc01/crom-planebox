@@ -47,6 +47,62 @@ export class World {
     return true;
   }
 
+  // --- Luz (ver `src/world/lighting.ts`) --------------------------------------------------
+  //
+  // O `World` implementa a interface `LightGrid`: fora dos chunks carregados, devolve céu
+  // aberto acima do mundo e escuridão abaixo, para a propagação nas bordas não inventar luz.
+
+  getLight(x: number, y: number, z: number): number {
+    if (y < 0) return 0;
+    if (y >= CY) return 0xf0; // acima do mundo: sol pleno, luz de bloco zero
+    const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
+    const c = this.chunks.get(chunkKey(cx, cz));
+    if (!c) return 0;
+    return c.light[(x - cx * CX) + CX * ((z - cz * CZ) + CZ * y)];
+  }
+
+  setLight(x: number, y: number, z: number, packed: number): void {
+    if (y < 0 || y >= CY) return;
+    const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
+    const c = this.chunks.get(chunkKey(cx, cz));
+    if (!c) return;
+    c.light[(x - cx * CX) + CX * ((z - cz * CZ) + CZ * y)] = packed;
+  }
+
+  /**
+   * Copia a luz do chunk + borda de 1 voxel, espelhando `padChunk`.
+   * O mesher precisa da borda para iluminar corretamente as faces coladas na fronteira —
+   * sem ela, cada emenda de chunk apareceria como uma linha escura.
+   */
+  padLight(cx: number, cz: number): Uint8Array {
+    const PX = CX + 2, PZ = CZ + 2;
+    const out = new Uint8Array(PX * (CY + 2) * PZ);
+    const nb: (Uint8Array | null)[] = [];
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        nb.push(this.getChunk(cx + dx, cz + dz)?.light ?? null);
+      }
+    }
+    // y = CY (topo): céu aberto, para o teto do mundo não ficar preto.
+    out.fill(0xf0, PX * PZ * (CY + 1));
+    for (let y = 0; y < CY; y++) {
+      const oy = PX * PZ * (y + 1);
+      for (let z = -1; z <= CZ; z++) {
+        const dzi = z < 0 ? 0 : z >= CZ ? 2 : 1;
+        const lz = z < 0 ? z + CZ : z >= CZ ? z - CZ : z;
+        const oz = oy + PX * (z + 1);
+        for (let x = -1; x <= CX; x++) {
+          const dxi = x < 0 ? 0 : x >= CX ? 2 : 1;
+          const src = nb[dzi * 3 + dxi];
+          if (!src) continue;
+          const lx = x < 0 ? x + CX : x >= CX ? x - CX : x;
+          out[oz + (x + 1)] = src[lx + CX * (lz + CZ * y)];
+        }
+      }
+    }
+    return out;
+  }
+
   private markDirty(cx: number, cz: number): void {
     const c = this.chunks.get(chunkKey(cx, cz));
     if (c) c.dirty = true;

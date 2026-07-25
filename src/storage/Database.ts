@@ -13,6 +13,8 @@ export interface WorldRecord {
   cameraMode: 'topdown' | 'fps' | 'ghost';
   defaultGameMode?: GameMode;
   onlineEnabled?: boolean;
+  /** Hora do mundo em fração de dia (0 = meia-noite, 0.5 = meio-dia). Ausente = manhã. */
+  timeOfDay?: number;
   /** Versão do schema de save deste mundo (mundos antigos sem o campo são tratados como versão 1). Incremente ao mudar o formato de PlayerRecord/WorldRecord de um jeito que exija migração. */
   saveVersion?: number;
   createdAt: number;

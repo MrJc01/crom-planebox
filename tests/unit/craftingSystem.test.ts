@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CraftingSystem, CraftCell } from '../../src/crafting/CraftingSystem';
-import { B } from '../../src/world/blocks';
+import { CraftingSystem, CraftCell, CRAFTING_RECIPES } from '../../src/crafting/CraftingSystem';
+import { B, BLOCKS } from '../../src/world/blocks';
 
 function gridFrom(rows: (number | null)[][]): CraftCell[][] {
   const grid = CraftingSystem.emptyGrid(6);
@@ -68,5 +68,47 @@ describe('CraftingSystem', () => {
     expect(match?.id).toBe('wood_pickaxe');
     expect(match?.outputTool?.tier).toBe(1);
     expect(match?.outputBlock).toBeUndefined();
+  });
+});
+
+describe('CraftingSystem — cadeia dos minérios (rodada de cavernas)', () => {
+  it('carvão + tronco produz tochas — o que torna a caverna explorável', () => {
+    const r = CRAFTING_RECIPES.find((x) => x.id === 'torch_from_coal')!;
+    expect(r).toBeDefined();
+    expect(r.outputBlock).toBe(B.TORCH);
+    expect(r.outputCount).toBeGreaterThan(1);
+  });
+
+  it('cada minério tem receita para virar o bloco refinado correspondente', () => {
+    const pares: [number, number][] = [
+      [B.IRON_ORE, B.IRON_BLOCK],
+      [B.GOLD_ORE, B.GOLD_BLOCK],
+      [B.DIAMOND_ORE, B.DIAMOND_BLOCK],
+    ];
+    for (const [ore, bloco] of pares) {
+      const r = CRAFTING_RECIPES.find((x) => x.outputBlock === bloco && x.ingredients?.[ore]);
+      expect(r, `sem receita de ${BLOCKS[ore].name}`).toBeDefined();
+    }
+  });
+
+  it('toda receita produz um bloco que existe na paleta', () => {
+    for (const r of CRAFTING_RECIPES) {
+      if (r.outputBlock === undefined) continue;
+      expect(BLOCKS[r.outputBlock], `receita "${r.id}" produz bloco inexistente`).toBeDefined();
+    }
+  });
+
+  it('todo ingrediente citado existe na paleta', () => {
+    for (const r of CRAFTING_RECIPES) {
+      for (const key of Object.keys(r.ingredients ?? {})) {
+        expect(BLOCKS[Number(key)], `receita "${r.id}" pede bloco inexistente`).toBeDefined();
+      }
+      for (const row of r.shape ?? []) {
+        for (const cell of row) {
+          if (cell === null) continue;
+          expect(BLOCKS[cell], `receita "${r.id}" desenha bloco inexistente`).toBeDefined();
+        }
+      }
+    }
   });
 });

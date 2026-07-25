@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { B, getBlockDef, isOpaque, isDecor, isFluid } from './blocks';
+import { lightFactor } from './lighting';
 import { CX, CY, CZ } from './chunk';
 import { hash3 } from '../core/rng';
 
@@ -104,7 +105,16 @@ export interface ChunkGeometry {
   glass: THREE.BufferGeometry | null;
 }
 
-export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeometry {
+/**
+ * `light` é opcional: sem ele o chunk é desenhado com iluminação plena, o que mantém o mesher
+ * utilizável em teste e evita um flash preto se a malha for pedida antes da luz ficar pronta.
+ * `sunScale` é a intensidade do dia (1 = meio-dia, ~0.12 = madrugada).
+ */
+export function meshChunk(padded: Uint8Array, cx: number, cz: number, light?: Uint8Array, sunScale = 1): ChunkGeometry {
+  // A luz de uma face é a da célula que ela encara — a do ar em frente, não a do próprio
+  // bloco (que é sempre 0 por ser opaco).
+  const lightAt = (px: number, py: number, pz: number): number =>
+    light ? lightFactor(light[pidx(px, py, pz)], sunScale) : 1;
   const solid = new GeoBuffer();
   const water = new GeoBuffer();
   const glass = new GeoBuffer();
@@ -119,7 +129,7 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
         const wx = baseX + x, wz = baseZ + z;
 
         if (isDecor(t)) {
-          addDecor(solid, t, x, y, z, wx, wz);
+          addDecor(solid, t, x, y, z, wx, wz, lightAt(x, y, z));
           continue;
         }
 
@@ -140,7 +150,8 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
             // não são desenhadas, mas a fronteira água/lava continua visível.
             if (nb === t || isOpaque(nb)) continue;
             const ccol = def.colors[f === 0 ? 0 : f === 1 ? 2 : 1];
-            const sh = face.shade * jr;
+            const lf = lightAt(x + face.n[0], y + face.n[1], z + face.n[2]);
+            const sh = face.shade * jr * lf;
             const scale: [number, number, number] = f === 0 ? [1, 0.88, 1] : [1, 1, 1];
             buf.quad(x, y, z, face, ccol[0] * sh, ccol[1] * sh, ccol[2] * sh, [1, 1, 1, 1], scale);
           }
@@ -159,7 +170,7 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
           if (nb === B.GLASS && t === B.GLASS) continue;
 
           const ccol = def.colors[f === 0 ? 0 : f === 1 ? 2 : 1];
-          const sh = face.shade;
+          const sh = face.shade * lightAt(nx, ny, nz);
           const r = Math.min(1, Math.max(0, ccol[0] + j)) * sh;
           const g = Math.min(1, Math.max(0, ccol[1] + j)) * sh;
           const b = Math.min(1, Math.max(0, ccol[2] + j)) * sh;
@@ -199,16 +210,21 @@ export function meshChunk(padded: Uint8Array, cx: number, cz: number): ChunkGeom
 
 /** Capim/flores/junco: na escala mini-voxel viram cubinhos quase cheios,
  *  com jitter posicional e variação de tom — os "tufos" do Lay of the Land. */
-function addDecor(buf: GeoBuffer, t: number, x: number, y: number, z: number, wx: number, wz: number): void {
+function addDecor(buf: GeoBuffer, t: number, x: number, y: number, z: number, wx: number, wz: number, lf = 1): void {
   const def = getBlockDef(t);
   const h1 = hash3(wx, y, wz, 777);
   const h2 = hash3(wx, 0, wz, 888); // mesmo jitter na coluna toda (pilhas alinhadas)
   const jx = (h2 - 0.5) * 0.22;
   const jz = (hash3(wx, 0, wz, 999) - 0.5) * 0.22;
 
-  let sx = 0.8, sy = 1.0, sz = 0.8, dim = 0.9 + h1 * 0.2;
+  let sx = 0.8, sy = 1.0, sz = 0.8, dim = (0.9 + h1 * 0.2) * lf;
   if (t === B.REED) { sx = 0.66; sz = 0.66; }
-  if (t === B.FLOWER_RED || t === B.FLOWER_YELLOW) { sx = 0.9; sy = 0.85; sz = 0.9; dim = 1.0; }
+  if (t === B.FLOWER_RED || t === B.FLOWER_YELLOW) { sx = 0.9; sy = 0.85; sz = 0.9; dim = lf; }
+  if (t === B.TORCH) {
+    // Haste fina e alta. A tocha se ilumina sozinha (é a fonte), então ignora `lf` — senão
+    // ficaria escura no escuro, que é justamente onde ela precisa aparecer.
+    sx = 0.34; sz = 0.34; sy = 1.4; dim = 1.0;
+  }
 
   const px = (1 - sx) / 2 + jx, pz = (1 - sz) / 2 + jz;
   for (let f = 0; f < FACES.length; f++) {
