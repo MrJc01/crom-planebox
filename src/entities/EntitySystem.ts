@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { World } from '../world/world';
 import { B, isSolid } from '../world/blocks';
 import { CombatTimers, MOB_PROFILES, MobKind, MobProfile, knockbackFrom } from './Combat';
+import { PathNode, findPath } from './Pathfinding';
 
 export type EntityType = 'human' | 'orc' | 'goblin' | 'animal' | 'hero';
 
@@ -36,6 +37,12 @@ export interface EntityRecord {
   attackTimer?: number;
   /** Barra de vida flutuante, criada só quando o mob toma dano pela primeira vez. */
   healthBar?: THREE.Sprite;
+  /** Waypoints restantes do A*. */
+  path?: PathNode[];
+  /** Segundos até recalcular a rota. Buscar a cada frame seria caro e desnecessário. */
+  repathTimer?: number;
+  /** Posição do alvo quando a rota foi traçada, para detectar que ele se moveu muito. */
+  pathGoal?: THREE.Vector3;
 }
 
 export class EntitySystem {
@@ -435,9 +442,7 @@ export class EntitySystem {
     }
 
     e.state = 'perseguindo';
-    const step = p.speed * dt;
-    this.moveWithCollision(e, (dx / dist) * step, (dz / dist) * step);
-    e.mesh.rotation.y = Math.atan2(dx, dz);
+    this.followPath(e, dt, player, dx, dz, dist);
 
     e.walkCycle += dt * 9;
     if (e.legLeft && e.legRight) {
@@ -445,6 +450,74 @@ export class EntitySystem {
       e.legRight.rotation.x = -Math.sin(e.walkCycle) * 0.6;
     }
     return 0;
+  }
+
+  /**
+   * Move o mob seguindo a rota do A*, recalculando quando ela vence ou o alvo se desloca.
+   *
+   * A linha reta continua sendo usada quando há visada limpa: é mais barata e produz um
+   * movimento mais natural que seguir waypoints em terreno aberto. O A* entra exatamente no
+   * caso que antes travava o mob — obstáculo entre ele e o jogador.
+   */
+  private followPath(e: EntityRecord, dt: number, player: THREE.Vector3, dx: number, dz: number, dist: number): void {
+    const p = e.profile!;
+    const step = p.speed * dt;
+
+    e.repathTimer = (e.repathTimer ?? 0) - dt;
+
+    const alvoMudou = !e.pathGoal || e.pathGoal.distanceTo(player) > 2.5;
+    if ((e.repathTimer <= 0 || alvoMudou) && !this.hasClearPath(e.pos, player)) {
+      // Intervalo escalonado por distância: perseguição de perto recalcula mais.
+      e.repathTimer = dist < 8 ? 0.35 : 0.9;
+      e.pathGoal = player.clone();
+      e.path = findPath(
+        this.world,
+        { x: Math.floor(e.pos.x), y: Math.floor(e.pos.y), z: Math.floor(e.pos.z) },
+        { x: Math.floor(player.x), y: Math.floor(player.y), z: Math.floor(player.z) },
+      ) ?? undefined;
+    }
+
+    if (e.path && e.path.length > 0) {
+      const wp = e.path[0];
+      const wx = wp.x + 0.5 - e.pos.x;
+      const wz = wp.z + 0.5 - e.pos.z;
+      const wd = Math.hypot(wx, wz);
+
+      if (wd < 0.45) {
+        e.path.shift();
+      } else {
+        this.moveWithCollision(e, (wx / wd) * step, (wz / wd) * step);
+        e.mesh.rotation.y = Math.atan2(wx, wz);
+        return;
+      }
+    }
+
+    // Sem rota (ou já consumida): investida direta.
+    this.moveWithCollision(e, (dx / dist) * step, (dz / dist) * step);
+    e.mesh.rotation.y = Math.atan2(dx, dz);
+  }
+
+  /**
+   * Existe visada livre entre dois pontos, na altura do peito?
+   * Amostragem simples ao longo do segmento — barato o bastante para rodar por mob por frame,
+   * e é o que evita disparar A* em campo aberto.
+   */
+  private hasClearPath(from: THREE.Vector3, to: THREE.Vector3): boolean {
+    const dx = to.x - from.x, dz = to.z - from.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.001) return true;
+
+    const passos = Math.min(24, Math.ceil(dist * 2));
+    for (let i = 1; i <= passos; i++) {
+      const t = i / passos;
+      const x = Math.floor(from.x + dx * t);
+      const z = Math.floor(from.z + dz * t);
+      const y = Math.floor(from.y);
+      if (isSolid(this.world.getBlock(x, y, z)) || isSolid(this.world.getBlock(x, y + 1, z))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

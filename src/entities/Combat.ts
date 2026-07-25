@@ -6,6 +6,8 @@
 //
 // Escala: distâncias em metros do mundo, tempos em segundos.
 
+import { B } from '../world/blocks';
+
 /** Alcance do golpe corpo a corpo, em metros. */
 export const MELEE_RANGE = 3.2;
 /** Ângulo máximo entre a mira e o alvo para o golpe conectar (~70° de abertura total). */
@@ -21,6 +23,18 @@ export const IFRAME_DURATION = 0.5;
  * combate continuar dependendo de posicionamento e não virar um botão de deletar inimigo.
  */
 export const TIER_DAMAGE = [2, 3.5, 5, 7];
+
+/**
+ * Durabilidade por tier de ferramenta: quantos usos (quebrar bloco ou golpear) antes de quebrar.
+ * Sem desgaste, a primeira picareta de diamante encerra a progressão de equipamento — a
+ * ferramenta deixa de ser uma decisão e vira um item permanente. Tier 0 (mão) não desgasta.
+ */
+export const TIER_DURABILITY = [Infinity, 60, 132, 260];
+
+export function durabilityForTier(tier: number): number {
+  const t = Math.max(0, Math.min(TIER_DURABILITY.length - 1, Math.floor(tier || 0)));
+  return TIER_DURABILITY[t];
+}
 
 /** Força do recuo aplicado ao alvo, em m/s. */
 export const KNOCKBACK_SPEED = 6.5;
@@ -135,16 +149,20 @@ export const MOB_PROFILES: Record<MobKind, MobProfile> = {
   zumbi: {
     kind: 'zumbi', name: 'Zumbi', maxHealth: 20, attackDamage: 6, attackInterval: 1.2,
     speed: 1.8, aggroRange: 16, reach: 1.6, bodyColor: 0x3f6212, headColor: 0x4d7c0f,
-    drop: -1, dropCount: 0,
+    // Loot escolhido para alimentar o próprio ciclo que gera o inimigo: carvão vira tocha,
+    // tocha impede o spawn. Enfrentar a noite compra a luz que torna a noite segura.
+    drop: B.COAL_ORE, dropCount: 1,
   },
   esqueleto: {
     kind: 'esqueleto', name: 'Esqueleto', maxHealth: 14, attackDamage: 4, attackInterval: 0.9,
     speed: 2.4, aggroRange: 20, reach: 1.8, bodyColor: 0xe2e8f0, headColor: 0xf1f5f9,
-    drop: -1, dropCount: 0,
+    // Ferro: sobe o tier de picareta, que abre os minérios profundos.
+    drop: B.IRON_ORE, dropCount: 1,
   },
   aranha: {
     kind: 'aranha', name: 'Aranha', maxHealth: 10, attackDamage: 3, attackInterval: 0.6,
     speed: 3.6, aggroRange: 14, reach: 1.5, bodyColor: 0x1c1917, headColor: 0x44403c,
+    // A aranha é a ameaça de pressão, não de recompensa: rápida, frágil e sem loot.
     drop: -1, dropCount: 0,
   },
 };

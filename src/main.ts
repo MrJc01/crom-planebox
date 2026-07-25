@@ -550,6 +550,13 @@ async function bootstrap() {
     return true;
   };
 
+  inter.onToolWear = (slot, broke) => {
+    if (broke) hud.showToast('⛏️ Sua ferramenta quebrou!');
+    else if (slot.durability !== undefined && slot.durability <= 5) {
+      hud.showToast(`Ferramenta quase quebrando (${slot.durability} usos)`);
+    }
+  };
+
   entitySystem.onEntityDeath = (mob) => {
     hud.showToast(`${mob.name} derrotado!`);
     const drop = mob.profile?.drop ?? -1;

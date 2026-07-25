@@ -1,5 +1,5 @@
-import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord } from './Database';
-import { ModPackage } from '../mods/ModTypes';
+import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord, ModRevisionRecord } from './Database';
+import { ModPackage, ModRevision } from '../mods/ModTypes';
 import { Appearance, sanitizeAppearance } from '../player/Appearance';
 
 export interface ExportedWorldPackage {
@@ -37,7 +37,7 @@ export class WorldRepository {
   static async deleteWorld(id: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worlds, db.blockMods, db.chatMessages, db.chatThreads, db.players, db.uiCustomizations, db.mods, db.modEntities],
+      [db.worlds, db.blockMods, db.chatMessages, db.chatThreads, db.players, db.uiCustomizations, db.mods, db.modEntities, db.modRevisions],
       async () => {
         await db.worlds.delete(id);
         await db.blockMods.where('worldId').equals(id).delete();
@@ -47,6 +47,7 @@ export class WorldRepository {
         await db.uiCustomizations.where('worldId').equals(id).delete();
         await db.mods.where('worldId').equals(id).delete();
         await db.modEntities.where('worldId').equals(id).delete();
+        await db.modRevisions.where('worldId').equals(id).delete();
       },
     );
   }
@@ -149,13 +150,18 @@ export class WorldRepository {
     return threads.reverse();
   }
 
-  static async createChatThread(worldId: string, title?: string): Promise<ChatThreadRecord> {
+  /**
+   * Cria uma sessão de chat. Com `modId`, ela já nasce vinculada àquele mod; sem ele, nasce
+   * livre — o usuário pode vincular depois, ou usá-la só para perguntar e inspecionar.
+   */
+  static async createChatThread(worldId: string, title?: string, modId?: string): Promise<ChatThreadRecord> {
     const thread: ChatThreadRecord = {
       id: `thread-${Date.now()}`,
       worldId,
       title: title || `Conversa ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
       createdAt: Date.now(),
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      modId
     };
     await db.chatThreads.put(thread);
     return thread;
@@ -444,9 +450,10 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
 
   /** Remove o mod e as instâncias de entidade que ele havia colocado no mundo. */
   static async deleteMod(worldId: string, modId: string): Promise<void> {
-    await db.transaction('rw', [db.mods, db.modEntities], async () => {
+    await db.transaction('rw', [db.mods, db.modEntities, db.modRevisions], async () => {
       await db.mods.delete([worldId, modId]);
       await db.modEntities.where('[worldId+modId]').equals([worldId, modId]).delete();
+      await db.modRevisions.where('[worldId+modId]').equals([worldId, modId]).delete();
     });
   }
 
@@ -463,6 +470,43 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
     const ids = hits.map((m) => m.id).filter((id): id is number => id !== undefined);
     if (ids.length > 0) await db.blockMods.bulkDelete(ids);
     return hits.map((m) => ({ x: m.x, y: m.y, z: m.z }));
+  }
+
+  // --- Histórico de revisões de mod --------------------------------------------------------
+
+  static async saveModRevision(worldId: string, rev: ModRevision): Promise<void> {
+    const record: ModRevisionRecord = { ...rev, worldId, key: `${rev.modId}:${rev.revision}` };
+    await db.modRevisions.put(record);
+  }
+
+  /** Revisões de um mod, da mais recente para a mais antiga. */
+  static async getModRevisions(worldId: string, modId: string): Promise<ModRevisionRecord[]> {
+    const rows = await db.modRevisions.where('[worldId+modId]').equals([worldId, modId]).toArray();
+    return rows.sort((a, b) => b.revision - a.revision);
+  }
+
+  static async getModRevision(worldId: string, modId: string, revision: number): Promise<ModRevisionRecord | undefined> {
+    return await db.modRevisions.get([worldId, `${modId}:${revision}`]);
+  }
+
+  static async deleteModRevisions(worldId: string, modId: string): Promise<void> {
+    await db.modRevisions.where('[worldId+modId]').equals([worldId, modId]).delete();
+  }
+
+  /** Mod que esta sessão de chat edita, ou undefined se ela for livre. */
+  static async getModByThread(worldId: string, threadId: string): Promise<ModPackage | undefined> {
+    const thread = await db.chatThreads.get(threadId);
+    if (!thread?.modId) return undefined;
+    return await this.getMod(worldId, thread.modId);
+  }
+
+  /** Vincula (ou desvincula, com `undefined`) uma sessão de chat a um mod. */
+  static async setThreadMod(threadId: string, modId?: string): Promise<void> {
+    const thread = await db.chatThreads.get(threadId);
+    if (!thread) return;
+    thread.modId = modId;
+    thread.updatedAt = Date.now();
+    await db.chatThreads.put(thread);
   }
 
   // Instâncias de entidade de mod colocadas no mundo (o molde fica no ModPackage)

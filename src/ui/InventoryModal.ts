@@ -1,3 +1,4 @@
+import { durabilityForTier } from '../entities/Combat';
 import { BLOCKS } from '../world/blocks';
 import { Interaction } from '../player/interaction';
 import { CraftingSystem, CraftCell, CraftingRecipe } from '../crafting/CraftingSystem';
@@ -252,6 +253,24 @@ export class InventoryModal {
       icon.textContent = '⛏️';
       icon.style.cssText = 'font-size: 20px;';
       slotEl.appendChild(icon);
+
+      // Barra de desgaste: sem ela a ferramenta quebraria "do nada" e pareceria um bug.
+      if (slot.durability !== undefined && slot.maxDurability) {
+        const frac = Math.max(0, slot.durability / slot.maxDurability);
+        const bar = document.createElement('div');
+        bar.style.cssText = `
+          position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px;
+          background: rgba(0,0,0,0.55); border-radius: 2px; overflow: hidden;
+        `;
+        const fill = document.createElement('div');
+        fill.style.cssText = `
+          width: ${(frac * 100).toFixed(0)}%; height: 100%;
+          background: ${frac > 0.5 ? '#4ade80' : frac > 0.2 ? '#fbbf24' : '#ef4444'};
+        `;
+        bar.appendChild(fill);
+        slotEl.style.position = 'relative';
+        slotEl.appendChild(bar);
+      }
     } else {
       const blockDef = BLOCKS[slot.block];
       if (blockDef) {
@@ -370,6 +389,8 @@ export class InventoryModal {
             count: 1,
             infinite: true,
             toolTier: r.outputTool!.tier,
+            // Catálogo do Criativo entrega ferramenta sem desgaste de propósito: ali o objetivo
+            // é construir, não administrar recurso.
           };
           this.renderHotbar();
         });
@@ -466,12 +487,16 @@ export class InventoryModal {
   private collectCraft(recipe: CraftingRecipe): void {
     const slotIdx = this.interaction.selected;
     if (recipe.outputTool) {
+      const usos = durabilityForTier(recipe.outputTool.tier);
       this.interaction.hotbar[slotIdx] = {
         label: recipe.outputTool.label,
         block: -1,
         count: 1,
         infinite: true,
         toolTier: recipe.outputTool.tier,
+        // Ferramenta craftada desgasta: é o que mantém o equipamento sendo uma decisão.
+        durability: Number.isFinite(usos) ? usos : undefined,
+        maxDurability: Number.isFinite(usos) ? usos : undefined,
       };
     } else if (recipe.outputBlock !== undefined) {
       this.interaction.hotbar[slotIdx] = {

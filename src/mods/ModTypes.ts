@@ -98,6 +98,41 @@ export interface ModPackage {
   structures: ModStructureDef[];
   createdAt: number;
   updatedAt: number;
+
+  /**
+   * Sessão de chat em que este mod nasceu — só proveniência, para o histórico fazer sentido.
+   *
+   * O vínculo **autoritativo** mora do outro lado, em `ChatThreadRecord.modId`, porque um mod
+   * pode ser continuado em várias sessões: abrir uma conversa nova para ajustar um mod antigo
+   * não deveria obrigar o agente a carregar todo o histórico anterior no contexto.
+   */
+  originThreadId?: string;
+
+  /** Número da revisão atual. Incrementa a cada alteração de conteúdo. */
+  revision: number;
+
+  /**
+   * Quarentena: o mod falhou ao ser aplicado e foi desligado automaticamente.
+   * Existe para um mod corrompido não impedir o mundo de carregar — ele é isolado e reportado,
+   * e o resto do mundo segue normalmente.
+   */
+  quarantined?: boolean;
+  quarantineReason?: string;
+}
+
+/**
+ * Instantâneo de uma revisão do mod, para poder voltar atrás.
+ * Guarda o pacote inteiro: são dados pequenos (dezenas de KB no pior caso) e a alternativa —
+ * diffs — tornaria o rollback capaz de falhar justamente quando mais se precisa dele.
+ */
+export interface ModRevision {
+  modId: string;
+  revision: number;
+  /** Pacote completo como estava nesta revisão. */
+  snapshot: ModPackage;
+  /** O que mudou, em uma linha, para a lista de versões ser legível. */
+  summary: string;
+  createdAt: number;
 }
 
 /** Formato de troca do `export_mod` / `import_mod`: um mod fora de qualquer mundo. */
@@ -109,7 +144,7 @@ export interface ExportedModPackage {
 
 export const MOD_FORMAT_VERSION = 1;
 
-export function emptyModPackage(id: string, name: string, description = ''): ModPackage {
+export function emptyModPackage(id: string, name: string, description = '', originThreadId?: string): ModPackage {
   const now = Date.now();
   return {
     id,
@@ -122,5 +157,23 @@ export function emptyModPackage(id: string, name: string, description = ''): Mod
     structures: [],
     createdAt: now,
     updatedAt: now,
+    originThreadId,
+    revision: 1,
   };
+}
+
+/**
+ * Remove do pacote tudo que é local a este mundo, deixando só a **estrutura** do mod.
+ *
+ * É o que o usuário quer ao exportar: o conteúdo (blocos, criaturas, estruturas), não a
+ * conversa que levou até ele nem o vínculo com uma thread que não existe em outro mundo.
+ * Os `blockId` também saem — quem importa realoca no mundo de destino.
+ */
+export function stripLocalState(pkg: ModPackage): ModPackage {
+  const clone: ModPackage = JSON.parse(JSON.stringify(pkg));
+  delete clone.originThreadId;
+  delete clone.quarantined;
+  delete clone.quarantineReason;
+  for (const b of clone.blocks || []) delete (b as any).blockId;
+  return clone;
 }

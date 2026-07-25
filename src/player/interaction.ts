@@ -23,6 +23,10 @@ export interface HotbarSlot {
   infinite?: boolean;
   /** Se definido, este slot é uma FERRAMENTA (ex.: picareta), não um bloco colocável. 0=mão, 1=madeira, 2=pedra, 3=ferro. */
   toolTier?: number;
+  /** Usos restantes da ferramenta. `undefined` = não desgasta (mão, blocos). */
+  durability?: number;
+  /** Usos totais, para desenhar a barra de desgaste na hotbar. */
+  maxDurability?: number;
   /** Se definido, este slot é uma ESTRUTURA pronta (árvore, casa, torre, muro) — ao colocar, "carimba" todos os blocos do template de uma vez. */
   structureId?: string;
 }
@@ -267,6 +271,34 @@ export class Interaction {
    */
   public onAttack: (origin: THREE.Vector3, forward: THREE.Vector3, tier: number) => boolean = () => false;
 
+  /** Avisado quando uma ferramenta se desgasta ou quebra, para a UI reagir. */
+  public onToolWear: (slot: HotbarSlot, broke: boolean) => void = () => {};
+
+  /**
+   * Consome um uso da ferramenta equipada. Devolve true se ela quebrou agora.
+   * Mão vazia e blocos não têm durabilidade, então a chamada é inofensiva neles.
+   */
+  private wearTool(): boolean {
+    const slot = this.hotbar[this.selected];
+    if (!slot || slot.toolTier === undefined || slot.durability === undefined) return false;
+
+    slot.durability = Math.max(0, slot.durability - 1);
+    const broke = slot.durability <= 0;
+    if (broke) {
+      // A ferramenta some e o slot volta a ser mão vazia — não vira um item fantasma de tier
+      // alto com 0 de durabilidade, que continuaria dando o dano cheio.
+      slot.label = 'vazio';
+      slot.block = B.AIR;
+      slot.count = 0;
+      slot.toolTier = undefined;
+      slot.durability = undefined;
+      slot.maxDurability = undefined;
+    }
+    this.onToolWear(slot, broke);
+    this.onChanged();
+    return broke;
+  }
+
   tryBreak(camera: THREE.Camera): void {
     if (this.breakCooldown > 0) return;
     const dir = new THREE.Vector3();
@@ -275,6 +307,7 @@ export class Interaction {
     const tier = this.hotbar[this.selected]?.toolTier ?? 0;
     if (this.onAttack(new THREE.Vector3().copy(camera.position), dir, tier)) {
       this.breakCooldown = 0.42;
+      this.wearTool();
       return;
     }
 
@@ -310,6 +343,9 @@ export class Interaction {
     if (broke > 0) {
       // física uma vez por célula (vizinhos da célula inteira)
       this.physics.onCellChanged(sx, sy, sz, this.cell);
+      // Um uso por célula quebrada, não por mini-voxel: no Modo Detalhe uma célula 3×3×3 são
+      // 27 voxels, e cobrar 27 usos gastaria a picareta em três blocos.
+      this.wearTool();
       this.onChanged();
     }
   }

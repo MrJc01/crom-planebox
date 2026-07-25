@@ -11,6 +11,8 @@ vi.mock('../../src/storage/WorldRepository', () => {
     mods: new Map<string, ModPackage>(),
     entities: new Map<string, any>(),
     blockMods: [] as { x: number; y: number; z: number; blockType: number }[],
+    revisions: [] as any[],
+    threadMods: new Map<string, string | undefined>(),
   };
 
   const WorldRepository = {
@@ -42,6 +44,26 @@ vi.mock('../../src/storage/WorldRepository', () => {
     async saveBlockModBatch(_worldId: string, mods: any[]) {
       state.blockMods.push(...mods);
     },
+    // --- Versionamento e vínculo com a sessão de chat ---
+    async saveModRevision(_worldId: string, rev: any) {
+      state.revisions.push(JSON.parse(JSON.stringify(rev)));
+    },
+    async getModRevisions(_worldId: string, modId: string) {
+      return state.revisions.filter((r) => r.modId === modId).sort((a, b) => b.revision - a.revision);
+    },
+    async getModRevision(_worldId: string, modId: string, revision: number) {
+      return state.revisions.find((r) => r.modId === modId && r.revision === revision);
+    },
+    async deleteModRevisions(_worldId: string, modId: string) {
+      state.revisions = state.revisions.filter((r) => r.modId !== modId);
+    },
+    async setThreadMod(threadId: string, modId?: string) {
+      state.threadMods.set(threadId, modId);
+    },
+    async getModByThread(_worldId: string, threadId: string) {
+      const modId = state.threadMods.get(threadId);
+      return modId ? state.mods.get(modId) : undefined;
+    },
   };
 
   return { WorldRepository, __fake: state };
@@ -55,6 +77,8 @@ const fake = (await import('../../src/storage/WorldRepository') as any).__fake a
   mods: Map<string, ModPackage>;
   entities: Map<string, any>;
   blockMods: { x: number; y: number; z: number; blockType: number }[];
+  revisions: any[];
+  threadMods: Map<string, string | undefined>;
 };
 
 /** Mundo mínimo: só precisa registrar o que foi escrito. */
@@ -102,6 +126,8 @@ describe('ModService — criação de conteúdo pela IA', () => {
     fake.mods.clear();
     fake.entities.clear();
     fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
   });
 
   it('cria um mod e o persiste', async () => {
@@ -204,6 +230,8 @@ describe('ModService — colocar conteúdo no mundo e salvar', () => {
     fake.mods.clear();
     fake.entities.clear();
     fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
   });
 
   it('carimba a estrutura no mundo e salva os blocos', async () => {
@@ -262,6 +290,8 @@ describe('ModService — ciclo completo com reload (o requisito central)', () =>
     fake.mods.clear();
     fake.entities.clear();
     fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
   });
 
   it('REGRESSÃO: bloco, estrutura e entidade criados pela IA sobrevivem ao recarregar o mundo', async () => {
@@ -352,6 +382,8 @@ describe('ModService — exportar e importar', () => {
     fake.mods.clear();
     fake.entities.clear();
     fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
   });
 
   it('exporta JSON portátil e devolve null para mod inexistente', async () => {
@@ -416,6 +448,8 @@ describe('ModService — adoção de blocos criados dentro de execute_voxel_scri
     fake.mods.clear();
     fake.entities.clear();
     fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
   });
 
   it('adota blocos avulsos num mod salvo, fechando o caminho antigo de bloco efêmero', async () => {
@@ -464,6 +498,8 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
     fake.mods.clear();
     fake.entities.clear();
     fake.blockMods.length = 0;
+    fake.revisions.length = 0;
+    fake.threadMods.clear();
   });
 
   it('REGRESSÃO: o convidado registra o bloco no MESMO id do anfitrião', () => {

@@ -12,7 +12,7 @@
 import { World } from '../world/world';
 import { EntitySystem } from '../entities/EntitySystem';
 import { WorldRepository } from '../storage/WorldRepository';
-import { BLOCKS } from '../world/blocks';
+import { BLOCKS, resetCustomBlocks } from '../world/blocks';
 import {
   ExportedModPackage,
   MOD_FORMAT_VERSION,
@@ -21,10 +21,10 @@ import {
   ModPackage,
   ModStructureDef,
   emptyModPackage,
+  stripLocalState,
 } from './ModTypes';
 import {
   allocateBlockIds,
-  applyAllMods,
   applyModBlocks,
   normalizeKey,
   resolveStructureBlocks,
@@ -45,6 +45,15 @@ export class ModService {
   private worldId: string;
   /** Cache em memória dos mods do mundo ativo; a fonte da verdade continua sendo o IndexedDB. */
   private mods: ModPackage[] = [];
+  /**
+   * Sessão de chat aberta e o mod que ela edita.
+   *
+   * É esse par que define **qual mod as ferramentas alteram por padrão**: o agente não repete o
+   * id do mod a cada chamada nem corre o risco de escrever no mod errado. Uma sessão sem
+   * `activeModId` é uma **sessão livre** — pode ler tudo, não pode escrever nada.
+   */
+  private activeThreadId?: string;
+  private activeModId?: string;
 
   /** Notifica o host sobre blocos alterados, para retransmitir via PeerSync igual às ferramentas MCP. */
   public onBlocksChanged: (mods: { x: number; y: number; z: number; blockType: number }[]) => void = () => {};
@@ -67,6 +76,56 @@ export class ModService {
     return this.mods.find((m) => m.id === modId);
   }
 
+  /** Informa qual sessão está aberta e qual mod ela edita (`undefined` = sessão livre). */
+  public setActiveSession(threadId?: string, modId?: string): void {
+    this.activeThreadId = threadId;
+    this.activeModId = modId;
+  }
+
+  public getActiveThreadId(): string | undefined {
+    return this.activeThreadId;
+  }
+
+  public getActiveModId(): string | undefined {
+    return this.activeModId;
+  }
+
+  /** A sessão atual é livre (sem mod vinculado)? Nela só leitura é permitida. */
+  public isFreeSession(): boolean {
+    return !this.activeModId;
+  }
+
+  /** Mod vinculado à sessão de chat atual, se houver. */
+  public getModForActiveThread(): ModPackage | undefined {
+    if (!this.activeModId) return undefined;
+    return this.getMod(this.activeModId);
+  }
+
+  /**
+   * Resolve qual mod a ferramenta deve editar.
+   *
+   * Ordem: id explícito > mod da sessão atual. Sem nenhum dos dois é sessão livre, e o chamador
+   * deve recusar a escrita com uma orientação — melhor que gravar no mod errado.
+   */
+  public resolveTargetMod(explicitId?: string): ModPackage | undefined {
+    if (explicitId) return this.getMod(explicitId);
+    return this.getModForActiveThread();
+  }
+
+  /**
+   * Mensagem padrão quando uma ferramenta de escrita é chamada numa sessão livre.
+   * Centralizada para todas as ferramentas orientarem exatamente do mesmo jeito.
+   */
+  public freeSessionHint(acao: string): string {
+    const disponiveis = this.mods.map((m) => `"${m.id}"`).join(', ') || 'nenhum ainda';
+    return (
+      `Esta é uma sessão livre (sem mod vinculado), então ${acao} está bloqueado — é o que impede ` +
+      `uma conversa exploratória de alterar o mundo por engano. ` +
+      `Use create_mod para começar uma modificação nova nesta sessão, ou attach_session_to_mod ` +
+      `para continuar uma existente. Mods deste mundo: ${disponiveis}.`
+    );
+  }
+
   /**
    * Chamado ao carregar um mundo: recarrega os mods dele, registra os blocos nos ids salvos e
    * recria as entidades que estavam colocadas. É o que fecha o ciclo "a IA criou → foi salvo →
@@ -76,7 +135,10 @@ export class ModService {
     this.worldId = worldId;
     this.mods = await WorldRepository.getMods(worldId);
 
-    const { blocksApplied, modsApplied } = applyAllMods(this.mods);
+    // Aplicação mod a mod, com isolamento: um pacote corrompido é posto em quarentena e o
+    // carregamento continua. Antes, `applyAllMods` propagava a exceção e um único mod quebrado
+    // impedia o mundo inteiro de abrir.
+    const { blocksApplied, modsApplied } = this.applyIsolated();
 
     let entitiesRestored = 0;
     if (this.entitySystem) {
@@ -105,6 +167,66 @@ export class ModService {
         `${blocksApplied} bloco(s) customizados registrados, ${entitiesRestored} entidade(s) restaurada(s).`,
     );
     return { mods: modsApplied, blocks: blocksApplied, entities: entitiesRestored };
+  }
+
+  /**
+   * Aplica os mods um a um, isolando falhas.
+   * O que não aplica é marcado como quarentenado em memória (e gravado logo em seguida), em vez
+   * de abortar o carregamento do mundo.
+   */
+  private applyIsolated(): { blocksApplied: number; modsApplied: number } {
+    resetCustomBlocks();
+    let blocksApplied = 0;
+    let modsApplied = 0;
+
+    for (const mod of this.mods) {
+      if (!mod.enabled || mod.quarantined) continue;
+
+      const errors = validateModPackage(mod);
+      if (errors.length > 0) {
+        this.markQuarantined(mod, `pacote inválido: ${errors.join(' ')}`);
+        continue;
+      }
+
+      try {
+        blocksApplied += applyModBlocks(mod).length;
+        modsApplied++;
+      } catch (err: any) {
+        revokeModBlocks(mod);
+        this.markQuarantined(mod, err?.message || String(err));
+      }
+    }
+
+    return { blocksApplied, modsApplied };
+  }
+
+  private markQuarantined(mod: ModPackage, reason: string): void {
+    mod.enabled = false;
+    mod.quarantined = true;
+    mod.quarantineReason = reason;
+    console.warn(`🧩 [ModService] Mod "${mod.id}" isolado ao carregar: ${reason}`);
+    // Grava o estado de quarentena, mas sem `persist` — não é uma edição do usuário e não deve
+    // gerar revisão nem eco para a rede.
+    WorldRepository.saveMod(this.worldId, mod).catch(() => {});
+    this.onModQuarantined(mod, reason);
+  }
+
+  /** Avisa a UI que um mod foi isolado, para o usuário saber por que ele sumiu. */
+  public onModQuarantined: (mod: ModPackage, reason: string) => void = () => {};
+
+  /**
+   * Salva uma revisão do estado ATUAL antes de aplicar uma mudança.
+   * Fotografar o "antes" (e não o "depois") é o que faz o rollback voltar para um estado que
+   * o usuário efetivamente viu funcionando.
+   */
+  private async snapshot(pkg: ModPackage, summary: string): Promise<void> {
+    await WorldRepository.saveModRevision(this.worldId, {
+      modId: pkg.id,
+      revision: pkg.revision ?? 1,
+      snapshot: JSON.parse(JSON.stringify(pkg)),
+      summary,
+      createdAt: Date.now(),
+    });
   }
 
   /** Persiste um mod já validado e o mantém no cache em memória. */
@@ -167,15 +289,106 @@ export class ModService {
     const id = explicitId?.trim() || `mod-${normalizeKey(name) || Date.now()}`;
     const existing = this.getMod(id);
     if (existing) {
-      return { ok: true, message: `O mod "${existing.name}" (${id}) já existe — continuando nele.`, details: { modId: id } };
+      // Já existe: em vez de recusar, vincula a sessão atual a ele e continua o trabalho.
+      await this.attachActiveSession(id);
+      return { ok: true, message: `O mod "${existing.name}" (${id}) já existe — esta sessão passou a editá-lo.`, details: { modId: id } };
     }
 
-    const pkg = emptyModPackage(id, name, description);
+    const pkg = emptyModPackage(id, name, description, this.activeThreadId);
     const errors = validateModPackage(pkg);
     if (errors.length > 0) return { ok: false, message: `Mod inválido: ${errors.join(' ')}` };
 
     await this.persist(pkg);
-    return { ok: true, message: `Mod "${name}" criado (id: ${id}). Agora adicione blocos, entidades e estruturas a ele.`, details: { modId: id } };
+    // A sessão que criou o mod passa a ser a sessão dele: é o que dá escopo às ferramentas
+    // seguintes sem o agente precisar repetir o id em cada chamada.
+    await this.attachActiveSession(id);
+
+    return {
+      ok: true,
+      message: `Mod "${name}" criado (id: ${id}) e vinculado a esta sessão de chat. As próximas ferramentas editam este mod por padrão.`,
+      details: { modId: id },
+    };
+  }
+
+  /** Vincula a sessão de chat atual a um mod (ou a solta, com `undefined`). */
+  public async attachActiveSession(modId?: string): Promise<ModApplyResult> {
+    if (modId && !this.getMod(modId)) {
+      return { ok: false, message: `Mod "${modId}" não existe neste mundo.` };
+    }
+    this.activeModId = modId;
+    if (this.activeThreadId) await WorldRepository.setThreadMod(this.activeThreadId, modId);
+
+    return {
+      ok: true,
+      message: modId
+        ? `Esta sessão agora edita o mod "${modId}".`
+        : 'Esta sessão voltou a ser livre: dá para ler tudo, mas nenhuma escrita é permitida.',
+      details: { modId },
+    };
+  }
+
+  // --- Versionamento -----------------------------------------------------------------------
+
+  /** Histórico de revisões de um mod, da mais recente para a mais antiga. */
+  public async listRevisions(modId: string): Promise<{ revision: number; summary: string; createdAt: number }[]> {
+    const rows = await WorldRepository.getModRevisions(this.worldId, modId);
+    return rows.map((r) => ({ revision: r.revision, summary: r.summary, createdAt: r.createdAt }));
+  }
+
+  /**
+   * Volta o mod para uma revisão anterior.
+   *
+   * Antes de reverter, tira um snapshot do estado atual — voltar não pode ser uma via de mão
+   * única, senão o rollback vira uma nova forma de perder trabalho. Os blocos da versão atual
+   * saem do registro e os da versão restaurada entram, com os mesmos ids que já estavam no save.
+   */
+  public async rollbackMod(modId: string, revision: number): Promise<ModApplyResult> {
+    const atual = this.getMod(modId);
+    if (!atual) return { ok: false, message: `Mod "${modId}" não encontrado.` };
+
+    const alvo = await WorldRepository.getModRevision(this.worldId, modId, revision);
+    if (!alvo) {
+      const disponiveis = (await this.listRevisions(modId)).map((r) => r.revision).join(', ');
+      return { ok: false, message: `Revisão ${revision} não existe para "${modId}". Disponíveis: ${disponiveis || 'nenhuma'}.` };
+    }
+
+    await this.snapshot(atual, `Estado antes de voltar para a revisão ${revision}`);
+
+    const restaurado: ModPackage = JSON.parse(JSON.stringify(alvo.snapshot));
+    // A revisão avança mesmo voltando no conteúdo: o histórico é linear e nunca reescrito.
+    restaurado.revision = (atual.revision ?? 1) + 1;
+    restaurado.quarantined = false;
+    restaurado.quarantineReason = undefined;
+
+    revokeModBlocks(atual);
+    try {
+      if (restaurado.enabled) applyModBlocks(restaurado);
+    } catch (err: any) {
+      applyModBlocks(atual); // desfaz a tentativa e mantém o estado que funcionava
+      return { ok: false, message: `Não foi possível aplicar a revisão ${revision}: ${err?.message || err}` };
+    }
+
+    await this.persist(restaurado);
+    return {
+      ok: true,
+      message: `Mod "${atual.name}" voltou para a revisão ${revision} (agora é a revisão ${restaurado.revision}). O histórico anterior continua salvo.`,
+      details: { modId, revision: restaurado.revision },
+    };
+  }
+
+  /**
+   * Desliga um mod que falhou, sem deixar a falha derrubar o mundo.
+   *
+   * É o ponto que atende ao requisito de isolamento: se um mod corromper as próprias definições,
+   * ele é isolado e reportado, e o carregamento do mundo segue com os demais.
+   */
+  public async quarantine(modId: string, reason: string): Promise<void> {
+    const mod = this.getMod(modId);
+    if (!mod) return;
+    const updated: ModPackage = { ...mod, enabled: false, quarantined: true, quarantineReason: reason };
+    revokeModBlocks(updated);
+    await this.persist(updated);
+    console.warn(`🧩 [ModService] Mod "${modId}" posto em quarentena: ${reason}`);
   }
 
   /**
@@ -205,6 +418,8 @@ export class ModService {
       return { ok: false, message: err?.message || String(err) };
     }
 
+    await this.snapshot(mod, `Antes de adicionar o bloco "${key}"`);
+    candidate.revision = (mod.revision ?? 1) + 1;
     await this.persist(candidate);
     const assigned = candidate.blocks[candidate.blocks.length - 1];
     return {
@@ -228,6 +443,8 @@ export class ModService {
     const errors = validateModPackage(candidate);
     if (errors.length > 0) return { ok: false, message: `Entidade inválida: ${errors.join(' ')}` };
 
+    await this.snapshot(mod, `Antes de adicionar a entidade "${key}"`);
+    candidate.revision = (mod.revision ?? 1) + 1;
     await this.persist(candidate);
     return {
       ok: true,
@@ -259,6 +476,8 @@ export class ModService {
       };
     }
 
+    await this.snapshot(mod, `Antes de adicionar a estrutura "${key}"`);
+    candidate.revision = (mod.revision ?? 1) + 1;
     await this.persist(candidate);
     return {
       ok: true,
@@ -376,7 +595,9 @@ export class ModService {
   public exportMod(modId: string): ExportedModPackage | null {
     const mod = this.getMod(modId);
     if (!mod) return null;
-    return { formatVersion: MOD_FORMAT_VERSION, exportedAt: Date.now(), mod: JSON.parse(JSON.stringify(mod)) };
+    // `stripLocalState` tira a conversa, a quarentena e os ids locais: o que sai é a estrutura
+    // do mod, que é o que faz sentido levar para outro mundo ou compartilhar.
+    return { formatVersion: MOD_FORMAT_VERSION, exportedAt: Date.now(), mod: stripLocalState(mod) };
   }
 
   /**
