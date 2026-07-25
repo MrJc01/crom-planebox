@@ -51,7 +51,15 @@ export function createScene(container: HTMLElement): GameScene {
   const scene = new THREE.Scene();
   const skyColor = new THREE.Color(0x9fc7e8);
   scene.background = skyColor;
-  scene.fog = null;
+  // Neblina atmosférica (item 054), o que faltava para fechar a estética alvo.
+  //
+  // Ela faz três coisas ao mesmo tempo: dá profundidade ao terreno distante, esconde a borda
+  // dura onde os chunks acabam — que sem isso aparece como um recorte reto no vazio — e
+  // permite reduzir a distância de render sem que fique óbvio, o que é ganho de desempenho.
+  //
+  // A cor acompanha o céu, e não é fixa: com névoa cinza num pôr do sol laranja, o horizonte
+  // vira uma faixa suja em vez de derreter no céu.
+  scene.fog = new THREE.Fog(skyColor.getHex(), 60, 260);
 
   const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 12000);
 
@@ -158,11 +166,19 @@ export function createScene(container: HTMLElement): GameScene {
     sun.target.position.set(cx, 0, cz);
   }
 
+  /**
+   * Ajusta a névoa à distância de render.
+   *
+   * Este método existia e não fazia nada, porque `scene.fog` era `null` — a checagem `if (f)`
+   * sempre falhava em silêncio. Agora que a névoa existe, ele funciona de fato.
+   */
   function setViewRange(voxels: number): void {
     const f = scene.fog as THREE.Fog | null;
     if (f) {
-      f.near = voxels * 0.5;
-      f.far = voxels * 0.98;
+      // Começa na metade e fecha um pouco antes do limite: se `far` coincidisse com a última
+      // coluna carregada, o recorte reapareceria exatamente no ponto que a névoa deveria cobrir.
+      f.near = voxels * 0.45;
+      f.far = voxels * 0.92;
     }
   }
 

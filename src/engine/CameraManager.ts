@@ -191,9 +191,13 @@ export class CameraManager {
     this.ghostCam.updateProjectionMatrix();
   }
 
+  /** Avisado quando a distância muda, para a névoa acompanhar. */
+  public onRenderDistanceChanged: (chunks: number) => void = () => {};
+
   public setRenderDistance(distanceInChunks: number): void {
     console.log(`🏔️ [CameraManager] Distância de Renderização alterada para ${distanceInChunks} chunks`);
     this.renderDistance = distanceInChunks;
+    this.onRenderDistanceChanged(distanceInChunks);
   }
 
   public getActiveCameraPosition(): THREE.Vector3 {

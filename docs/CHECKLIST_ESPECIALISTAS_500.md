@@ -107,15 +107,19 @@ verticalidade limitada e ausência de LOD.*
 
 ## 03 — Engenheiro de Renderização (look "Lay of the Land")
 
-*Parecer: o mesher greedy com jitter de cor já entrega o ar artesanal característico; falta
-oclusão de ambiente, sombras suaves e neblina atmosférica para fechar a estética.*
+*Parecer inicial: "falta oclusão de ambiente, sombras suaves e neblina atmosférica". Duas
+correções depois: a **oclusão já existia** (erro meu na leitura do código), e a **neblina foi
+entregue** na rodada de desempenho — junto com a descoberta de que `setViewRange` ajustava as
+propriedades de uma névoa que nunca havia sido criada, e portanto não fazia nada.*
+
+*Do parecer original, resta a sombra suave (055).*
 
 - [x] 049 `P0` Mesher próprio com faces por bloco e sombreamento direcional — `src/world/mesher.ts`
 - [x] 050 `P1` Jitter procedural de cor por voxel (`hash3`) evitando superfícies chapadas
 - [x] 051 `P1` Blocos decorativos renderizados como caixinhas menores (`addDecor`)
 - [x] 052 `P1` Camada de água separada com topo rebaixado
 - [x] 053 `P0` **Ambient occlusion por vértice** — já existia em `mesher.ts` (`vertexAO`, side1/side2/corner) desde a primeira auditoria; estava marcado como pendente por engano meu
-- [ ] 054 `P0` Neblina atmosférica com gradiente de distância combinando com a cor do céu
+- [~] 054 `P0` **Neblina atmosférica com a cor do céu**, acompanhando o ciclo dia/noite e a distância de render — fecha a estética alvo
 - [ ] 055 `P1` Sombras suaves (PCF) com cascata ajustada à distância de render
 - [ ] 056 `P1` Céu procedural com gradiente por hora do dia em vez de cor fixa
 - [ ] 057 `P1` Nuvens volumétricas em camada de voxels lentos

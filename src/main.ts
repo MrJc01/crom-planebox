@@ -1065,6 +1065,11 @@ async function bootstrap() {
   );
   cameraManager.isSolidAt = (x, y, z) => isSolid(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
 
+  // A névoa acompanha a distância de render. `setViewRange` existia mas nunca era chamado —
+  // e, antes desta rodada, também não teria efeito, porque a cena não tinha névoa nenhuma.
+  cameraManager.onRenderDistanceChanged = (chunks) => gs.setViewRange(chunks * CX);
+  gs.setViewRange(cameraManager.renderDistance * CX);
+
   // Retomar o controle da câmera depois do ESC exige um gesto do usuário — o navegador recusa
   // o pedido automático. O clique no canvas é esse gesto.
   uiManager.configureRelockOnClick(gs.renderer.domElement);
