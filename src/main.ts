@@ -7,6 +7,9 @@ import { meshChunk } from './world/mesher';
 import { VoxelPhysics } from './world/physics';
 import { isSolid } from './world/blocks';
 import { LightEngine } from './world/lighting';
+import { MobSpawner } from './entities/MobSpawner';
+import { CombatTimers, damageForTier, isInMeleeReach } from './entities/Combat';
+import { foodValueOf, isEdible } from './game/SurvivalSystem';
 import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
@@ -267,6 +270,10 @@ async function bootstrap() {
 
   const avatars = new AvatarManager(gs.scene);
 
+  // --- Combate --------------------------------------------------------------------------
+  const mobSpawner = new MobSpawner();
+  const playerCombat = new CombatTimers();
+
   const characterCreator = new CharacterCreator(localAppearance);
   characterCreator.onSave = (appearance) => {
     localAppearance = appearance;
@@ -519,6 +526,37 @@ async function bootstrap() {
       if (seen.size > 64) break; // teto de segurança para construções enormes
     }
   }
+
+  /**
+   * Golpe do jogador: escolhe o hostil mais próximo dentro do alcance E do cone de mira.
+   * Priorizar o mais próximo evita o caso frustrante de acertar o mob de trás quando dois
+   * estão alinhados na tela.
+   */
+  inter.onAttack = (origin, forward, tier) => {
+    if (!gameModeManager.rules.hasSurvival) return false;
+    if (!playerCombat.canAttack()) return false;
+
+    let melhor: { id: string; dist: number } | null = null;
+    for (const mob of entitySystem.listHostiles()) {
+      const alvo = { x: mob.pos.x, y: mob.pos.y + 0.9, z: mob.pos.z };
+      if (!isInMeleeReach(origin, forward, alvo)) continue;
+      const d = Math.hypot(alvo.x - origin.x, alvo.y - origin.y, alvo.z - origin.z);
+      if (!melhor || d < melhor.dist) melhor = { id: mob.id, dist: d };
+    }
+    if (!melhor) return false;
+
+    playerCombat.markAttacked();
+    entitySystem.damageEntity(melhor.id, damageForTier(tier), origin);
+    return true;
+  };
+
+  entitySystem.onEntityDeath = (mob) => {
+    hud.showToast(`${mob.name} derrotado!`);
+    const drop = mob.profile?.drop ?? -1;
+    if (drop >= 0 && (mob.profile?.dropCount ?? 0) > 0) {
+      itemDropSystem.spawn(drop, mob.profile!.dropCount, mob.pos.x, mob.pos.y + 0.5, mob.pos.z);
+    }
+  };
 
   inter.onBlockChange = (x, y, z, blockType) => {
     relight(x, y, z);
@@ -874,6 +912,25 @@ async function bootstrap() {
         hud.showToast(cameraManager.mode === 'thirdperson' ? 'Terceira pessoa' : 'Primeira pessoa');
         return;
       }
+      if (e.code === 'KeyF') {
+        e.preventDefault();
+        const slot = inter.hotbar[inter.selected];
+        if (!gameModeManager.rules.hasSurvival) {
+          hud.showToast('Comer só faz sentido no Modo Sobrevivência.');
+        } else if (!slot || !isEdible(slot.block)) {
+          hud.showToast('Nada comestível selecionado (tente folhagem, junco ou flores).');
+        } else if (survivalSystem.hunger >= survivalSystem.maxHunger) {
+          hud.showToast('Você já está saciado.');
+        } else if (!slot.infinite && slot.count <= 0) {
+          hud.showToast('Acabou.');
+        } else {
+          survivalSystem.eat(foodValueOf(slot.block));
+          if (!slot.infinite) slot.count--;
+          inventoryModal.renderHotbar();
+          hud.showToast(`Comeu ${slot.label}. Fome: ${Math.round(survivalSystem.hunger)}%`);
+        }
+        return;
+      }
       if (e.code === 'F4') {
         e.preventDefault();
         uiManager.openBlocking('character-creator');
@@ -950,7 +1007,23 @@ async function bootstrap() {
 
     cameraManager.update();
     physics.update(dt);
-    entitySystem.update(dt);
+
+    // Hostis só existem onde a sobrevivência está ligada; no criativo o mundo é seguro.
+    mobSpawner.enabled = rules.hasSurvival;
+    const ponto = mobSpawner.update(dt, world, player.pos, {
+      timeOfDay,
+      sunScale,
+      hostileCount: entitySystem.hostileCount,
+      maxY: CY,
+    });
+    if (ponto) entitySystem.spawnHostile(ponto.kind, ponto.x, ponto.y, ponto.z);
+
+    playerCombat.tick(dt);
+    const danoRecebido = entitySystem.update(dt, player.pos);
+    if (danoRecebido > 0 && rules.hasSurvival && playerCombat.canBeHurt()) {
+      playerCombat.markHurt();
+      survivalSystem.applyDamage(danoRecebido, 'ataque inimigo');
+    }
     gs.updateSun(player.pos.x, player.pos.z);
 
     hud.updateCoords(player.pos.x, player.pos.y, player.pos.z);

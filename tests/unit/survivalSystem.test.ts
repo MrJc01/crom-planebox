@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SurvivalSystem } from '../../src/game/SurvivalSystem';
+import { SurvivalSystem, FOOD_VALUE, foodValueOf, isEdible } from '../../src/game/SurvivalSystem';
+import { B } from '../../src/world/blocks';
 import type { PlayerController } from '../../src/player/controller';
 
 function makePlayer(overrides: Partial<PlayerController> = {}): PlayerController {
@@ -141,4 +142,51 @@ describe('SurvivalSystem', () => {
     });
   });
 
+});
+
+describe('SurvivalSystem — comida (o ciclo de fome deixou de ser só um cronômetro)', () => {
+  it('itens de folhagem e vegetação são comestíveis; pedra não é', () => {
+    expect(isEdible(B.LEAVES)).toBe(true);
+    expect(isEdible(B.REED)).toBe(true);
+    expect(isEdible(B.STONE)).toBe(false);
+    expect(isEdible(B.AIR)).toBe(false);
+  });
+
+  it('comer restaura fome sem passar do máximo', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.hunger = 50;
+    s.eat(foodValueOf(B.REED));
+    expect(s.hunger).toBeGreaterThan(50);
+
+    s.hunger = 98;
+    s.eat(50);
+    expect(s.hunger).toBe(s.maxHunger);
+  });
+
+  it('todo item comestível restaura uma quantidade positiva', () => {
+    for (const id of Object.keys(FOOD_VALUE)) {
+      expect(foodValueOf(Number(id))).toBeGreaterThan(0);
+    }
+  });
+
+  it('item não comestível restaura zero, não NaN', () => {
+    expect(foodValueOf(B.STONE)).toBe(0);
+    expect(foodValueOf(9999)).toBe(0);
+  });
+
+  it('com fome alta o jogador regenera vida — o ciclo se fecha', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.health = 40;
+    s.hunger = 90;
+    s.update(1);
+    expect(s.health).toBeGreaterThan(40);
+  });
+
+  it('com fome zerada a vida cai, mesmo sem inimigo por perto', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.hunger = 0;
+    const antes = s.health;
+    s.update(1);
+    expect(s.health).toBeLessThan(antes);
+  });
 });

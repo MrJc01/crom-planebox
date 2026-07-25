@@ -258,10 +258,26 @@ export class Interaction {
     this.structurePreview.visible = true;
   }
 
+  /**
+   * Tentativa de golpe corpo a corpo, avaliada ANTES de quebrar bloco.
+   *
+   * A ordem importa: com um inimigo colado numa parede, o raycast acertaria a parede primeiro
+   * e o jogador ficaria minerando enquanto apanha. Devolve true se o golpe conectou, e nesse
+   * caso `tryBreak` não prossegue.
+   */
+  public onAttack: (origin: THREE.Vector3, forward: THREE.Vector3, tier: number) => boolean = () => false;
+
   tryBreak(camera: THREE.Camera): void {
     if (this.breakCooldown > 0) return;
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
+
+    const tier = this.hotbar[this.selected]?.toolTier ?? 0;
+    if (this.onAttack(new THREE.Vector3().copy(camera.position), dir, tier)) {
+      this.breakCooldown = 0.42;
+      return;
+    }
+
     const hit = this.raycast(new THREE.Vector3().copy(camera.position), dir);
     if (!hit) return;
     this.breakCooldown = this.detailMode ? 0.09 : 0.16;

@@ -39,3 +39,21 @@ Este documento contém os atalhos de teclado, modos de câmera, gerenciamento de
 - **Salvar & Carregar**: Todos os blocos colocados ou destruídos são armazenados em um banco de dados **IndexedDB** local no navegador.
 - **Histórico de Chat por Mundo**: Cada mundo possui seu próprio histórico isolado de conversas com a IA.
 - **Sem Reload da Página**: A troca entre mundos criados e o reset ocorrem instantaneamente em memória, sem nunca atualizar ou recarregar a página web.
+
+## Combate e sobrevivência (rodada 5)
+
+| Tecla / ação | Efeito |
+|---|---|
+| Clique esquerdo | Golpeia o hostil na mira se houver um no alcance; senão, quebra bloco |
+| `F` | Come o item selecionado na hotbar (folhagem, junco, flores) |
+| `F5` | Alterna primeira / terceira pessoa |
+| `F4` | Abre a customização do personagem |
+
+**Hostis só nascem no escuro.** O spawn verifica o nível de luz efetivo da célula: a luz de céu
+perde valor à noite, mas a luz de tocha vale integralmente a qualquer hora. Na prática, iluminar
+a base com tochas é o que impede inimigos de aparecerem dentro dela — e uma caverna sem tochas é
+perigosa mesmo ao meio-dia.
+
+O golpe só conecta dentro de um **cone de mira**: acertar depende de estar olhando para o alvo,
+não apenas de estar perto dele. Depois de levar dano, tanto o jogador quanto os mobs entram numa
+janela curta de invulnerabilidade, o que impede morrer preso num encadeamento de golpes.

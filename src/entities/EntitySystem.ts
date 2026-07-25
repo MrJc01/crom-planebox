@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { World } from '../world/world';
-import { B } from '../world/blocks';
+import { B, isSolid } from '../world/blocks';
+import { CombatTimers, MOB_PROFILES, MobKind, MobProfile, knockbackFrom } from './Combat';
 
 export type EntityType = 'human' | 'orc' | 'goblin' | 'animal' | 'hero';
 
@@ -22,6 +23,19 @@ export interface EntityRecord {
   armLeft?: THREE.Mesh;
   armRight?: THREE.Mesh;
   walkCycle: number;
+
+  // --- Combate (só preenchido em hostis) ---
+  /** Perfil do mob. Presença deste campo é o que define "é hostil". */
+  profile?: MobProfile;
+  timers?: CombatTimers;
+  /** Velocidade própria: recuo ao levar dano e queda. */
+  vel?: THREE.Vector3;
+  /** Estado da máquina simples de IA. */
+  state?: 'ocioso' | 'perseguindo' | 'atacando';
+  /** Segundos até o mob poder golpear de novo. */
+  attackTimer?: number;
+  /** Barra de vida flutuante, criada só quando o mob toma dano pela primeira vez. */
+  healthBar?: THREE.Sprite;
 }
 
 export class EntitySystem {
@@ -231,11 +245,224 @@ export class EntitySystem {
     return record;
   }
 
+  // --- Hostis -----------------------------------------------------------------------------
+
+  /**
+   * Gera um inimigo hostil. Reaproveita a anatomia do NPC comum (cabeça/torso/membros), o que
+   * mantém a animação de caminhada funcionando de graça; o que muda é o perfil de combate.
+   */
+  public spawnHostile(kind: MobKind, x: number, y: number, z: number): EntityRecord {
+    const profile = MOB_PROFILES[kind] ?? MOB_PROFILES.zumbi;
+    const record = this.spawnEntity('orc', profile.name, x, y, z, 'Hostil', kind);
+
+    record.profile = profile;
+    record.timers = new CombatTimers();
+    record.vel = new THREE.Vector3();
+    record.state = 'ocioso';
+    record.attackTimer = 0;
+    record.health = profile.maxHealth;
+    record.maxHealth = profile.maxHealth;
+    record.targetPos = undefined; // hostis não vagueiam à toa; a IA decide
+
+    this.recolor(record, profile.bodyColor, profile.headColor);
+    // A aranha é baixa e larga: silhueta reconhecível de longe, sem modelar outra anatomia.
+    if (kind === 'aranha') record.mesh.scale.set(1.25, 0.6, 1.25);
+
+    return record;
+  }
+
+  private recolor(record: EntityRecord, body: number, head: number): void {
+    let first = true;
+    record.mesh.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as THREE.MeshLambertMaterial;
+      if (!mat || !mat.color) return;
+      mat.color.setHex(first ? head : body);
+      first = false;
+    });
+  }
+
+  public listHostiles(): EntityRecord[] {
+    const out: EntityRecord[] = [];
+    for (const e of this.entities.values()) if (e.profile) out.push(e);
+    return out;
+  }
+
+  public get hostileCount(): number {
+    let n = 0;
+    for (const e of this.entities.values()) if (e.profile) n++;
+    return n;
+  }
+
+  /**
+   * Aplica dano a uma entidade. Devolve `true` se ela morreu neste golpe.
+   * Respeita a janela de invulnerabilidade — é ela que impede o alvo de ser trucidado por
+   * vários acertos no mesmo frame.
+   */
+  public damageEntity(id: string, amount: number, from?: { x: number; y: number; z: number }): boolean {
+    const e = this.entities.get(id);
+    if (!e) return false;
+    if (e.timers && !e.timers.canBeHurt()) return false;
+
+    e.health = Math.max(0, e.health - amount);
+    e.timers?.markHurt();
+
+    if (from && e.vel) {
+      const kb = knockbackFrom(from, e.pos);
+      e.vel.set(kb.x, kb.y, kb.z);
+    }
+
+    this.updateHealthBar(e);
+    this.flashDamage(e);
+
+    if (e.health <= 0) {
+      this.onEntityDeath(e);
+      this.scene.remove(e.mesh);
+      this.entities.delete(id);
+      return true;
+    }
+    return false;
+  }
+
+  /** Notifica a morte de um hostil, para o chamador conceder loot. */
+  public onEntityDeath: (entity: EntityRecord) => void = () => {};
+
+  /** Piscada vermelha ao levar dano: o feedback mais barato e mais legível de acerto. */
+  private flashDamage(e: EntityRecord): void {
+    const meshes: THREE.MeshLambertMaterial[] = [];
+    e.mesh.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.isMesh && (m.material as any)?.color) meshes.push(m.material as THREE.MeshLambertMaterial);
+    });
+    const originals = meshes.map((m) => m.color.getHex());
+    for (const m of meshes) m.color.setHex(0xff4444);
+    setTimeout(() => {
+      for (let i = 0; i < meshes.length; i++) meshes[i].color.setHex(originals[i]);
+    }, 110);
+  }
+
+  /** Barra de vida sobre o mob — criada sob demanda, ao tomar o primeiro dano. */
+  private updateHealthBar(e: EntityRecord): void {
+    if (!e.profile) return;
+    const frac = Math.max(0, e.health / e.maxHealth);
+
+    if (!e.healthBar) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128; canvas.height = 16;
+      const tex = new THREE.CanvasTexture(canvas);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+      sprite.scale.set(1.3, 0.16, 1);
+      sprite.position.set(0, 2.35, 0);
+      sprite.userData.canvas = canvas;
+      e.mesh.add(sprite);
+      e.healthBar = sprite;
+    }
+
+    const canvas = e.healthBar.userData.canvas as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, 128, 16);
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+      ctx.fillRect(0, 0, 128, 16);
+      ctx.fillStyle = frac > 0.5 ? '#4ade80' : frac > 0.25 ? '#fbbf24' : '#ef4444';
+      ctx.fillRect(2, 2, Math.max(0, 124 * frac), 12);
+    }
+    (e.healthBar.material as THREE.SpriteMaterial).map!.needsUpdate = true;
+  }
+
+  /**
+   * Colisão do mob com o mundo: impede atravessar parede e o faz subir degrau de 1 voxel.
+   *
+   * Sem isto os NPCs andam através da rocha, que era o comportamento anterior — o pathfinding
+   * mais elaborado (item 175) fica para depois, mas atravessar parede quebra a imersão na hora.
+   */
+  private moveWithCollision(e: EntityRecord, dx: number, dz: number): void {
+    const solidAt = (x: number, y: number, z: number) =>
+      isSolid(this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
+
+    const tryAxis = (nx: number, nz: number): boolean => {
+      // Checa na altura do corpo e da cabeça; o pé é livre para permitir o degrau.
+      if (solidAt(nx, e.pos.y + 0.6, nz) || solidAt(nx, e.pos.y + 1.4, nz)) return false;
+      return true;
+    };
+
+    const nx = e.pos.x + dx;
+    const nz = e.pos.z + dz;
+
+    if (tryAxis(nx, e.pos.z)) e.pos.x = nx;
+    if (tryAxis(e.pos.x, nz)) e.pos.z = nz;
+
+    // Degrau: se o pé encostou em bloco mas a cabeça está livre, sobe um voxel.
+    if (solidAt(e.pos.x, e.pos.y, e.pos.z) && !solidAt(e.pos.x, e.pos.y + 1.4, e.pos.z)) {
+      e.pos.y += 1;
+    }
+  }
+
+  /**
+   * IA dos hostis: percebe, persegue e ataca. Devolve o dano a aplicar ao jogador neste frame.
+   */
+  private updateHostile(e: EntityRecord, dt: number, player: THREE.Vector3): number {
+    const p = e.profile!;
+    e.timers?.tick(dt);
+    e.attackTimer = Math.max(0, (e.attackTimer ?? 0) - dt);
+
+    // Recuo: enquanto houver velocidade residual, ela domina o movimento.
+    if (e.vel && (Math.abs(e.vel.x) > 0.05 || Math.abs(e.vel.z) > 0.05)) {
+      this.moveWithCollision(e, e.vel.x * dt, e.vel.z * dt);
+      e.vel.x *= 0.86;
+      e.vel.z *= 0.86;
+      return 0;
+    }
+
+    const dx = player.x - e.pos.x;
+    const dz = player.z - e.pos.z;
+    const dist = Math.hypot(dx, dz);
+
+    if (dist > p.aggroRange) {
+      e.state = 'ocioso';
+      return 0;
+    }
+
+    if (dist <= p.reach) {
+      e.state = 'atacando';
+      e.mesh.rotation.y = Math.atan2(dx, dz);
+      if (e.attackTimer <= 0) {
+        e.attackTimer = p.attackInterval;
+        return p.attackDamage;
+      }
+      return 0;
+    }
+
+    e.state = 'perseguindo';
+    const step = p.speed * dt;
+    this.moveWithCollision(e, (dx / dist) * step, (dz / dist) * step);
+    e.mesh.rotation.y = Math.atan2(dx, dz);
+
+    e.walkCycle += dt * 9;
+    if (e.legLeft && e.legRight) {
+      e.legLeft.rotation.x = Math.sin(e.walkCycle) * 0.6;
+      e.legRight.rotation.x = -Math.sin(e.walkCycle) * 0.6;
+    }
+    return 0;
+  }
+
   /**
    * Updates all entity positions, animations, and simple pathfinding/wandering.
    */
-  public update(dt: number): void {
+  public update(dt: number, playerPos?: THREE.Vector3): number {
+    let damageToPlayer = 0;
+
     for (const entity of this.entities.values()) {
+      // Hostis têm IA própria (perceber/perseguir/atacar) e colisão com o mundo; o vagar
+      // aleatório abaixo continua valendo só para os NPCs decorativos.
+      if (entity.profile && playerPos) {
+        damageToPlayer += this.updateHostile(entity, dt, playerPos);
+        this.snapToGround(entity, dt);
+        entity.mesh.position.copy(entity.pos);
+        continue;
+      }
+
       // Find ground Y
       let groundY = entity.pos.y;
       for (let y = Math.floor(entity.pos.y + 4); y >= 0; y--) {
@@ -285,6 +512,18 @@ export class EntitySystem {
       // Sync 3D Mesh
       entity.mesh.position.copy(entity.pos);
     }
+
+    return damageToPlayer;
+  }
+
+  /** Encaixa a entidade no chão, com a mesma suavização usada pelos NPCs decorativos. */
+  private snapToGround(entity: EntityRecord, dt: number): void {
+    let groundY = entity.pos.y;
+    for (let y = Math.floor(entity.pos.y + 4); y >= 0; y--) {
+      const b = this.world.getBlock(Math.floor(entity.pos.x), y, Math.floor(entity.pos.z));
+      if (b !== B.AIR && b !== B.WATER) { groundY = y + 1; break; }
+    }
+    entity.pos.y += (groundY - entity.pos.y) * Math.min(1, dt * 10);
   }
 
   /**

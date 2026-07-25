@@ -1,6 +1,28 @@
 // Sistema padrão de sobrevivência (Modo 2): vida, fome, dano de queda e afogamento.
 // Só fica ativo quando GameModeManager.rules.hasSurvival é verdadeiro.
 import { PlayerController } from '../player/controller';
+import { B } from '../world/blocks';
+
+/**
+ * Quanto de fome cada item restaura. A fome só existia para drenar e matar; sem nada comestível
+ * o Modo Sobrevivência era um cronômetro de morte, não um ciclo.
+ */
+export const FOOD_VALUE: Record<number, number> = {
+  [B.LEAVES]: 6,        // folhagem crua: pouco, mas sempre disponível
+  [B.PINE_LEAVES]: 6,
+  [B.TALL_GRASS]: 4,
+  [B.REED]: 10,
+  [B.FLOWER_RED]: 8,
+  [B.FLOWER_YELLOW]: 8,
+};
+
+export function foodValueOf(blockType: number): number {
+  return FOOD_VALUE[blockType] ?? 0;
+}
+
+export function isEdible(blockType: number): boolean {
+  return foodValueOf(blockType) > 0;
+}
 
 const FALL_DAMAGE_THRESHOLD = 22; // vel.y de impacto abaixo disso não causa dano (~1 bloco de queda)
 const FALL_DAMAGE_SCALE = 1.6;    // dano por unidade de velocidade de impacto acima do limiar

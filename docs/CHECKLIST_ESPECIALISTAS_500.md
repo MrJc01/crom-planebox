@@ -197,8 +197,8 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [x] 121 `P0` Vida e fome com drenagem ao longo do tempo — `src/game/SurvivalSystem.ts`
 - [x] 122 `P0` Dano de queda proporcional à altura
 - [x] 123 `P1` Tier de ferramenta exigido para dropar minérios — `minToolTier`
-- [ ] 124 `P0` Comida real: itens comestíveis restaurando fome
-- [ ] 125 `P0` Regeneração de vida com fome cheia
+- [~] 124 `P0` **Comida real: itens comestíveis restaurando fome (tecla F) — `FOOD_VALUE`**
+- [~] 125 `P0` **Regeneração de vida com fome alta — verificado em teste**
 - [ ] 126 `P1` Afogamento com barra de oxigênio embaixo d'água
 - [ ] 127 `P1` Dano por lava e por queimadura persistente
 - [ ] 128 `P1` Temperatura por bioma exigindo abrigo ou roupa
@@ -221,13 +221,13 @@ destruir essa coerência sem um guia de cor obrigatório.*
 
 ## 07 — Designer de Combate
 
-- [ ] 145 `P0` Sistema de dano jogador↔entidade com alcance e cooldown
-- [ ] 146 `P0` Inimigos hostis com spawn noturno e em cavernas
-- [ ] 147 `P0` Armas corpo a corpo com dano por tier
+- [~] 145 `P0` **Sistema de dano jogador↔entidade com alcance e cooldown — `src/entities/Combat.ts`**
+- [~] 146 `P0` **Inimigos hostis com spawn noturno e em cavernas — `src/entities/MobSpawner.ts`**
+- [~] 147 `P0` **Armas corpo a corpo com dano por tier (`damageForTier`)**
 - [ ] 148 `P1` Arco e flecha com projétil balístico
-- [ ] 149 `P1` Knockback ao receber e causar dano
-- [ ] 150 `P1` Invulnerabilidade temporária pós-dano
-- [ ] 151 `P1` Barra de vida sobre entidades hostis
+- [~] 149 `P1` **Knockback ao receber dano, com componente vertical**
+- [~] 150 `P1` **Invulnerabilidade temporária pós-dano (i-frames) — impede stun lock**
+- [~] 151 `P1` **Barra de vida sobre entidades hostis, criada ao primeiro dano**
 - [ ] 152 `P1` Drops de inimigo com loot table
 - [ ] 153 `P2` Bloqueio/parry com escudo
 - [ ] 154 `P2` Ataque carregado
@@ -237,7 +237,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [ ] 158 `P2` Inimigos voadores com pathfinding 3D
 - [ ] 159 `P2` Armadilhas colocáveis
 - [ ] 160 `P2` Torres/defesas automáticas
-- [ ] 161 `P1` Feedback visual e sonoro claro de acerto
+- [~] 161 `P1` **Feedback visual claro de acerto (piscada vermelha + barra de vida)**
 - [ ] 162 `P2` PvP opcional por mundo com toggle
 - [ ] 163 `P2` Zonas seguras onde não há spawn hostil
 - [ ] 164 `P3` Combate montado
@@ -258,10 +258,10 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [x] 173 `P1` Possessão de entidade pelo jogador (`takeControlOf`)
 - [~] 174 `P0` **Entidades persistidas no save e restauradas ao recarregar o mundo**
 - [ ] 175 `P0` Pathfinding A* respeitando colisão e altura de pulo
-- [ ] 176 `P1` Colisão de entidade com blocos (hoje atravessam paredes)
-- [ ] 177 `P1` Máquina de estados (ocioso, patrulha, perseguir, fugir, atacar)
-- [ ] 178 `P1` Percepção com raio de visão e cone frontal
-- [ ] 179 `P1` Limite de entidades ativas por região com despawn
+- [~] 176 `P1` **Colisão de entidade com blocos — mobs pararam de atravessar parede**
+- [~] 177 `P1` **Máquina de estados (ocioso, perseguir, atacar)**
+- [~] 178 `P1` **Percepção com raio de visão (`aggroRange`)**
+- [~] 179 `P1` **Limite de entidades hostis ativas (`MAX_HOSTILES`)**
 - [ ] 180 `P1` Congelar update de entidades fora do raio de render
 - [ ] 181 `P2` Rotinas diárias de NPC (dormir, trabalhar, socializar)
 - [ ] 182 `P2` Diálogo com NPC e árvore de conversa
@@ -346,7 +346,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [~] 252 `P1` **Mods podem definir nível de luz emitido pelo bloco** (`lightLevel`) — na rodada 3 era só metadado; agora o motor de luz realmente o consome
 - [ ] 253 `P2` Sombra projetada por entidades
 - [ ] 254 `P2` Adaptação de exposição ao sair de uma caverna
-- [ ] 255 `P2` Spawn de inimigos condicionado ao nível de luz
+- [~] 255 `P2` **Spawn de inimigos condicionado ao nível de luz — consome o motor da rodada 4**
 - [ ] 256 `P2` Debug view mostrando o mapa de luz
 - [ ] 257 `P1` Luz calculada no worker, não na thread principal
 - [ ] 258 `P2` Limite de propagação configurável por performance
@@ -682,6 +682,24 @@ Ou seja: **toda modificação de bloco criada pela IA corrompia o mundo no reloa
 marcados `[~]` acima são a correção estrutural: identidade de bloco estável, persistência por
 mundo, reaplicação no load e cobertura de testes.
 
+### Rodada 5 — concluído
+
+| Item | Entrega |
+|---|---|
+| 145/147/149/150 | Núcleo de combate puro: dano por tier, alcance com **cone de mira**, cooldown, i-frames, recuo |
+| 146/255 | Hostis nascem **só no escuro** — o motor de luz da rodada 4 virou mecânica de jogo |
+| 151/161 | Barra de vida flutuante e piscada vermelha ao acertar |
+| 176–179 | Mobs colidem com o mundo, sobem degrau, percebem, perseguem e atacam |
+| 124–125 | Comida (tecla F) e regeneração — a fome deixou de ser só um cronômetro de morte |
+
+Três arquétipos com posturas distintas: zumbi lento e resistente, aranha rápida e frágil,
+esqueleto no meio. A verificação de balanceamento está em teste — nenhum mob mata de um golpe,
+e o jogador de mão vazia derrota qualquer um entre 2 e 12 golpes.
+
+**A tocha virou ferramenta tática:** iluminar a área é literalmente o que impede o spawn, porque
+`effectiveLight` faz a luz de bloco valer integralmente a qualquer hora, enquanto a luz de céu
+despenca à noite.
+
 ### Rodada 4 — concluído
 
 | Item | Entrega |
@@ -717,14 +735,14 @@ carvão 1,24% → ferro 0,92% → ouro 0,12% → diamante 0,022%.
 
 | Ordem | Item | Por quê |
 |---|---|---|
-| 1 | 145–147 (combate) | O único pilar do gênero ainda totalmente ausente |
-| 2 | 255 (spawn por nível de luz) | O motor de luz já entrega o dado; falta o inimigo para consumi-lo |
-| 3 | 175–176 (pathfinding + colisão de entidade) | NPCs atravessando parede quebram a imersão |
-| 4 | 124–125 (comida e regeneração) | A fome já drena, mas não há como saciá-la |
-| 5 | 403 (mesh em worker) | O re-mesh do ciclo dia/noite tornou o custo de malha mais visível |
-| 6 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
-| 7 | 609 (sync de entidades no P2P) | Última lacuna grande do multiplayer |
-| 8 | 514 (CI) | Impede regressão silenciosa nos 195 testes |
+| 1 | 175 (pathfinding A*) | Os mobs já colidem, mas ficam presos em quina — é o teto da qualidade do combate |
+| 2 | 148 (arco e flecha) | Sem ataque à distância, todo combate é encostar e bater |
+| 3 | 129–130 (durabilidade e armadura) | O combate existe, mas o equipamento ainda não é decisão |
+| 4 | 403 (mesh em worker) | O re-mesh do ciclo dia/noite tornou o custo de malha mais visível |
+| 5 | 152 (loot table de inimigo) | Os perfis já têm campo de drop, ainda sem conteúdo |
+| 6 | 609 (sync de entidades no P2P) | Última lacuna grande do multiplayer |
+| 7 | 358–359 (sandbox em worker) | Pré-requisito para compartilhar mods com segurança |
+| 8 | 514 (CI) | Impede regressão silenciosa nos 246 testes |
 
 ---
 
