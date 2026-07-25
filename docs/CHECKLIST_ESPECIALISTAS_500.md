@@ -1975,7 +1975,7 @@ depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se
 - [ ] 1020 `P1` A lua projeta luz direcional fraca, com sombra suave própria
 - [~] 1021 `P1` **Piso de luminosidade que nunca chega ao preto absoluto**
 - [~] 1022 `P1` **`api.time.moonPhase` e `api.time.isDarkNight` expostos aos mods**
-- [ ] 1023 `P1` A fase aparece no painel de diagnóstico e em `get_world_summary`
+- [~] 1023 `P1` **Bioma e fase da lua no painel F3**
 - [ ] 1024 `P2` Spawn de hostis mais intenso em noite escura — liga a fase à mecânica (ver item 255)
 - [ ] 1025 `P2` Céu com gradiente noturno próprio, não só o diurno escurecido
 - [ ] 1026 `P2` Via láctea ou faixa de estrelas mais densa, para o céu não ser uniforme
@@ -2128,18 +2128,18 @@ Hoje o bioma é decidido por ponto e aplicado direto: a fronteira entre deserto 
 linha reta visível. A mistura precisa acontecer em três lugares distintos, e confundi-los é o erro
 clássico — misturar a *cor* é barato, misturar a *altura do terreno* muda a geração.
 
-- [ ] 1063 `P0` Peso de bioma contínuo (`{bioma: peso}[]` por coluna) em vez de um único bioma vencedor
-- [ ] 1064 `P0` Amostragem dos vizinhos num raio configurável, com pesos normalizados
-- [ ] 1065 `P0` Mistura da **cor** de grama/folhagem pelos pesos — é o que mais se vê e o mais barato
-- [ ] 1066 `P0` Mistura da **altura** do terreno pelos pesos, para não haver degrau na fronteira
+- [~] 1063 `P0` **`pesosDeBioma` devolve `{id, peso}[]` normalizado — `src/world/biomes.ts`**
+- [x] 1064 `P0` ~~Amostragem dos vizinhos num raio configurável~~ — **não se aplica**: `temp` e `moist` já são campos de ruído contínuos, então o peso derivado deles é suave por construção. Amostrar vizinhos multiplicaria o custo para obter algo que já se tem de graça
+- [~] 1065 `P0` **`misturarCor` mistura grama, folhagem e névoa pelos pesos**
+- [x] 1066 `P0` ~~Mistura da altura do terreno pelos pesos~~ — **não se aplica**: a altura aqui não é derivada do bioma, é uma cadeia de ruído independente (continente → montanha → erosão → rio). Não existe degrau de altura na fronteira porque nunca houve fronteira de altura
 - [ ] 1067 `P1` Mistura só na cor por padrão; mistura de altura como opção, por custo de geração
 - [ ] 1068 `P1` Ruído na fronteira, para a transição não ser um círculo perfeito
-- [ ] 1069 `P1` Cache do resultado por coluna — a amostragem de vizinhos é o custo dominante
-- [ ] 1070 `P1` A escolha de blocos (areia × grama) segue o bioma dominante, não a mistura: bloco não tem meio-termo
+- [~] 1069 `P1` **Amostrado a cada 6 quadros, com interpolação temporal cobrindo o intervalo**
+- [~] 1070 `P1` **`biomaDominante` para as decisões sem meio-termo (bloco, árvore)**
 - [ ] 1071 `P1` Fauna e flora seguem o dominante, com chance proporcional ao peso na faixa de transição
 - [ ] 1072 `P2` Bioma de transição explícito (praia, orla de floresta) como caso especial
-- [ ] 1073 `P2` Teste de que a fronteira não tem degrau maior que N blocos
-- [ ] 1074 `P2` Teste de que a soma dos pesos é sempre 1
+- [~] 1073 `P2` **Teste de continuidade: salto máximo 0,0104 por passo de 0,01, uniforme**
+- [~] 1074 `P2` **Teste de que a soma dos pesos é sempre 1, em todo o domínio**
 
 ### 42.2 Color Grading — a paleta do *Lay of the Land*
 
@@ -2164,9 +2164,9 @@ azuladas, luz quente. Sem gradação, mini-blocos e AO entregam só metade do re
 A névoa hoje é uma cor só, derivada da distância de render. Ela deveria ser o principal veículo
 de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite escurece.
 
-- [ ] 1087 `P0` Cor da névoa interpolada com a hora do dia, e não fixa
-- [ ] 1088 `P0` Cor e densidade da névoa por bioma, misturadas pelos pesos do item 1063
-- [ ] 1089 `P0` Interpolação temporal suave — mudar de bioma não pode trocar a névoa de um quadro para o outro
+- [~] 1087 `P0` **Cor da névoa interpolada com a hora do dia **e** tingida pelo bioma**
+- [~] 1088 `P0` **Cor e alcance da névoa por bioma, misturados pelos pesos**
+- [~] 1089 `P0` **Interpolação temporal com meia-vida de 0,5 s, independente da taxa de quadros**
 - [ ] 1090 `P1` Névoa exponencial ao quadrado (`FogExp2`) como opção, mais natural que a linear
 - [ ] 1091 `P1` A cor do céu no horizonte e a cor da névoa precisam casar, senão o mundo termina numa borda
 - [ ] 1092 `P1` Névoa mais densa em altitude baixa (vale com neblina, pico limpo)
@@ -2209,7 +2209,7 @@ com estações próprias sem escrever lógica.
 - [ ] 1118 `P1` Inverno cobre de neve e congela a superfície da água — com os fluidos finitos já existentes
 - [ ] 1119 `P1` Primavera acelera o crescimento de plantas; inverno o interrompe
 - [ ] 1120 `P1` Duração do dia varia com a estação — inverno com noite mais longa
-- [ ] 1121 `P1` Bioma pode declarar que **ignora** estações (selva, deserto, o Nether de um mod)
+- [~] 1121 `P1` **`sazonal` declarado por bioma; `fatorSazonal` mistura sem degrau**
 - [ ] 1122 `P1` Estação influencia o clima provável (1096), fechando o laço entre os dois sistemas
 - [ ] 1123 `P1` Painel de configuração de estações por bioma na página de mods, sem escrever código
 - [ ] 1124 `P2` `api.season` e `api.biome.defineSeasonProfile` para mods
@@ -2219,6 +2219,19 @@ com estações próprias sem escrever lógica.
 - [ ] 1128 `P2` Teste de que o ciclo de estações fecha e volta ao início, como o teste da lua
 - [ ] 1129 `P2` Teste de que um bioma sem perfil de estação não quebra nada — o padrão precisa existir
 - [ ] 1130 `P2` Teste de que a interpolação entre estações nunca produz cor fora da faixa
+
+### O que já roda
+
+`src/world/biomes.ts` (puro) + `tests/unit/biomes.test.ts` (17 casos), ligado no laço principal do
+`main.ts` e no painel F3.
+
+Dois itens desta seção foram **descartados com justificativa** (1064 e 1066) em vez de ficarem
+pendentes para sempre: eles pressupunham um bioma discreto por ponto, que este gerador nunca teve.
+
+Um defeito meu, que o teste pegou: a primeira versão truncava a mistura nos 4 maiores pesos. O
+teste de continuidade acusou salto de 0,084 contra mediana de 0,0077 — outlier isolado, que é a
+assinatura de descontinuidade, não de inclinação. Cortar o quinto peso e renormalizar move todos
+de uma vez. Sem truncamento, o salto máximo é 0,0104 e **uniforme**.
 
 ### Ordem recomendada desta seção
 

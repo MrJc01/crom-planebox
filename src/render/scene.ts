@@ -58,6 +58,11 @@ export interface GameScene {
   setViewRange(voxels: number): void;
   /** Curvatura do horizonte. `queda = 0` deixa o mundo plano. */
   setCurvature(voxels: number, queda?: number): void;
+  /**
+   * Cor e alcance da névoa vindos da mistura de biomas do ponto onde o jogador está.
+   * `dt` é usado para interpolar no tempo — chamar todo quadro é o uso previsto.
+   */
+  setBiomeAmbience(cor: [number, number, number], alcance: number, dt: number): void;
   /** Fase lunar (0 = nova, 4 = cheia). Governa a claridade da noite e o desenho da lua. */
   setMoonPhase(fase: number): void;
   getMoonPhase(): number;
@@ -179,7 +184,12 @@ export function createScene(container: HTMLElement): GameScene {
     tmpSky.lerp(DUSK_SKY, duskAmount * 0.55);
     (scene.background as THREE.Color).copy(tmpSky);
     const fog = scene.fog as THREE.Fog | null;
-    if (fog) fog.color.copy(tmpSky);
+    if (fog) {
+      // A cor do bioma tinge o céu na proporção da luz do sol: de dia o deserto amarela e o
+      // pântano esverdeia o horizonte; de noite tudo volta à cor do céu, porque névoa é ar
+      // iluminado e sem sol ela não tem cor própria.
+      fog.color.copy(tmpSky).lerp(corBiomaAtual, 0.55 * sunScale);
+    }
 
     sun.intensity = 2.2 * sunScale;
     hemi.intensity = 0.75 * Math.max(0.25, sunScale);
@@ -224,17 +234,54 @@ export function createScene(container: HTMLElement): GameScene {
     curvature.invR.value = queda / (alcance * alcance);
   }
 
+  /** Última distância pedida, guardada para reaplicar quando o alcance do bioma muda. */
+  let alcanceBaseVoxels = 260;
+
   function setViewRange(voxels: number): void {
+    alcanceBaseVoxels = voxels;
+    aplicarAlcance();
+  }
+
+  function aplicarAlcance(): void {
     const f = scene.fog as THREE.Fog | null;
-    if (f) {
-      // Começa na metade e fecha um pouco antes do limite: se `far` coincidisse com a última
-      // coluna carregada, o recorte reapareceria exatamente no ponto que a névoa deveria cobrir.
-      f.near = voxels * 0.45;
-      f.far = voxels * 0.92;
-    }
+    if (!f) return;
+    // Começa na metade e fecha um pouco antes do limite: se `far` coincidisse com a última
+    // coluna carregada, o recorte reapareceria exatamente no ponto que a névoa deveria cobrir.
+    // O bioma multiplica: pântano fecha o horizonte, deserto abre.
+    const v = alcanceBaseVoxels * alcanceBiomaAtual;
+    f.near = v * 0.45;
+    f.far = Math.min(v * 0.92, alcanceBaseVoxels * 1.02);
+  }
+
+  // --- Ambiência de bioma ---
+  //
+  // A névoa é o principal veículo de identidade de bioma, porque é o que se vê a distância — o
+  // bloco de superfície só aparece de perto. Duas decisões:
+  //
+  //  1. **A cor do bioma tinge o céu, não o substitui**, e a força do tingimento acompanha a luz
+  //     do sol. Substituir deixaria a névoa do deserto clara à meia-noite, com o mundo escuro
+  //     atrás dela. Névoa é ar iluminado: sem sol, ela tem a cor do céu.
+  //  2. **A mudança é interpolada no tempo**, com constante de meio segundo. Atravessar a
+  //     fronteira de dois biomas troca os pesos continuamente no espaço, mas o jogador pode se
+  //     teletransportar ou nascer em outro lugar — e aí a troca seca seria um piscar.
+  const corBiomaAtual = new THREE.Color(0.74, 0.80, 0.85);
+  const corBiomaAlvo = new THREE.Color(0.74, 0.80, 0.85);
+  let alcanceBiomaAtual = 1;
+  let alcanceBiomaAlvo = 1;
+
+  function setBiomeAmbience(cor: [number, number, number], alcance: number, dt: number): void {
+    corBiomaAlvo.setRGB(cor[0], cor[1], cor[2]);
+    alcanceBiomaAlvo = alcance;
+
+    // Meia-vida de 0,5 s, independente da taxa de quadros.
+    const k = 1 - Math.pow(0.5, Math.min(dt, 0.25) / 0.5);
+    corBiomaAtual.lerp(corBiomaAlvo, k);
+    const alcanceAntes = alcanceBiomaAtual;
+    alcanceBiomaAtual += (alcanceBiomaAlvo - alcanceBiomaAtual) * k;
+    if (Math.abs(alcanceBiomaAtual - alcanceAntes) > 1e-4) aplicarAlcance();
   }
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

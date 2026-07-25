@@ -22,6 +22,8 @@ export interface FontesDiagnostico {
   rede: () => { enviados: number; recebidos: number; papel: string; peers: number };
   posicao: () => { x: number; y: number; z: number };
   cacheRotas: () => { hits: number; misses: number; hitRate: number };
+  /** Mistura de biomas sob o jogador, e a fase da lua — o ambiente é difícil de conferir a olho. */
+  ambiente: () => { bioma: string; fase: string; noiteEscura: boolean };
 }
 
 export class DebugPanel {
@@ -86,6 +88,9 @@ export class DebugPanel {
     linhas.push(`  chunks ${this.fontes.chunksCarregados()}  sujos ${this.fontes.chunksSujos()}  malhas em voo ${this.fontes.malhasEmVoo()}`);
     linhas.push(`  fila de luz ${this.fontes.filaLuz()}`);
     linhas.push(`  pos ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`);
+    const amb = this.fontes.ambiente();
+    linhas.push(`  bioma ${amb.bioma}`);
+    linhas.push(`  lua ${amb.fase}${amb.noiteEscura ? ' (noite escura)' : ''}`);
     linhas.push('');
 
     linhas.push('SIMULAÇÃO');

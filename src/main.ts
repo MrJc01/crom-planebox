@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { createScene } from './render/scene';
 import { World } from './world/world';
 import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
-import { WorldGen } from './world/worldgen';
+import { WorldGen, WATER_LEVEL } from './world/worldgen';
+import { PesoBioma, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
@@ -69,6 +70,9 @@ async function bootstrap() {
   const gs = createScene(app);
   const world = new World();
   const gen = new WorldGen(seed);
+  /** Mistura de biomas sob o jogador. Reamostrada a cada poucos quadros; ver o laço principal. */
+  let pesosBioma: PesoBioma[] = [{ id: 'planicie', peso: 1 }];
+  let quadrosAteBioma = 0;
   const player = new PlayerController(world, gs.camera);
   const physics = new VoxelPhysics(world, gs.scene);
   const inter = new Interaction(world, physics, player, gs.scene);
@@ -460,6 +464,11 @@ async function bootstrap() {
   // Antes, cada tela só era alcançável por um atalho de tecla próprio — quem não leu a
   // documentação não descobria nenhuma. O hub dá uma porta única e mostra os atalhos.
   const debugPanel = new DebugPanel({
+    ambiente: () => ({
+      bioma: descreverBioma(pesosBioma),
+      fase: nomeDaFase(gs.getMoonPhase()),
+      noiteEscura: noiteEscura(gs.getMoonPhase()),
+    }),
     chunksCarregados: () => world.chunks.size,
     chunksSujos: () => { let n = 0; for (const c of world.chunks.values()) if (c.dirty) n++; return n; },
     malhasEmVoo: () => jobsEmVoo.size,
@@ -1467,6 +1476,30 @@ async function bootstrap() {
       survivalSystem.applyDamage(danoRecebido, 'ataque inimigo');
     }
     gs.updateSun(player.pos.x, player.pos.z);
+
+    // Ambiência do bioma: a névoa ganha a cor e o alcance da MISTURA de biomas do ponto onde o
+    // jogador está. Como `temp` e `moist` são campos contínuos, atravessar a fronteira do deserto
+    // para a savana muda a cor do horizonte gradualmente, sem linha visível.
+    //
+    // Amostrado a cada 6 quadros, e não a cada um: `column()` refaz várias oitavas de ruído, e o
+    // resultado muda devagar demais para justificar o custo — a interpolação temporal dentro de
+    // `setBiomeAmbience` cobre o intervalo.
+    quadrosAteBioma--;
+    if (quadrosAteBioma <= 0) {
+      quadrosAteBioma = 6;
+      const col = gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z));
+      pesosBioma = pesosDeBioma({
+        temp: col.temp,
+        moist: col.moist,
+        montanha: col.mountain,
+        acimaDoMar: col.height - WATER_LEVEL,
+      });
+    }
+    gs.setBiomeAmbience(
+      misturarCor(pesosBioma, 'neblina'),
+      misturarEscalar(pesosBioma, 'alcanceNeblina'),
+      dt,
+    );
 
     hud.updateCoords(player.pos.x, player.pos.y, player.pos.z);
     hud.updateCameraMode(cameraManager.mode);
