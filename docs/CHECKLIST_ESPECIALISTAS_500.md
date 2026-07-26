@@ -3332,10 +3332,68 @@ para perto do `worldDay++`.
 
 ### Lacunas que este trabalho revelou
 
-- [ ] 1305 `P1` **Não há lista completa em lugar nenhum** — o cartão mostra um passo; quem quiser rever o que já fez, ou o que vem depois, não tem onde. Cabe uma aba no hub de pausa
-- [ ] 1306 `P1` **O objetivo do abrigo não verifica abrigo** — conta 12 blocos colocados, e doze blocos de terra em fila cumprem. Verificar recinto fechado (volume sem saída para o céu) é um problema de inundação em 3D, não uma contagem
+- [~] 1305 `P1` **Aba "Objetivos" no hub de pausa** — a corrente por extenso, com o que vem depois do próximo **esmaecido e não escondido**: esconder o futuro faria o esforço parecer sem destino; mostrar tudo em igualdade tiraria a resposta da pergunta "e agora?"
+- [~] 1306 `P1` **O abrigo passou a ser verificado, não contado** — `src/game/abrigo.ts`, busca em largura com orçamento; ver a seção 58
 - [ ] 1307 `P1` **O loop não tem segunda volta** — fecha no papel, mas depois da obsidiana não há material melhor nem objetivo maior. Liga-se aos itens 018/019/1286
 - [ ] 1308 `P2` **A noite não é perigosa o bastante** para justificar o abrigo do passo 6 — os hostis nascem, mas nada força o jogador a se esconder (item 009)
 - [ ] 1309 `P2` **A morte não custa nada** além de voltar ao spawn, então o risco dos passos 10–13 é abstrato (itens 010/011)
 - [ ] 1310 `P2` **Os tempos da tabela são estimativa, não medição** — nada registra quanto o jogador leva de fato até a primeira ferramenta (item 022)
 - [ ] 1311 `P2` **O guia diz o quê, não como se joga** — quem não sabe que se coloca bloco com o botão direito ainda descobre sozinho (item 021)
+
+---
+
+## 58 — O abrigo que não abrigava (itens 1305, 1306)
+
+Duas lacunas anotadas na rodada anterior, feitas na mesma.
+
+### A lista completa (1305)
+
+O cartão do HUD mostra **um** passo, de propósito. Quem quisesse rever o que já fez, ou entender
+para onde a corrente vai, não tinha onde — e a resposta não é encher o canto da tela, que devolveria
+ao novato exatamente o problema que o guia existe para resolver. São dois públicos e duas telas.
+
+A aba "Objetivos" do hub de pausa mostra a corrente inteira, com **o futuro esmaecido em vez de
+escondido**. Esconder faria a corrente parecer curta e o esforço, sem destino: o jogador não teria
+como saber que minerar ferro leva a algum lugar. Mostrar tudo em igualdade tiraria a resposta da
+pergunta "e agora?". Esmaecer preserva as duas coisas.
+
+A aba **não some** nos modos sem progressão: sumir pareceria defeito. Ela explica por que está
+vazia.
+
+### O abrigo que não abrigava (1306)
+
+O objetivo contava **blocos colocados**: doze quaisquer. Doze blocos de terra enfileirados no chão
+cumpriam. O jogador recebia a confirmação de ter feito algo que não fez, e a primeira noite o pegava
+do lado de fora — com o jogo tendo dito que estava tudo certo.
+
+**Um objetivo que mede a ação errada é pior que objetivo nenhum**: ensina que o guia não sabe do que
+está falando, e a partir daí nada que ele disser é levado a sério.
+
+O que define abrigo não é contagem de paredes nem padrão de construção — as duas coisas obrigariam o
+jogador a construir do jeito que o código espera. É **o ar em volta ser finito**. Então é uma busca
+em largura pelo ar a partir do jogador, com orçamento: se ela se esgota, o espaço é fechado; se
+estoura, o ar não acaba e o jogador está lá fora.
+
+A propriedade que fez valer a pena: **um buraco na parede ou no teto derruba o resultado sozinho**,
+sem nenhuma regra própria, porque o ar de fora entra pela busca. E uma caverna tapada conta como
+abrigo — e deve mesmo: exigir construção seria exigir um estilo de jogo em vez de um resultado.
+
+Duas armadilhas que viraram teste:
+
+**Parede de um mini-voxel.** A busca anda de metro em metro, mas o Modo Detalhe constrói em
+mini-voxels. Testar só o ponto de chegada atravessaria a parede em dois de cada três casos — sem
+erro em lugar nenhum, só um abrigo que às vezes não conta e ninguém saberia por quê. Cada passo
+confere todos os mini-voxels do caminho.
+
+**Soterrado não é abrigado.** Quem está dentro da rocha maciça está preso, não protegido, e dar o
+objetivo por cumprido ali premiaria um acidente ruim.
+
+- [~] 1312 `P1` **`estaAbrigado`** com orçamento de 1200 células — é também o teto de custo: a busca nunca visita mais que isso, e um teste conta as leituras para provar
+- [~] 1313 `P1` **13 testes de abrigo**, incluindo "doze blocos em fila não abrigam ninguém" (o defeito antigo reproduzido literalmente) e "vidro fecha, capim não"
+- [~] 1314 `P2` **`colocou` removido do tipo de evento** — sem objetivo que o consumisse, seria mais uma variante dormente
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1315 `P1` **A verificação de abrigo só existe para o objetivo** — a mesma pergunta ("este ponto é fechado?") decide se uma criatura deve nascer ali, e o `MobSpawner` ainda não a faz. Hostil nascendo dentro da casa é o defeito clássico que ela resolveria
+- [ ] 1316 `P2` **Um salão acima de ~10×10×10 m conta como "lá fora"** — consequência assumida do orçamento, mas uma base grande legítima seria reprovada sem explicação nenhuma na tela
+- [ ] 1317 `P2` **Nada avisa o jogador de que ele está descoberto** ao anoitecer — a verificação já sabe, e o silêncio faz o objetivo parecer quebrado para quem construiu e esqueceu o teto

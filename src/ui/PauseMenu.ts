@@ -41,6 +41,16 @@ export interface PauseMenuDeps {
   setOp: (playerIdOrName: string, isOp: boolean) => boolean;
   onSairParaMenuInicial: () => void;
   atalhosRapidos: AtalhoRapido[];
+  /**
+   * A corrente de objetivos por extenso (item 1305).
+   *
+   * Recebe dados já prontos, e não o `RastreadorDeObjetivos`: a aba só desenha, e passar a classe
+   * daria a ela como marcar objetivo a partir de um menu — que é o caminho mais curto para o guia
+   * deixar de descrever o que o jogador fez.
+   */
+  listarObjetivos: () => Array<{ titulo: string; dica: string; progresso: number; meta: number; concluido: boolean }>;
+  /** Falso nos modos sem progressão — a aba então explica por que está vazia, em vez de sumir. */
+  guiaAtivo: () => boolean;
 }
 
 export class PauseMenu {
@@ -137,6 +147,17 @@ export class PauseMenu {
       },
     });
 
+    // Aba Objetivos — a corrente por extenso (item 1305)
+    this.tabsComponent.adicionar({
+      id: 'objetivos',
+      titulo: 'Objetivos',
+      icone: 'missoes',
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:16px; height:100%; overflow-y:auto;';
+        this.renderObjetivosTab(container);
+      },
+    });
+
     // Aba Modo de Jogo
     this.tabsComponent.adicionar({
       id: 'gamemode',
@@ -225,6 +246,103 @@ export class PauseMenu {
     row.appendChild(label);
     row.appendChild(inputEl);
     return row;
+  }
+
+  /**
+   * A corrente de objetivos por extenso.
+   *
+   * ## O que esta tela mostra que o cartão do HUD não pode
+   *
+   * O cartão mostra **um** passo, de propósito. Quem quiser rever o que já fez, ou entender para
+   * onde a corrente vai, não tinha onde — e a resposta não é encher o canto da tela, que devolveria
+   * ao novato o problema que o guia existe para resolver. São dois públicos e duas telas.
+   *
+   * ## Por que o que vem depois do próximo aparece esmaecido, e não escondido
+   *
+   * Esconder o futuro faria a corrente parecer curta e o esforço, sem destino: o jogador não teria
+   * como saber que minerar ferro leva a algum lugar. Mostrar tudo em igualdade tira a resposta da
+   * pergunta "e agora?". Esmaecer preserva as duas coisas — o destino existe e é visível, e ainda
+   * assim só um passo se apresenta como o de agora.
+   */
+  private renderObjetivosTab(container: HTMLElement): void {
+    const lista = this.deps.listarObjetivos();
+    const sec = this.section('Sua Jornada', 'missoes');
+
+    if (!this.deps.guiaAtivo()) {
+      // A aba não some no Criativo: sumir pareceria um defeito. Ela explica.
+      const nota = document.createElement('p');
+      nota.style.cssText = 'margin:0; font-size:13px; color:#94a3b8; line-height:1.6;';
+      nota.textContent =
+        'Os objetivos acompanham o Modo Sobrevivência. Nos outros modos você já tem todos os '
+        + 'blocos e não gasta ferramenta, então não haveria obstáculo nenhum a vencer.';
+      sec.appendChild(nota);
+      container.appendChild(sec);
+      return;
+    }
+
+    const feitos = lista.filter((o) => o.concluido).length;
+    const barra = document.createElement('div');
+    barra.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+    const rotulo = document.createElement('div');
+    rotulo.style.cssText = 'font-size:12px; color:#94a3b8;';
+    rotulo.textContent = `${feitos} de ${lista.length} concluídos`;
+    const trilho = document.createElement('div');
+    trilho.style.cssText = 'height:6px; border-radius:3px; background:rgba(148,163,184,0.2); overflow:hidden;';
+    const preenchido = document.createElement('div');
+    preenchido.style.cssText = `height:100%; width:${(feitos / lista.length) * 100}%; background:#38bdf8; border-radius:3px;`;
+    trilho.appendChild(preenchido);
+    barra.append(rotulo, trilho);
+    sec.appendChild(barra);
+
+    // O primeiro pendente é o "agora". Tudo depois dele é futuro, e vai esmaecido.
+    const indiceAtual = lista.findIndex((o) => !o.concluido);
+
+    for (let i = 0; i < lista.length; i++) {
+      const o = lista[i];
+      const futuro = indiceAtual >= 0 && i > indiceAtual && !o.concluido;
+      const linha = document.createElement('div');
+      linha.style.cssText = `
+        display:flex; gap:11px; align-items:flex-start;
+        padding:10px 12px; border-radius:9px;
+        background:${i === indiceAtual ? 'rgba(56,189,248,0.10)' : 'rgba(30,41,59,0.45)'};
+        border:1px solid ${i === indiceAtual ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.07)'};
+        opacity:${futuro ? 0.45 : 1};
+      `;
+
+      const marca = document.createElement('div');
+      marca.style.cssText = `
+        flex:0 0 18px; height:18px; margin-top:1px; border-radius:50%;
+        border:2px solid ${o.concluido ? '#4ade80' : i === indiceAtual ? '#38bdf8' : '#475569'};
+        background:${o.concluido ? '#4ade80' : 'transparent'};
+      `;
+
+      const corpo = document.createElement('div');
+      corpo.style.cssText = 'flex:1; min-width:0;';
+      const titulo = document.createElement('div');
+      titulo.style.cssText = `
+        font-size:13px; font-weight:600;
+        color:${o.concluido ? '#94a3b8' : '#f1f5f9'};
+        text-decoration:${o.concluido ? 'line-through' : 'none'};
+      `;
+      titulo.textContent = o.meta > 1 && !o.concluido
+        ? `${o.titulo} (${o.progresso}/${o.meta})`
+        : o.titulo;
+      corpo.appendChild(titulo);
+
+      // A dica some depois de cumprido: instruir a fazer o que já foi feito é ruído, e é o que
+      // faria a lista ficar longa demais para ser lida no fim da corrente.
+      if (!o.concluido) {
+        const dica = document.createElement('div');
+        dica.style.cssText = 'font-size:12px; color:#94a3b8; margin-top:3px; line-height:1.5;';
+        dica.textContent = o.dica;
+        corpo.appendChild(dica);
+      }
+
+      linha.append(marca, corpo);
+      sec.appendChild(linha);
+    }
+
+    container.appendChild(sec);
   }
 
   private async renderWorldTab(container: HTMLElement): Promise<void> {

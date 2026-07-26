@@ -69,7 +69,7 @@ describe('progresso monotônico', () => {
   it('CRÍTICO: concluído não volta a pendente', () => {
     const r = new RastreadorDeObjetivos();
     r.registrar(quebrou(B.LOG));
-    for (let i = 0; i < 50; i++) r.registrar({ tipo: 'colocou', bloco: B.DIRT });
+    for (let i = 0; i < 50; i++) r.registrar({ tipo: 'quebrou', bloco: B.DIRT });
     expect(r.concluido('primeira_madeira')).toBe(true);
   });
 
@@ -88,24 +88,58 @@ describe('progresso monotônico', () => {
   });
 });
 
-describe('objetivo com contagem', () => {
-  const abrigo = OBJETIVOS.find((o) => o.id === 'abrigo')!;
-
-  it('acumula até a meta antes de fechar', () => {
-    const r = new RastreadorDeObjetivos();
-    for (let i = 1; i < abrigo.meta; i++) r.registrar({ tipo: 'colocou', bloco: B.DIRT });
-    expect(r.concluido('abrigo')).toBe(false);
-    r.registrar({ tipo: 'colocou', bloco: B.DIRT });
-    expect(r.concluido('abrigo')).toBe(true);
+describe('metas por contagem', () => {
+  it('o rastreador SABE contar, mesmo que hoje nenhum objetivo precise', () => {
+    // A capacidade fica testada porque ela é o que separa "progresso" de "interruptor" — e o
+    // primeiro objetivo com meta maior que 1 não deveria ser também o primeiro a exercitá-la.
+    const r = new RastreadorDeObjetivos([
+      { id: 'tres', titulo: 't', dica: 'd', meta: 3, conta: () => 1 },
+    ]);
+    r.registrar({ tipo: 'amanheceu' });
+    expect(r.concluido('tres')).toBe(false);
+    expect(r.atual()?.progresso).toBe(1);
+    r.registrar({ tipo: 'amanheceu' });
+    r.registrar({ tipo: 'amanheceu' });
+    expect(r.concluido('tres')).toBe(true);
   });
 
-  it('quase tudo é de primeira vez — contagem grande mentiria no Modo Detalhe', () => {
+  it('CRÍTICO: nenhum objetivo real usa contagem — ela mentiria no Modo Detalhe', () => {
     // No Modo Detalhe uma quebra são 27 mini-voxels, e uma meta de "quebre 20 pedras" seria
-    // cumprida por uma célula só. A contagem dependeria de um modo que não tem nada a ver com o
-    // objetivo, e por isso ela fica reservada a eventos onde o exagero não muda o sentido.
-    const comContagem = OBJETIVOS.filter((o) => o.meta > 1);
-    expect(comContagem.length).toBeLessThanOrEqual(1);
-    expect(comContagem.every((o) => o.id === 'abrigo')).toBe(true);
+    // cumprida por uma célula só: a contagem erraria por um fator de 27 dependendo de um modo que
+    // não tem nada a ver com o objetivo.
+    //
+    // O abrigo foi o último a usá-la — contava doze blocos colocados, e doze blocos de terra em
+    // fila cumpriam. Hoje ele verifica o espaço fechado de verdade (`abrigo.ts`), e a corrente
+    // inteira é de primeira vez.
+    expect(OBJETIVOS.filter((o) => o.meta > 1)).toEqual([]);
+  });
+});
+
+describe('a corrente por extenso — a aba do hub de pausa (item 1305)', () => {
+  it('lista TODOS os objetivos, não só os pendentes', () => {
+    // A tela do "o que já fiz" precisa dos concluídos — sem eles ela seria a mesma coisa que o
+    // cartão do HUD, só maior.
+    const r = new RastreadorDeObjetivos();
+    r.registrar(quebrou(B.LOG));
+    expect(r.listar().length).toBe(OBJETIVOS.length);
+    expect(r.listar().filter((o) => o.concluido).length).toBe(1);
+  });
+
+  it('CRÍTICO: o progresso exibido nunca passa da meta', () => {
+    // A barra é desenhada com `progresso/meta`. Um valor acima da meta — possível se um save antigo
+    // trouxer contagem de uma versão com meta maior — pintaria a barra para fora do trilho.
+    const r = new RastreadorDeObjetivos();
+    r.restaurar({ abrigo: 9999 });
+    const abrigo = r.listar().find((o) => o.def.id === 'abrigo')!;
+    expect(abrigo.progresso).toBe(abrigo.def.meta);
+  });
+
+  it('a ordem da lista é a ordem da corrente', () => {
+    // A tela marca "o passo de agora" pelo primeiro não-concluído da lista. Se a ordem viesse de um
+    // `Map` de progresso, ela mudaria conforme o jogador cumprisse fora de ordem.
+    const r = new RastreadorDeObjetivos();
+    r.registrar(quebrou(B.IRON_ORE));
+    expect(r.listar().map((o) => o.def.id)).toEqual(OBJETIVOS.map((o) => o.id));
   });
 });
 
@@ -205,8 +239,8 @@ describe('a corrente descreve o jogo que existe de verdade', () => {
     // ninguém veria nenhum passo depois dele.
     const amostra: EventoDeProgresso[] = [
       { tipo: 'amanheceu' },
+      { tipo: 'abrigado' },
       { tipo: 'profundidade', metros: 999 },
-      { tipo: 'colocou', bloco: B.DIRT },
       ...BLOCKS.map((_, i) => ({ tipo: 'quebrou', bloco: i } as EventoDeProgresso)),
       ...[1, 2, 3, 4].map((t) => ({ tipo: 'fabricou', tier: t } as EventoDeProgresso)),
       ...BLOCKS.map((_, i) => ({ tipo: 'fabricou', bloco: i } as EventoDeProgresso)),

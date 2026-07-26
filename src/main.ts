@@ -54,6 +54,7 @@ import { EventSystem } from './events/EventSystem';
 import { UndoManager } from './storage/UndoManager';
 import { GameModeManager } from './game/GameModeManager';
 import { EventoDeProgresso, RastreadorDeObjetivos } from './game/Objetivos';
+import { estaAbrigado } from './game/abrigo';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -1076,10 +1077,8 @@ async function bootstrap() {
 
     // Progresso dos objetivos. Quebrar reporta o bloco que SAIU (`blocoAnterior`); o que entrou no
     // lugar é ar, e "quebre um tronco" nunca casaria.
-    if (blockType === 0) {
-      if (blocoAnterior !== undefined) registrarProgresso({ tipo: 'quebrou', bloco: blocoAnterior });
-    } else {
-      registrarProgresso({ tipo: 'colocou', bloco: blockType });
+    if (blockType === 0 && blocoAnterior !== undefined) {
+      registrarProgresso({ tipo: 'quebrou', bloco: blocoAnterior });
     }
 
     // Quebrar soa como o bloco que SAIU; colocar, como o que entrou.
@@ -1418,6 +1417,10 @@ async function bootstrap() {
       { icone: 'codigo', titulo: 'Editor', tecla: 'F7', acao: () => uiManager.openBlocking('code-editor') },
       { icone: 'inventario', titulo: 'Inventário', tecla: 'E', acao: () => uiManager.openBlocking('inventory') },
     ],
+    guiaAtivo,
+    listarObjetivos: () => objetivos.listar().map((o) => ({
+      titulo: o.def.titulo, dica: o.def.dica, progresso: o.progresso, meta: o.def.meta, concluido: o.concluido,
+    })),
   });
   uiManager.registerBlocking(pauseMenu);
   inventoryModal.blockOpen = () => pauseMenu.isOpen;
@@ -1678,6 +1681,7 @@ async function bootstrap() {
   let streamAccum = 0;
   let saveAccum = 0;
   let relogioDeProfundidade = 0;
+  let relogioDeAbrigo = 0;
   let netAccum = 0;
   /** Acumulador do retrato de criaturas enviado aos convidados. */
   let mobSyncAccum = 0;
@@ -1948,6 +1952,20 @@ async function bootstrap() {
         relogioDeProfundidade = 0.5;
         const superficie = gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height;
         registrarProgresso({ tipo: 'profundidade', metros: (superficie - player.pos.y) / SCALE });
+      }
+    }
+
+    // Abrigo: uma busca em largura pelo ar em volta, cara demais para rodar por quadro. As três
+    // condições que a cercam não são otimização prematura, são o que a mantém barata de verdade —
+    // ela só existe enquanto o objetivo está pendente E está escuro lá fora, que é a única hora em
+    // que estar abrigado quer dizer alguma coisa.
+    if (rules.hasSurvival && !objetivos.concluido('abrigo') && fasesDoDia(timeOfDay) === 'noite') {
+      relogioDeAbrigo -= dt;
+      if (relogioDeAbrigo <= 0) {
+        relogioDeAbrigo = 2;
+        if (estaAbrigado(world, Math.floor(player.pos.x), Math.floor(player.pos.y), Math.floor(player.pos.z))) {
+          registrarProgresso({ tipo: 'abrigado' });
+        }
       }
     }
 

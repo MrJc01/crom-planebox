@@ -54,8 +54,8 @@ export type EventoDeProgresso =
   | { tipo: 'quebrou'; bloco: number }
   /** Uma receita foi coletada da bancada. Bloco de saída, ou `tier` se for ferramenta. */
   | { tipo: 'fabricou'; bloco?: number; tier?: number }
-  /** Um bloco foi colocado pelo jogador. */
-  | { tipo: 'colocou'; bloco: number }
+  /** O jogador está num espaço fechado com a noite lá fora (ver `abrigo.ts`). */
+  | { tipo: 'abrigado' }
   /** Profundidade atual, em metros abaixo de onde o jogador apareceu. */
   | { tipo: 'profundidade'; metros: number }
   /** O relógio do mundo virou o dia. */
@@ -128,11 +128,14 @@ export const OBJETIVOS: DefinicaoDeObjetivo[] = [
     conta: aoFabricarTier(2),
   },
   {
+    // Este é o único objetivo que verifica um *estado* do mundo, e não um ato do jogador. A versão
+    // anterior contava doze blocos colocados — doze blocos de terra em fila cumpriam, e a primeira
+    // noite pegava o jogador do lado de fora depois de o jogo ter dito que estava tudo certo.
     id: 'abrigo',
-    titulo: 'Levante um abrigo antes do escuro',
-    dica: 'Coloque blocos com o botão direito. À noite aparecem criaturas hostis lá fora.',
-    meta: 12,
-    conta: (e) => (e.tipo === 'colocou' ? 1 : 0),
+    titulo: 'Esteja abrigado quando escurecer',
+    dica: 'Coloque blocos com o botão direito e feche um espaço — ou tape a boca de uma caverna.',
+    meta: 1,
+    conta: (e) => (e.tipo === 'abrigado' ? 1 : 0),
   },
   {
     id: 'carvao',
@@ -241,6 +244,20 @@ export class RastreadorDeObjetivos {
       if (p < def.meta) return { def, progresso: p };
     }
     return null;
+  }
+
+  /**
+   * A corrente inteira, para a tela que a mostra por extenso.
+   *
+   * O cartão do HUD mostra um passo; esta é a visão de quem quer rever o que já fez ou espiar o
+   * que vem. São públicos diferentes e não podem ser a mesma tela: a lista completa no canto da
+   * tela devolve ao novato exatamente o problema que o guia existe para resolver.
+   */
+  listar(): Array<{ def: DefinicaoDeObjetivo; progresso: number; concluido: boolean }> {
+    return this.defs.map((def) => {
+      const progresso = Math.min(def.meta, this.progresso.get(def.id) ?? 0);
+      return { def, progresso, concluido: progresso >= def.meta };
+    });
   }
 
   concluido(id: string): boolean {

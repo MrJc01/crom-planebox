@@ -41,7 +41,7 @@ sugestões: cada degrau depende do anterior **por mecânica**, não por decreto.
 | 3 | Picareta de madeira | 2–3 | **Sem ela a pedra quebra e não rende nada** |
 | 4 | Minere pedra | 3–5 | Pedregulho é o material da picareta seguinte |
 | 5 | Picareta de pedra | 5–6 | Dura mais e minera mais rápido (`velocidadeDeQuebra.ts`) |
-| 6 | Levante um abrigo | 6–9 | À noite nascem criaturas hostis lá fora |
+| 6 | Esteja abrigado ao escurecer | 6–9 | À noite nascem criaturas hostis lá fora |
 | 7 | Encontre carvão | 9–12 | Aparece nos primeiros metros abaixo da superfície |
 | 8 | Faça tochas | 12–13 | **A caverna é escura demais para achar minério sem elas** |
 | 9 | Sobreviva ao amanhecer | 13–16 | O dia volta sozinho; é a primeira tensão real |
@@ -77,10 +77,16 @@ Quatro pontos, todos em código que já existia — nenhum laço novo por quadro
 
 | Evento | Origem |
 |--------|--------|
-| `quebrou` / `colocou` | `inter.onBlockChange` (`src/main.ts`) |
+| `quebrou` | `inter.onBlockChange` (`src/main.ts`) |
 | `fabricou` | `InventoryModal.onCrafted`, disparado em `collectCraft` |
-| `amanheceu` | a virada de dia no laço principal |
+| `amanheceu` | a transição para a fase `amanhecer`, no laço principal |
 | `profundidade` | posição do jogador, amostrada a cada 0,5 s |
+| `abrigado` | `estaAbrigado`, só de noite e só enquanto o objetivo está pendente |
+
+O `abrigado` é o único que mede um **estado do mundo** em vez de um ato do jogador: uma busca em
+largura pelo ar em volta (`src/game/abrigo.ts`). Se ela se esgota, o espaço é fechado; se estoura o
+orçamento, o ar não acaba e o jogador está lá fora. Um buraco na parede ou no teto derruba o
+resultado sozinho, sem regra própria, porque o ar de fora entra pela busca.
 
 O guia só aparece no **Modo Sobrevivência**. Nos outros o jogador já tem todos os blocos e não
 gasta ferramenta: "fabrique a picareta de madeira para abrir a pedra" seria um passo sem obstáculo,

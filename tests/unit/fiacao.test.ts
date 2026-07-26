@@ -137,8 +137,12 @@ describe('objetivos — o guia do novato está de fato ligado (item 007)', () =>
     expect(/tipo:\s*'quebrou',\s*bloco:\s*blocoAnterior/.test(main)).toBe(true);
   });
 
-  it('CRÍTICO: colocar um bloco alimenta o progresso (objetivo do abrigo)', () => {
-    expect(/registrarProgresso\(\{\s*tipo:\s*'colocou'/.test(main)).toBe(true);
+  it('CRÍTICO: o abrigo é VERIFICADO, não contado', () => {
+    // A versão anterior contava doze blocos colocados, e doze blocos de terra em fila cumpriam.
+    // `estaAbrigado` é uma busca em largura pura: sem esta chamada ela seria mais um módulo
+    // completo, testado e inerte.
+    expect(/estaAbrigado\s*\(/.test(main), 'a verificação de abrigo não é chamada').toBe(true);
+    expect(/registrarProgresso\(\{\s*tipo:\s*'abrigado'/.test(main)).toBe(true);
   });
 
   it('CRÍTICO: fabricar alimenta o progresso', () => {
@@ -175,6 +179,15 @@ describe('objetivos — o guia do novato está de fato ligado (item 007)', () =>
   it('CRÍTICO: o cartão do HUD é desenhado por alguém', () => {
     // A classe podia estar perfeitamente alimentada e ainda assim invisível.
     expect(temChamador(/mostrarObjetivo\s*\(/, ['ui/HUD.ts']).length).toBeGreaterThan(0);
+  });
+
+  it('CRÍTICO: a aba de objetivos do hub recebe a lista de verdade', () => {
+    // A aba existe, monta e desenha uma lista vazia se ninguém a alimentar — e uma lista vazia
+    // parece "nenhum objetivo neste mundo", não "esqueci de ligar".
+    const pause = FONTE.find((f) => f.arquivo.endsWith('ui/PauseMenu.ts'))!.texto;
+    expect(/id:\s*'objetivos'/.test(pause), 'a aba não existe').toBe(true);
+    expect(/listarObjetivos:/.test(main), 'main não fornece a lista').toBe(true);
+    expect(/objetivos\.listar\(\)/.test(main), 'a lista fornecida não vem do rastreador').toBe(true);
   });
 
   it('CRÍTICO: o progresso é salvo E restaurado', () => {
