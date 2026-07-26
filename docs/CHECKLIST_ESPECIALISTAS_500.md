@@ -692,7 +692,7 @@ precisava nascer com teste, porque a falha dele é silenciosa e corrompe o save.
 - [ ] 499 `P1` Eventos de invasão temporizados
 - [ ] 500 `P1` Bosses invocáveis com item de convocação
 - [ ] 501 `P1` NPCs que se mudam para a base quando há condições (casa válida)
-- [ ] 502 `P1` Validador de "casa" (paredes, porta, luz, mobília)
+- [~] 502 `P1` Validador de "casa" — **o miolo existe**: `estaAbrigado` (seção 58) já responde "este espaço é fechado?" por busca em largura, que é a parte difícil. Faltam os outros três critérios (porta, luz mínima, mobília), e a **porta ainda não existe como bloco** (item 1323)
 - [ ] 503 `P2` Biomas corrompidos que se espalham
 - [ ] 504 `P2` Item de mobilidade progressiva (gancho, planador, botas)
 - [ ] 505 `P2` Acessórios com efeitos combináveis
@@ -2338,7 +2338,7 @@ clássico — misturar a *cor* é barato, misturar a *altura do terreno* muda a 
 O visual de referência não vem da geometria, vem da **cor**: paleta dessaturada, sombras
 azuladas, luz quente. Sem gradação, mini-blocos e AO entregam só metade do resultado.
 
-- [ ] 1075 `P0` Passe de pós-processamento com LUT (tabela de cor), aplicado depois do render
+- [x] 1075 `P0` ~~Passe de pós-processamento com LUT~~ — **dimensionado e RECUSADO por custo**, e a decisão está escrita em `src/render/grading.ts`: um `EffectComposer` custa um alvo de render do tamanho da tela, uma cópia por quadro e um passe sobre cada pixel, num projeto que veio do relato *"está muito muito travado"*. A gradação em seis instruções dentro do fragmento entrega o mesmo visual. **A limitação assumida:** ela alcança terreno, água e vidro — não personagem, criaturas nem céu. Reabrir só se a gradação precisar ficar agressiva. Estava marcado `P0` pendente sem que ninguém fosse fazê-lo
 - [~] 1076 `P0` **Exposição por hora do dia — `exposicaoDaHora`, no `toneMappingExposure`**
 - [x] 1077 `P0` **Mapeamento de tom ACES — já existia** desde antes desta seção (`renderer.toneMapping = ACESFilmicToneMapping`). Marcá-lo como pendente foi erro meu de auditoria, o segundo do tipo depois do item 053 (oclusão de ambiente)
 - [~] 1078 `P1` **Sombra puxada para o azul e luz para o âmbar (tonalização dividida)**
@@ -3722,3 +3722,63 @@ segue aberto — com escopo menor e a parte barata resolvida.
 - [~] 1353 `P1` **`marcadoresDeShader.test.ts`** — 11 testes contra o `ShaderLib` real
 - [~] 1354 `P2` **Trava do material** — trocar o Lambert por Standard sem atualizar o teste faria tudo continuar verde verificando o shader errado
 - [~] 1355 `P2` **Chaves e parênteses balanceados** na saída — a forma mais comum de quebrar uma injeção por concatenação, e a de sintoma mais assustador
+
+---
+
+## 65 — Auditoria: o que falta, e o que estava marcado errado
+
+Varredura dos 26 `P0` pendentes, conferindo cada um contra o código em vez de reler o checklist.
+
+### Dois estavam marcados errado
+
+**1075 (passe de LUT) não é tarefa pendente — é decisão tomada e escrita.** `src/render/grading.ts`
+explica por que o `EffectComposer` foi recusado: alvo de render do tamanho da tela, uma cópia por
+quadro e um passe sobre cada pixel, num projeto que nasceu do relato *"está muito muito travado"*. A
+gradação em seis instruções dentro do fragmento que já ia rodar entrega o mesmo visual. A limitação
+está assumida no arquivo: alcança terreno, água e vidro, não personagem, criaturas nem céu.
+
+Ficar como `P0` pendente é pior que estar fechado ou aberto — é um bloqueador aparente que ninguém
+ia atacar, inflando a fila e escondendo o que de fato falta. É o terceiro erro de auditoria deste
+tipo, depois do 1077 (ACES) e do 053 (oclusão de ambiente).
+
+**502 (validador de casa) tem o miolo pronto.** `estaAbrigado` já responde "este espaço é fechado?"
+por busca em largura — a parte difícil. Faltam porta, luz mínima e mobília, e a porta nem existe
+como bloco ainda.
+
+### Os 25 que restam, em cinco blocos
+
+Não são 25 tarefas independentes: são **cinco frentes**, e três delas se resolvem por uma decisão de
+arquitetura cada.
+
+**A. Sandbox de mods em Worker** — 358, 1239, 1251, 1252. Uma frente só. O custo real não é o Worker:
+é tornar a API de mods **assíncrona**, porque `api.world.getBlock(x,y,z)` não atravessa a fronteira
+de reino de execução sem virar `await`. Isso quebra todo mod já escrito. É a única coisa que fecha a
+saída por `[].constructor.constructor('return this')()`, hoje documentada num teste que passa quando
+a fuga funciona.
+
+**B. Capacidades e rede de mod** — 761–768, 775. Nove itens, uma frente. Hoje o mod **não tem rede
+nenhuma** (o sandbox bloqueia `fetch`), então nada está inseguro: o que falta é a maneira de dar rede
+com controle. Depende de A para valer de verdade, porque um wrapper de `fetch` num reino onde o
+script alcança o global é decorativo.
+
+**C. Voz P2P** — 927–932. Seis itens, uma frente, independente das outras. A `RTCPeerConnection` já
+existe; falta a trilha de áudio e a renegociação.
+
+**D. Conteúdo gerado por mod** — 676, 677, 689, 690. Mods registrarem biomas e regras de
+espalhamento. Não existe nada disso hoje.
+
+**E. Mundo vertical** — 029, 495, 496. Dobrar a altura e dar identidade às camadas. O 029 segue
+adiado com motivo: dobra a memória por chunk, muda o custo de iluminação e o formato de save, e o
+modo de falha é **corrupção de save** — que eu não consigo verificar sem rodar o jogo.
+
+### O que isto quer dizer para "o que fazer agora"
+
+Nenhuma das cinco é pequena, e quatro delas são de infraestrutura, não de jogo. A frente com melhor
+razão entre valor e risco é **C (voz)**: é a única isolada, não depende de A, não toca o formato de
+save, e o que ela entrega — falar com quem está no mesmo mundo — é imediatamente perceptível.
+
+**A frente A é a mais importante e a mais cara**, e vale dizer por quê: enquanto ela não existir,
+todo o resto do sistema de mods está construído sobre uma fronteira que o próprio teste admite ser
+furada.
+
+- [x] 1356 `P1` **Auditoria dos 26 `P0`** — dois corrigidos, cinco frentes identificadas
