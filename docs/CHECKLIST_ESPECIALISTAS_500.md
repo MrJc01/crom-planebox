@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1272 itens)
+# Checklist Mestre — Painel de Especialistas (1278 itens)
 
-> **Estado em 26/07/2026** — 601 de 1272 itens tratados (47%), com **849 testes** passando,
+> **Estado em 26/07/2026** — 604 de 1278 itens tratados (47%), com **852 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 88 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 513 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 671 | Pendente. |
+> | `[~]` | 516 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 674 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -3197,6 +3197,34 @@ código, e por isso nenhum teste o encontraria — foi preciso perguntar "para q
 
 ### Anotado como faltando, descoberto nesta varredura
 
-- [ ] 1285 `P1` **Espada/machado por tier** — só a picareta tem corrente; combate e coleta de madeira não progridem
+- [ ] 1285 `P1` ~~Espada/machado por tier~~ **REDIMENSIONADO** — o jogo não tem *tipo* de ferramenta, só `toolTier` genérico, e `damageForTier` já faz a tier valer no combate. Uma espada seria só outro rótulo com o mesmo efeito. Fazer isso de verdade exige um conceito de **classe de ferramenta** (velocidade por material, dano por tipo) — mudança de desenho, não de receita
 - [ ] 1286 `P1` **Diamante sem uso além da picareta** — armadura ou ferramenta especial, senão o tier 4 é um beco
 - [ ] 1287 `P2` **Nenhum bloco exige tier 4**, então a picareta de diamante hoje só é mais rápida (se a velocidade por tier existir) — vale um bloco exclusivo dela, para o degrau ter porta própria
+
+### O teto por saturação — descoberto ao conferir a própria correção anterior
+
+Depois de adicionar a picareta de diamante, fui verificar se ela de fato faz diferença. Não fazia.
+
+`TIER_DAMAGE = [2, 3.5, 5, 7]` ia até o índice 3, e `damageForTier` **satura** no último:
+
+```ts
+const t = Math.max(0, Math.min(TIER_DAMAGE.length - 1, Math.floor(tier || 0)));
+```
+
+Uma picareta de tier 4 batia **exatamente como a de ferro** — a receita mais cara do jogo, sem
+nenhuma diferença. E o comentário logo acima da tabela já falava em *"a picareta de diamante bate
+~3× a mão"*, descrevendo uma ferramenta que não existia: estava aspiracional desde que foi escrito.
+
+**Um teto por saturação é o pior tipo de teto**, porque não falha. Não há erro, não há aviso — só
+deixa de recompensar em silêncio. Quem jogasse concluiria que o diamante "não vale a pena", sem
+nada explicando o porquê.
+
+- [~] 1288 `P1` **`TIER_DAMAGE` estendida ao tier 4** (9,5), mantendo a curva suave
+- [~] 1289 `P1` **Teste que amarra a tabela à corrente de receitas** — a tabela precisa ser mais longa que o maior tier que existe, senão a saturação volta calada
+- [~] 1290 `P1` **Teste de curva sem degrau parado** e **teto de proporção** — sem o segundo, a correção teria a saída fácil de inflar o último valor e virar um botão de deletar inimigo
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1291 `P1` **Tier não afeta a VELOCIDADE de quebra** — `breakCooldown` é fixo (0,42 / 0,16). Uma picareta melhor hoje só desbloqueia blocos e bate mais forte; minerar pedra com diamante leva o mesmo tempo que com madeira, que é o oposto da expectativa do gênero
+- [ ] 1292 `P1` **Não existe classe de ferramenta** (picareta / machado / pá / espada). Sem isso, "espada de ferro" seria só um rótulo diferente para a picareta de ferro
+- [ ] 1293 `P2` **Nenhum bloco exige tier 4**, então a picareta de diamante não abre porta nenhuma — só melhora números

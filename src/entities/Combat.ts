@@ -19,10 +19,20 @@ export const IFRAME_DURATION = 0.5;
 
 /**
  * Dano por tier de ferramenta equipada. Índice = `toolTier` (0 = mão vazia).
- * A curva é deliberadamente suave: a picareta de diamante bate ~3× a mão, não 20×, para o
+ *
+ * A curva é deliberadamente suave: a picareta de diamante bate ~4× a mão, não 20×, para o
  * combate continuar dependendo de posicionamento e não virar um botão de deletar inimigo.
+ *
+ * ## O índice 4 estava faltando
+ *
+ * A tabela ia até o índice 3 e o comentário ao lado já falava em "picareta de diamante" — que
+ * não existia. `damageForTier` **satura** no último índice, então uma picareta de tier 4
+ * bateria exatamente como a de ferro: a receita mais cara do jogo, sem nenhuma diferença.
+ *
+ * Um teto por saturação é o pior tipo de teto, porque não falha — só deixa de recompensar, em
+ * silêncio. Quem jogasse acharia que o diamante "não vale a pena", sem nada explicando.
  */
-export const TIER_DAMAGE = [2, 3.5, 5, 7];
+export const TIER_DAMAGE = [2, 3.5, 5, 7, 9.5];
 
 /**
  * Durabilidade por tier de ferramenta: quantos usos (quebrar bloco ou golpear) antes de quebrar.

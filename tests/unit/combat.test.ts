@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { CRAFTING_RECIPES } from '../../src/crafting/CraftingSystem';
 import {
   ATTACK_COOLDOWN,
   CombatTimers,
@@ -183,5 +184,32 @@ describe('Combat — perfis de mob', () => {
       expect(golpes).toBeGreaterThan(1);   // mas não trivial
       expect(golpes).toBeLessThanOrEqual(12); // nem interminável
     }
+  });
+});
+
+describe('a tabela de dano cobre todos os tiers que existem', () => {
+  it('CRÍTICO: a melhor ferramenta do jogo bate mais que a anterior', () => {
+    // `damageForTier` SATURA no último índice. Com a tabela mais curta que a corrente de
+    // ferramentas, a picareta de diamante bateria exatamente como a de ferro — a receita mais
+    // cara do jogo, sem nenhuma diferença.
+    //
+    // Um teto por saturação é o pior tipo de teto: não falha, só deixa de recompensar em
+    // silêncio. Quem jogasse acharia que o diamante "não vale a pena", sem nada explicando.
+    const maiorTier = Math.max(
+      ...CRAFTING_RECIPES.filter((r) => r.outputTool).map((r) => r.outputTool!.tier),
+    );
+    expect(TIER_DAMAGE.length).toBeGreaterThan(maiorTier);
+    expect(damageForTier(maiorTier)).toBeGreaterThan(damageForTier(maiorTier - 1));
+  });
+
+  it('a curva sobe sempre, sem degrau parado', () => {
+    for (let t = 1; t < TIER_DAMAGE.length; t++) {
+      expect(TIER_DAMAGE[t], `tier ${t} não recompensa`).toBeGreaterThan(TIER_DAMAGE[t - 1]);
+    }
+  });
+
+  it('a curva continua suave — a melhor arma não é um botão de deletar inimigo', () => {
+    // Sem este limite, a correção acima teria a saída fácil: inflar o último valor.
+    expect(TIER_DAMAGE[TIER_DAMAGE.length - 1] / TIER_DAMAGE[0]).toBeLessThan(6);
   });
 });
