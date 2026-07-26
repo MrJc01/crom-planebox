@@ -219,7 +219,11 @@ export interface TelaMontada {
 }
 
 /**
- * Esqueleto de uma tela cheia: fundo, painel, cabeçalho com título e ações, corpo rolável.
+ * Esqueleto de uma tela fullscreen — estilo game UI, não modal web.
+ *
+ * O overlay cobre a tela inteira com um fundo semitransparente que deixa o mundo 3D visível
+ * atrás. O header é uma barra full-width no topo. O corpo preenche todo o espaço restante
+ * com padding lateral generoso.
  *
  * Todas as telas de manutenção compartilham este formato — é o que faz o jogador reconhecer
  * onde está o botão de fechar sem procurar, independentemente da tela.
@@ -229,31 +233,34 @@ export function montarTela(id: string, tituloTexto: string, camada: number = CAM
   raiz.id = id;
   raiz.style.cssText = `
     position: fixed; inset: 0; z-index: ${camada}; display: none;
-    background: rgba(2, 6, 23, 0.94); backdrop-filter: blur(6px);
+    background: rgba(6, 10, 20, 0.82); backdrop-filter: blur(10px);
     color: ${CORES.texto}; font-family: ${FONTE};
-    align-items: center; justify-content: center; padding: 22px; box-sizing: border-box;
+    flex-direction: column; box-sizing: border-box;
   `;
 
+  /* O painel agora é um flex-column que ocupa tudo — sem max-width, sem border-radius. */
   const painel = document.createElement('div');
   painel.style.cssText = `
-    display: flex; flex-direction: column; gap: 14px;
-    width: 100%; max-width: 1040px; height: 100%;
-    background: ${CORES.fundo}; border: 1px solid ${CORES.borda};
-    border-radius: 16px; padding: 20px; box-sizing: border-box; overflow: hidden;
+    display: flex; flex-direction: column;
+    width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
   `;
 
   const cabecalho = document.createElement('div');
-  cabecalho.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px;';
+  cabecalho.style.cssText = `
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 40px; flex: 0 0 auto;
+    background: rgba(15, 23, 42, 0.7); border-bottom: 1px solid rgba(255,255,255,0.08);
+  `;
 
   const titulo = document.createElement('h2');
   titulo.textContent = tituloTexto;
-  titulo.style.cssText = 'margin:0; font-size:20px; font-weight:700;';
+  titulo.style.cssText = `margin:0; font-size:17px; font-weight:700; color:${CORES.aviso}; letter-spacing:1px;`;
 
   const acoes = document.createElement('div');
   acoes.style.cssText = 'display:flex; gap:8px; align-items:center;';
 
   const corpo = document.createElement('div');
-  corpo.style.cssText = 'flex:1; min-height:0; overflow-y:auto;';
+  corpo.style.cssText = 'flex:1; min-height:0; overflow-y:auto; padding: 20px 40px;';
 
   cabecalho.append(titulo, acoes);
   painel.append(cabecalho, corpo);

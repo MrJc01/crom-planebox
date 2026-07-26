@@ -266,4 +266,56 @@ export class PeerSync {
       try { await p?.conn.addIceCandidate(env.data); } catch { /* candidato chegou fora de ordem: ignora */ }
     }
   }
+
+  // --- Sinalização Manual (Sem Servidor) ---
+
+  public async createManualOfferToken(): Promise<string> {
+    const peerId = `manual-${Math.random().toString(36).slice(2, 7)}`;
+    const conn = this.newConnection(peerId);
+    const channel = conn.createDataChannel('crom-sync');
+    this.wireChannel(peerId, channel);
+    this.peers.set(peerId, { id: peerId, conn, channel });
+
+    const offer = await conn.createOffer();
+    await conn.setLocalDescription(offer);
+
+    // Aguarda acumular candidatos ICE locais por 700ms
+    await new Promise((r) => setTimeout(r, 700));
+
+    this.role = 'host';
+    this.roomId = 'manual';
+    return btoa(JSON.stringify({ peerId, sdp: conn.localDescription }));
+  }
+
+  public async acceptManualOfferToken(token: string): Promise<string> {
+    const { peerId, sdp } = JSON.parse(atob(token.trim()));
+    const myId = `manual-guest-${Math.random().toString(36).slice(2, 7)}`;
+    const conn = this.newConnection(peerId);
+    conn.ondatachannel = (e) => this.wireChannel(peerId, e.channel);
+    this.peers.set(peerId, { id: peerId, conn, channel: null });
+
+    await conn.setRemoteDescription(sdp);
+    const answer = await conn.createAnswer();
+    await conn.setLocalDescription(answer);
+
+    await new Promise((r) => setTimeout(r, 700));
+
+    this.role = 'guest';
+    this.roomId = 'manual';
+    return btoa(JSON.stringify({ peerId: myId, sdp: conn.localDescription }));
+  }
+
+  public async acceptManualAnswerToken(token: string): Promise<boolean> {
+    try {
+      const { sdp } = JSON.parse(atob(token.trim()));
+      const [p] = this.peers.values();
+      if (p) {
+        await p.conn.setRemoteDescription(sdp);
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
 }

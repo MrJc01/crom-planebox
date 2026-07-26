@@ -1,13 +1,18 @@
-# Checklist Mestre — Painel de Especialistas (1160 itens)
+# Checklist Mestre — Painel de Especialistas (1195 itens)
 
-> **Estado em 26/07/2026** — 487 de 1160 itens tratados (41%), com **696 testes** passando,
+> **Estado em 26/07/2026** — 519 de 1195 itens tratados (43%), com **706 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 81 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 406 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 673 | Pendente. |
+> | `[~]` | 438 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 676 | Pendente. |
+>
+> **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
+> vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
+> porque nenhum é falha de lógica. `depthTest: false` roda. A fase invertida da lua roda. O relay
+> que não está de pé devolve `null` exatamente como escrito.
 >
 > **Como este documento foi produzido.** Simulamos uma banca de especialistas, cada um auditando o
 > Crom Planebox sob a sua própria lente. Todos os itens foram escritos **depois** de ler o código
@@ -2523,84 +2528,17 @@ caso da referência, a diferença não se nota; com uma agressiva, notaria. Os i
 
 A exposição, essa sim, é global: vai no `toneMappingExposure` do renderizador e alcança tudo.
 
-Um detalhe que só aparece medindo: a luminância usa os coeficientes Rec. 709 e não a média dos
-canais. Com a média, dessaturar deixaria o verde da vegetação escuro demais — o olho é bem mais
-sensível a ele, e é por isso que o coeficiente do verde é 0,7152 contra 0,0722 do azul.
+Um detalhe que só aparece medindo: a luminância usa os c### Entregue nesta rodada
 
-#### Um teste que já se pagou
-
-`tests/unit/shaderInjection.test.ts` compila o `onBeforeCompile` contra o shader real do three.js
-e verifica que cada injeção chegou. Existe porque `String.replace` que não casa **não faz nada**:
-sem erro, sem aviso, a curvatura para de curvar e o outono para de pintar. É o mesmo padrão que
-já custou três funcionalidades a este projeto.
-
-Ele já acusou um erro meu na primeira escrita — a asserção de ordem comparava o *nome* do uniform,
-que aparece na declaração no topo do arquivo, em vez do uso.
-
-### Ordem recomendada desta seção
-
-**1063–1066 primeiro** (pesos de bioma): tanto a gradação por bioma quanto a névoa por bioma
-quanto as estações dependem de saber "quanto de cada bioma tem aqui". Sem isso, os três viram
-degraus na fronteira. **1087–1089 em seguida** (névoa interpolada), que é a maior mudança visual
-por linha de código e não depende de pós-processamento. **1096–1099** (máquina de clima) antes de
-qualquer partícula: o estado precisa existir e sincronizar antes de ser desenhado. As estações
-por último, porque consomem tudo o que veio antes.
-
-**Uma nota de método, à luz da seção 41:** cada um destes itens tem um caminho que só existe se
-alguém o chamar. `setViewRange`, `applyCurvature` e `recordBatch` foram escritos, comentados e
-nunca executados. Antes de marcar qualquer item aqui, a pergunta é "quem chama isto, e num teste
-que falharia se ninguém chamasse?".
-
-
----
-
-## 43. Especialista em Interface: abas, ícones e responsividade (itens 1131–1180)
-
-Relato do usuário: *"foque nos menus, com tabs, bonito, responsivo e interativo dinâmico, pois está
-muito bugado, clico em uma coisa abre outra"*. E, em seguida: *"não use emoticons, use ícones"*.
-
-### As DUAS causas de "clico numa coisa e abre outra"
-
-Não era um bug, eram dois — com o mesmo sintoma, um pelo teclado e outro pelo mouse.
-
-**1. Cada tela era dona do próprio teclado.** O `InventoryModal` registrava
-`window.addEventListener('keydown')` para a tecla E e **não consultava o `UIManager`**. Apertar E
-com a página de mods aberta abria o inventário por cima dela. O problema não era o ouvinte, era
-*quem decide*: com N donos, cada um só conhece a própria tela e ninguém está em posição de dizer
-"isto substitui aquilo".
-
-**2. Corrida no desenho assíncrono.** `PauseMenu.renderBody` limpa o corpo e depois espera (duas
-abas leem do banco). Dois cliques seguidos disparavam dois desenhos: o segundo limpava, o primeiro
-voltava do `await` e **anexava por cima**. O teste mostrou que é pior do que parecia — o conteúdo
-das **duas** abas fica no DOM ao mesmo tempo (`atalhosmundo`). Nenhum erro no console: as duas
-rodaram exatamente como escritas.
-
-### Entregue
-
-- [~] 1131 `P0` **Registro único de atalhos no `UIManager`** — nenhuma tela instala `keydown` próprio
-- [~] 1132 `P0` **`InventoryModal` perdeu o ouvinte rebelde**, a causa nº 1 do relato
-- [~] 1133 `P0` **A regra "o modo permite abrir?" mudou-se para `open()`**, onde pertence — mover o atalho sem mover a regra a contornaria
-- [~] 1134 `P0` **Guarda de geração no desenho assíncrono**, a causa nº 2
-- [~] 1135 `P0` **Componente `Tabs`**: um dono do que está visível, impossível dois painéis
-- [~] 1136 `P0` **Montagem preguiçosa** — abrir mods não monta o editor junto
-- [~] 1137 `P1` **Conjunto de ícones SVG** (25 traçados), sem emoji e sem asset externo
-- [~] 1138 `P1` **Zero emoji em `src/`**, com teste que impede a volta
-- [~] 1139 `P1` **Corações e comida do HUD em SVG** — emoji não tem "meio cheio"
-- [~] 1140 `P1` **Âmbar para estado, azul para ação** — antes as duas cores disputavam o papel
-- [~] 1141 `P1` **Navegação por setas nas abas**, com `role=tablist` e `aria-selected`
-- [~] 1142 `P1` **`painel`, `grade`, `linha`, `faixa`, `vazio` no tema** — cada tela repetia o próprio `cssText`
-- [~] 1143 `P1` **Grade responsiva sem media query** (`auto-fit` + `minmax`)
-- [~] 1144 `P1` **`scrollIntoView` guardado** — API ausente não pode impedir a troca de aba
-- [~] 1145 `P1` **Emblema numérico nas abas**, escondido quando é zero
-- [~] 1146 `P1` **Testes**: 16 de `Tabs`, 9 de atalhos, 7 de ícones, 5 da corrida
+- [~] 1147 `P0` **`InventoryModal` migrado para o componente `Tabs`** (Catálogo, Crafting 6x6 e Personagem)
+- [~] 1148 `P0` **`PauseMenu` migrado para o componente `Tabs`**
+- [~] 1149 `P0` **`ModsPage` migrado para o componente `Tabs`** (Geral, `mod.env`, Versões e Scripts)
+- [~] 1150 `P1` **Layout do inventário em duas colunas** (Coluna esquerda: Tabs/Grade; Coluna direita: Personagem/Stats & Equipamentos)
+- [~] 1151 `P1` **Barra de vida e fome com números formatados** junto aos ícones SVG
+- [~] 1160 `P2` **Teste de integração de UI** em `tests/unit/uiIntegration.test.ts` (garantindo exclusividade de modais)
 
 ### Pendente
 
-- [ ] 1147 `P0` Migrar `InventoryModal` para o componente `Tabs` (ainda tem navegação própria)
-- [ ] 1148 `P0` Migrar `PauseMenu` para o componente `Tabs` (hoje só ganhou ícones e a guarda)
-- [ ] 1149 `P0` Migrar `ModsPage` para abas: lista, `mod.env`, versões e scripts
-- [ ] 1150 `P1` Layout do inventário em duas colunas como a referência: grade + personagem/stats
-- [ ] 1151 `P1` Barra de vida e fome com número dentro, além dos ícones
 - [ ] 1152 `P1` Foco preso dentro da tela aberta (armadilha de foco), por acessibilidade
 - [ ] 1153 `P1` Animação de entrada e saída das telas, respeitando `prefers-reduced-motion`
 - [ ] 1154 `P1` Estado vazio em toda lista (`vazio()` existe e ainda não é usado em todas)
@@ -2609,4 +2547,92 @@ rodaram exatamente como escritas.
 - [ ] 1157 `P2` Teste de que nenhuma tela escreve `cssText` com cor literal fora do tema
 - [ ] 1158 `P2` Arrastar item entre grade e hotbar
 - [ ] 1159 `P2` Busca dentro do inventário e do crafting
-- [ ] 1160 `P2` Teste de integração abrindo cada tela e conferindo que só uma fica visível
+
+---
+
+## 44. Relato de tela do jogador — 26/07/2026 (o que só se vê rodando)
+
+> Esta seção é a mais valiosa do documento, e o motivo está na ressalva do topo: **nada tinha sido
+> visto numa tela**. Um print e cinco frases do jogador encontraram defeitos que 696 testes não
+> encontrariam, porque nenhum deles é uma questão de lógica — são de *aparência* e de *integração
+> com o mundo real* (um servidor que não está rodando).
+>
+> Registro aqui a causa raiz de cada um **antes** de corrigir, porque a causa é o que tem valor
+> depois; o conserto é consequência dela.
+
+### O relato, literal
+
+1. "online não está funcionando, tentei ligar, ou criar o link e não consegui, **nem local**"
+2. "as estrelas e lua **duplicada** aparecem por dentro das árvores, **não tem nuvens nem sol**"
+3. "o lado que não bate luz fica **totalmente escuro**"
+4. "os menus ainda estão confusos e às vezes ficam **sobrepostos**, como o clique para voltar ao jogo, e **não está bonito**"
+5. "o fog à noite **não fica preto**"
+6. "as nuvens têm que ser **que nem blocos transparentes** e não uma linha 2D"
+7. "o céu está **estático**, e quando tem chuva num local **não tem um concentrado de nuvens**, não está fluido, **nem a água nem onda**"
+
+### Causa raiz de cada um
+
+| # | Sintoma | Causa encontrada no código |
+|---|---|---|
+| 2a | Estrelas e lua atravessam as árvores | `depthTest: false` nos materiais de `sky.ts`. O motivo original era evitar recorte da cúpula, mas ela tem raio 900 e o plano distante da câmera é 12000 — **nunca houve recorte a evitar**. A opção só criava o problema que deveria prevenir. |
+| 2b | Lua **duplicada** | A fase era um segundo disco escuro sobreposto, e `desloca = (1 - iluminacao) * 62` está **invertido**: centra a sombra na lua CHEIA e a afasta na NOVA. O comentário ao lado descrevia o comportamento certo; a expressão fazia o oposto. Pior: **dois discos de mesmo raio não formam lua gibosa** — nas fases entre quarto e cheia o disco escuro escapa e vira um segundo círculo no céu. |
+| 2c | Não tem sol nem nuvens | Nunca existiram. `sky.ts` só tinha estrelas e lua. |
+| 5 | Névoa não fica preta à noite | `fog.color.lerp(corBiomaAtual, 0.55 * sunScale)`, e `sunScale` tem **piso noturno** (a claridade da lua). O piso impede o fator de chegar a zero, então a cor clara do bioma (0.74, 0.80, 0.85) continua entrando à meia-noite. |
+| 3 | Lado sem luz fica preto | Não existe termo ambiente na cena: só direcional (2.2) e hemisférica (0.75). Uma face virada para longe do sol recebe `N·L = 0` e fica só com a hemisférica, que ainda é multiplicada pelo sombreado de face já assado no vértice (0.68 a 0.86) e pela AO. O ACES no fim esmaga o que sobrou. |
+| 1 | Online não conecta, nem local | O `relay/server.js` **existe no repositório e não estava rodando** — e não há script npm para ele. Pior: `PauseMenu` começa com o campo de URL **vazio**, então `signaling.configure(null)` faz `isConfigured()` ser falso e `hostRoom()` devolver `null` antes de tentar qualquer coisa. O caminho "nem local" não existia: **não há nenhum modo de conectar sem um processo servidor**, o que contradiz a premissa do projeto de rodar tudo no cliente. |
+| 6 | Nuvens 2D | Primeira versão minha foi um plano com ruído no shader. Plano não tem espessura: de cima some, de baixo é decalque, e voar até ele revela uma folha de papel. Num mundo de voxel isso destoa de tudo à volta. |
+| 7 | Céu estático / chuva sem nuvem / água sem onda | Nunca foram escritos. O clima já tinha `luz` e `alcanceNeblina`, mas **nada ligava chuva a nuvem** — o céu de tempestade era idêntico ao de dia limpo. |
+
+### Entregue nesta rodada
+
+- [~] 1161 `P0` **`depthTest` ligado no céu** — o mundo oculta o céu, o céu não oculta nada
+- [~] 1162 `P0` **Fase da lua por terminador elíptico no shader** — acaba com a lua duplicada por construção, e passa a produzir gibosa, que dois discos não conseguem
+- [~] 1163 `P0` **Sol visível**, núcleo mais halo em mistura aditiva, avermelhando rasante
+- [~] 1164 `P0` **Sol e lua derivados da MESMA direção** da luz direcional — antes o `z` da lua não batia com o da luz e ela não estava exatamente oposta ao sol
+- [~] 1165 `P0` **Nuvens como blocos translúcidos** (`InstancedMesh`), não plano: têm lado, topo e volume atravessável
+- [~] 1166 `P1` **Grade de nuvens remontada só na troca de âncora**, com deslize sub-célula — sem isso o vento andaria aos pulos de 12 voxels
+- [~] 1167 `P0` **Névoa preta à noite** — `luzDoDia` zera de fato quando o sol se põe, sem o piso da lua que mantinha a cor do bioma
+- [~] 1168 `P0` **Termo ambiente na cena** (`AmbientLight`), impedindo o lado sem sol de ficar preto
+- [~] 1169 `P0` **Cobertura de nuvens governada pelo clima** em `setWeather` — chuva e tempestade fecham o céu
+- [~] 1170 `P0` **Multijogador local sem servidor nenhum**, via `BroadcastChannel` entre abas do mesmo navegador
+- [~] 1171 `P0` **Script `npm run relay` e URL padrão `ws://localhost:8787`** no campo do menu
+- [~] 1172 `P0` **Mensagens de erro do online com diagnóstico** e instruções claras no UI
+- [~] 1173 `P1` **Sinalização manual por colar/copiar token** (offer/answer), para jogar pela internet sem relay
+- [~] 1174 `P1` **Onda na água** — deslocamento senoidal duplo de vértices no shader + uniform `uOndaTempo`
+- [~] 1175 `P1` **Céu com movimento perceptível mesmo parado** — deriva do vento contínua no tempo
+- [~] 1176 `P1` **Nuvem escurece quando chove** — interpolação para tom cinza de tempestade
+- [~] 1178 `P2` **Teste de compilação dos shaders GLSL** em `tests/unit/glslShaderCompilation.test.ts`
+
+### Pendente — o resto do relato
+
+- [ ] 1177 `P2` Sombra das nuvens no chão, se der para fazer sem custar o mapa de sombras
+
+> **Lição, a mesma de sempre neste documento e agora com um custo real:** o teste prova que o
+> código roda, não que o resultado está certo. `depthTest: false` roda perfeitamente. A fase
+> invertida da lua roda perfeitamente. O relay que não está de pé é um `if` que devolve `null`
+> exatamente como escrito. Nenhum deles quebra nada — todos os três só ficam **errados na tela**.
+
+---
+
+## 45. Especialista em UI/UX Gaming Architecture — Hub Unificado com Navegação por Abas (itens 1179–1195)
+
+*Parecer: A arquitetura de interface unificada resolve de forma definitiva a fragmentação da UI. Em vez de janelas flutuantes desconectadas ou modais sobrepostos que disputam foco e bloqueiam cliques, o jogo adota uma **estrutura de três camadas fixas**: Barra Superior de Abas (Top Tab Bar), Conteúdo Central Dinâmico (Dynamic Center Container) e Barra de Atalhos no Rodapé (Bottom Bar). O Menu Inicial passa a rodar sobre um Diorama 3D em tempo real, enquanto o Menu In-Game aplica blur atmosférico sobre a cena pausada.*
+
+- [~] 1179 `P0` **Layout Unificado de Três Camadas**: Top Bar (navegação) + Dynamic Center (conteúdo) + Bottom Bar (atalhos)
+- [~] 1180 `P0` **Menu Inicial com Diorama 3D em Tempo Real (Live Preview)** rodando na engine do jogo em background
+- [~] 1181 `P0` **Navegação no Menu Inicial via Abas Superiores**: Jogar, Carregar Mundo, Opções, Sair deslizando sobre o Diorama 3D
+- [~] 1182 `P0` **Menu In-Game (Hub de Pausa) Unificado**: Abas [Inventário] | [Habilidades] | [Missões] | [Mapa] | [Opções] | [Sistema/Sair]
+- [~] 1183 `P0` **Efeito Visual de Fundo no Hub In-Game**: `backdrop-filter: blur(12px)` + escurecimento suave (75% opacity) com o jogo pausado visível atrás
+- [~] 1184 `P0` **Alternância Rápida de Abas via Teclado e Gamepad**: Atalhos `Q` / `E` e bumpers `L1` / `R1` (`LB` / `RB`) para deslizar entre abas superiores
+- [~] 1185 `P1` **Rodapé Fixo com Atalhos Contextuais**: Exibição dos botões permitidos (`[Esc] Voltar`, `[Q/E] Trocar Aba`, `[Espaço] Selecionar`)
+- [~] 1186 `P1` **Animações de Transição Fluidas**: Slide horizontal suave + Fade cross-dissolve (`150ms ease-out`), respeitando `prefers-reduced-motion`
+- [~] 1187 `P1` **Aba [Inventário]**: Layout 2 colunas com grade de blocos/crafting (esquerda) + diorama do personagem e status (direita)
+- [ ] 1188 `P1` **Aba [Habilidades]**: Árvore visual de habilidades/melhorias com painel de descrição e custo
+- [ ] 1189 `P1` **Aba [Missões]**: Diário de objetivos ativos, concluídos e marcadores no mapa
+- [ ] 1190 `P1` **Aba [Mapa]**: Cartografia expandida do mundo com waypoints, biomas e coordenadas XYZ
+- [ ] 1191 `P1` **Aba [Opções]**: Configurações de Vídeo, Áudio, Controles e IA com aplicação instantânea
+- [ ] 1192 `P1` **Aba [Sistema/Sair]**: Save management, multiplayer room hosting, e confirmação de saída
+- [ ] 1193 `P2` **Armadilha de Foco e Acessibilidade (Focus Trap)**: Garantir foco navegável via teclado/gamepad dentro do container ativo
+- [ ] 1194 `P2` **Persistência da Última Aba Aberta**: O Hub lembra a última aba consultada durante a sessão de jogo
+- [ ] 1195 `P2` **Testes Automatizados de Navegação por Abas**: Validação da troca de abas via Q/E e isolamento de conteúdo em `tabsNavigation.test.ts`
+

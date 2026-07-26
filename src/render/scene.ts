@@ -45,6 +45,17 @@ export const gradacaoUniforms = {
   forca: { value: 0 },
 };
 
+/**
+ * Relógio da onda da água, compartilhado por todos os materiais de água.
+ *
+ * Um uniform só, atualizado uma vez por quadro. A alternativa seria remontar a malha da água com
+ * alturas novas — o que significaria marcar todo chunk com água como sujo a cada quadro, e é
+ * exatamente o tipo de coisa que derruba o jogo para conseguir um efeito de superfície.
+ */
+export const ondaUniforms = {
+  tempo: { value: 0 },
+};
+
 export const tinturas = {
   /** Cor multiplicada na folhagem. Branco = sem efeito. */
   folhagem: { value: new THREE.Color(1, 1, 1) },
@@ -61,7 +72,7 @@ export const tinturas = {
  * segunda atribuição apagaria a primeira em silêncio, e o sintoma seria "a curvatura parou de
  * funcionar quando o outono chegou", sem nada apontando para a causa.
  */
-export function applyCurvature(mat: THREE.Material): void {
+export function applyCurvature(mat: THREE.Material, ehAgua = false): void {
   // Uniform de aparição, **por material** e não compartilhado: cada chunk que está chegando tem o
   // próprio progresso. Fica pendurado no material para o chamador poder ajustar sem guardar um
   // mapa paralelo — e como todos os materiais compartilham o mesmo `customProgramCacheKey`, criar
@@ -94,13 +105,28 @@ export function applyCurvature(mat: THREE.Material): void {
        #endif`,
     );
 
+    // Onda da água, só no material da água.
+    //
+    // Duas senoides de frequências que não são múltiplas uma da outra: o padrão resultante leva
+    // muito tempo para se repetir, e o olho lê como movimento irregular em vez de uma esteira
+    // rolante. Uma senoide só, por mais bem escolhida, denuncia o período em segundos.
+    //
+    // O deslocamento é pequeno (±0,11 voxel) de propósito: a água é feita de blocos com topo
+    // rebaixado, e uma onda grande separaria visivelmente um bloco do vizinho.
+    shader.uniforms.uOndaTempo = ondaUniforms.tempo;
+    const onda = ehAgua
+      ? `cqWorld.y += (sin(cqWorld.x * 0.42 + uOndaTempo * 1.7)
+                     + sin(cqWorld.z * 0.31 + uOndaTempo * 1.15)) * 0.055;`
+      : '';
+
     shader.vertexShader =
-      'uniform float uCurvStart;\nuniform float uCurvInvR;\n' +
+      'uniform float uCurvStart;\nuniform float uCurvInvR;\nuniform float uOndaTempo;\n' +
       'uniform vec3 uTintFolhagem;\nuniform vec3 uTintGrama;\nuniform float uMolhado;\n' +
       'attribute float aTint;\n' +
       shader.vertexShader.replace(
         '#include <project_vertex>',
         `vec4 cqWorld = modelMatrix * vec4(transformed, 1.0);
+         ${onda}
          float cqDist = distance(cqWorld.xz, cameraPosition.xz);
          float cqDrop = max(0.0, cqDist - uCurvStart);
          cqWorld.y -= cqDrop * cqDrop * uCurvInvR;
@@ -181,7 +207,7 @@ export interface GameScene {
    * Efeitos do clima, como MULTIPLICADORES do que o bioma e a hora já definiram.
    * `luz` escurece o céu; `alcance` fecha a névoa.
    */
-  setWeather(luz: number, alcance: number): void;
+  setWeather(luz: number, alcance: number, nuvens?: number): void;
   /**
    * Cor multiplicativa da folhagem e da grama, e o quanto o chão está molhado.
    * Não remonta chunk: só troca uniforms lidos pelo canal `aTint` do mesher.
@@ -252,8 +278,24 @@ export function createScene(container: HTMLElement): GameScene {
   scene.add(sun.target);
 
   // luz ambiente: céu azulado por cima, quicada esverdeada por baixo
-  const hemi = new THREE.HemisphereLight(0xbdd9f2, 0x5a6b46, 0.75);
+  const hemi = new THREE.HemisphereLight(0xbdd9f2, 0x7d8a68, 0.9);
   scene.add(hemi);
+
+  /**
+   * Termo ambiente — o que faltava para o lado sem sol não ser preto.
+   *
+   * O relato foi "o lado que não bate luz fica totalmente escuro", e a causa é que a cena só tinha
+   * direcional e hemisférica. Uma face virada para longe do sol recebe `N·L = 0` do direcional e
+   * fica só com a hemisférica; essa sobra ainda é multiplicada pelo sombreado de face já assado no
+   * vértice (0,68 a 0,86 nas laterais) e pela oclusão de ambiente, e o ACES no fim esmaga o que
+   * restou. Três atenuações em cima de um valor já pequeno dão preto.
+   *
+   * O ambiente incide igual em toda face, independente da normal, então ele **levanta o piso**
+   * sem achatar o relevo — quem dá forma continua sendo o direcional. O direcional caiu de 2,2
+   * para 1,75 na mesma medida, senão o lado iluminado estouraria no tonemapping.
+   */
+  const ambiente = new THREE.AmbientLight(0xdfe9f5, 0.5);
+  scene.add(ambiente);
 
   // Céu noturno: estrelas por padrão e lua com fases. A semente vem depois, via `setSkySeed`.
   const sky = new Sky(0x5eed);
@@ -321,7 +363,9 @@ export function createScene(container: HTMLElement): GameScene {
   let sunScale = 1;
   let sunAngle = 0;
   const DAY_SKY = new THREE.Color(0x9fc7e8);
-  const NIGHT_SKY = new THREE.Color(0x0a1020);
+  // Quase preto, e não o azul-ardósia de antes: com a névoa assumindo esta cor à noite, um
+  // 0x0a1020 deixava o horizonte visivelmente azul num mundo escuro.
+  const NIGHT_SKY = new THREE.Color(0x04070f);
   const DUSK_SKY = new THREE.Color(0xe8956b);
   const BRANCO = new THREE.Color(0xffffff);
   const tmpSky = new THREE.Color();
@@ -331,7 +375,16 @@ export function createScene(container: HTMLElement): GameScene {
   function setMoonPhase(fase: number): void { fasaLunar = fase; }
   function getMoonPhase(): number { return fasaLunar; }
 
+  // Relógio de parede para a deriva do vento nas nuvens. Independente da hora do jogo de
+  // propósito: o vento sopra na mesma velocidade com o tempo acelerado ou parado, e é ele que
+  // impede o céu de parecer uma foto.
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const agora = (): number =>
+    ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) / 1000;
+
   function setTimeOfDay(t: number): void {
+    const relogioCeu = agora();
+    ondaUniforms.tempo.value = relogioCeu;
     const frac = ((t % 1) + 1) % 1;
     sunAngle = frac * Math.PI * 2;
 
@@ -342,6 +395,10 @@ export function createScene(container: HTMLElement): GameScene {
     // O piso noturno vem da FASE DA LUA, e não é mais fixo em 0.12. É o que faz a lua nova ser
     // uma noite realmente escura e a cheia uma noite navegável — e, como o motor separa luz de
     // céu de luz de bloco, a tocha mantém o mesmo valor nas duas.
+    // Luz do SOL sozinha, sem o piso lunar: zera de verdade à noite. É a diferença que faz a
+    // névoa ficar preta — ver o comentário adiante, na cor da névoa.
+    const luzDoDia = Math.max(0, Math.min(1, elevation * 1.5 + 0.35));
+
     const pisoNoturno = claridadeNoturna(fasaLunar);
     // O clima multiplica DEPOIS do piso noturno: uma tempestade escurece a noite de lua cheia,
     // mas o piso continua sendo um piso — o mundo nunca chega ao preto absoluto.
@@ -354,15 +411,21 @@ export function createScene(container: HTMLElement): GameScene {
     tmpSky.lerp(DUSK_SKY, duskAmount * 0.55);
     const fog = scene.fog as THREE.Fog | null;
     if (fog) {
-      // A cor do bioma tinge o céu na proporção da luz do sol: de dia o deserto amarela e o
-      // pântano esverdeia o horizonte; de noite tudo volta à cor do céu, porque névoa é ar
-      // iluminado e sem sol ela não tem cor própria.
-      fog.color.copy(tmpSky).lerp(corBiomaAtual, 0.55 * sunScale);
+      // A cor do bioma tinge o céu na proporção da **luz do dia**, não de `sunScale`.
+      //
+      // Este era o defeito do relato "o fog à noite não fica preto". `sunScale` tem um piso
+      // noturno — a claridade da lua — e portanto NUNCA chega a zero. O fator nunca zerava, e a
+      // cor clara do bioma (0,74 0,80 0,85) continuava entrando à meia-noite, deixando o
+      // horizonte cinza dentro de uma noite escura.
+      //
+      // `luzDoDia` zera de fato quando o sol se põe. Névoa é ar iluminado pelo SOL: sem ele, ela
+      // não tem cor própria, e a lua não ilumina o ar o bastante para dar cor a nada.
+      fog.color.copy(tmpSky).lerp(corBiomaAtual, 0.55 * luzDoDia);
     }
 
     aplicarLuzes();
 
-    sky.update(camera, sunAngle, elevation, fasaLunar);
+    sky.update(camera, sunAngle, elevation, fasaLunar, tmpSky, relogioCeu);
   }
 
   function getSunScale(): number {
@@ -465,8 +528,12 @@ export function createScene(container: HTMLElement): GameScene {
   }
 
   function aplicarLuzes(): void {
-    sun.intensity = 2.2 * sunScale + clarao * 3.4;
-    hemi.intensity = 0.75 * Math.max(0.25, sunScale) + clarao * 2.2;
+    sun.intensity = 1.75 * sunScale + clarao * 3.4;
+    hemi.intensity = 0.9 * Math.max(0.3, sunScale) + clarao * 2.2;
+    // Piso de 0,26 mesmo na noite mais fechada: é o mínimo para uma parede virada para longe da
+    // lua continuar sendo uma parede, e não um recorte preto. Escuro o bastante para a tocha
+    // continuar valendo a pena.
+    ambiente.intensity = 0.26 + 0.34 * sunScale + clarao * 1.2;
     if (clarao > 0) {
       (scene.background as THREE.Color).copy(tmpSky).lerp(BRANCO, clarao * 0.7);
     } else {
@@ -500,11 +567,24 @@ export function createScene(container: HTMLElement): GameScene {
     tinturas.molhado.value = Math.max(0, Math.min(1, molhado));
   }
 
-  function setWeather(luz: number, alcance: number): void {
+  /**
+   * Efeitos do clima. `nuvens` é a cobertura do céu, 0 a 1.
+   *
+   * A cobertura é **derivada da luz do clima** quando não vem explícita, e não é um acaso: um
+   * clima escurece o mundo justamente porque há nuvem entre o sol e o chão. Amarrar as duas
+   * garante que nunca haja tempestade com céu limpo — que era exatamente o relato, chuva caindo
+   * de um céu idêntico ao de um meio-dia de sol.
+   */
+  function setWeather(luz: number, alcance: number, nuvens?: number): void {
     const mudouAlcance = Math.abs(alcance - alcanceClima) > 1e-4;
     luzClima = luz;
     alcanceClima = alcance;
     if (mudouAlcance) aplicarAlcance();
+
+    const cobertura = nuvens ?? Math.max(0, Math.min(1, (1 - luz) * 1.7));
+    // Quanto mais escuro o clima, mais carregada a nuvem. Nuvem branca numa tempestade é o tipo
+    // de detalhe que desmancha a cena inteira.
+    sky.setCobertura(cobertura, Math.max(0, Math.min(1, (1 - luz) * 1.9)));
   }
 
   function setBiomeAmbience(cor: [number, number, number], alcance: number, dt: number): void {

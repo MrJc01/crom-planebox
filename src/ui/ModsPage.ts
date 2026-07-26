@@ -1,17 +1,12 @@
 // Página de Mods: ver, ativar, versionar e exportar as modificações do mundo.
-//
-// Versionamento, rollback e quarentena já existiam, mas só a IA os alcançava — para voltar uma
-// versão era preciso pedir a ela. Uma informação que o usuário precisa ter à mão não pode
-// depender de uma conversa.
-//
-// A página é deliberadamente densa: mostra tudo de um mod numa tela só, porque o caso de uso é
-// diagnóstico ("por que este bloco sumiu?"), e diagnóstico com navegação em camadas é pior.
+// Migrada para o componente Tabs (Item 1149).
 
 import { UIScreen } from './UIManager';
 import { ModService } from '../mods/ModService';
 import { ModRuntime } from '../mods/ModRuntime';
 import { descreverEnv, resolverEnv } from '../mods/ModEnv';
 import { ModPackage } from '../mods/ModTypes';
+import { Tabs } from './Tabs';
 
 export class ModsPage implements UIScreen {
   readonly id = 'mods-page';
@@ -56,7 +51,7 @@ export class ModsPage implements UIScreen {
 
     const titulo = document.createElement('h2');
     titulo.textContent = 'Mods deste mundo';
-    titulo.style.cssText = 'margin:0; font-size:21px; font-weight:700;';
+    titulo.style.cssText = 'margin:0; font-size:21px; font-weight:700; color:#38bdf8;';
 
     const acoes = document.createElement('div');
     acoes.style.cssText = 'display:flex; gap:8px;';
@@ -80,7 +75,7 @@ export class ModsPage implements UIScreen {
     `;
 
     const detalhe = document.createElement('div');
-    detalhe.style.cssText = 'flex:1; overflow-y:auto; min-width:0;';
+    detalhe.style.cssText = 'flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden;';
 
     corpo.append(lista, detalhe);
     painel.append(cabecalho, corpo);
@@ -93,7 +88,7 @@ export class ModsPage implements UIScreen {
     b.textContent = texto;
     b.style.cssText = `
       background:${fundo}; border:1px solid #334155; border-radius:8px; color:#e2e8f0;
-      padding:8px 13px; font-size:13px; cursor:pointer; white-space:nowrap;
+      padding:8px 13px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;
     `;
     return b;
   }
@@ -115,7 +110,7 @@ export class ModsPage implements UIScreen {
       const ativo = mod.id === this.selecionado;
       item.style.cssText = `
         text-align:left; background:${ativo ? '#1e293b' : 'transparent'};
-        border:1px solid ${ativo ? '#334155' : 'transparent'}; border-radius:8px;
+        border:1px solid ${ativo ? '#38bdf8' : 'transparent'}; border-radius:8px;
         padding:9px 11px; color:#e2e8f0; cursor:pointer; display:flex; flex-direction:column; gap:3px;
       `;
 
@@ -140,29 +135,102 @@ export class ModsPage implements UIScreen {
 
     if (!mod) {
       const dica = document.createElement('p');
-      dica.textContent = 'Selecione um mod à esquerda para ver o conteúdo, o histórico de versões e o que ele colocou no mundo.';
+      dica.textContent = 'Selecione um mod à esquerda para ver o conteúdo, o histórico de versões e as configurações.';
       dica.style.cssText = 'font-size:13px; color:#64748b; line-height:1.6;';
       this.detalhe.appendChild(dica);
       return;
     }
 
-    // Quarentena primeiro: é a informação que explica "por que meu mod sumiu".
-    if (mod.quarantined) {
-      const aviso = document.createElement('div');
-      aviso.style.cssText = `
-        background:rgba(251,191,36,0.1); border:1px solid #a16207; border-radius:10px;
-        padding:12px 14px; margin-bottom:14px; font-size:13px; line-height:1.55;
-      `;
-      aviso.innerHTML = `<strong>Este mod foi isolado automaticamente.</strong><br>` +
-        `Ele falhou ao ser aplicado e foi desligado para o mundo poder carregar. Motivo:<br>` +
-        `<code style="color:#fbbf24">${escapar(mod.quarantineReason ?? 'desconhecido')}</code>`;
-      this.detalhe.appendChild(aviso);
-    }
+    // Usar a estrutura Tabs para organizar a aba de detalhes do Mod selecionado
+    const modTabs = new Tabs();
 
-    this.detalhe.appendChild(this.blocoCabecalho(mod));
-    this.detalhe.appendChild(this.blocoEnv(mod));
-    this.detalhe.appendChild(this.blocoConteudo(mod));
-    this.detalhe.appendChild(await this.blocoVersoes(mod));
+    // Aba 1: Geral & Conteúdo
+    modTabs.adicionar({
+      id: 'general',
+      titulo: 'Geral & Conteúdo',
+      icone: 'mundo',
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:14px; overflow-y:auto; height:100%;';
+        if (mod.quarantined) {
+          const aviso = document.createElement('div');
+          aviso.style.cssText = `
+            background:rgba(251,191,36,0.1); border:1px solid #a16207; border-radius:10px;
+            padding:12px 14px; font-size:13px; line-height:1.55;
+          `;
+          aviso.innerHTML = `<strong>Este mod foi isolado automaticamente.</strong><br>` +
+            `Ele falhou ao ser aplicado e foi desligado para o mundo poder carregar. Motivo:<br>` +
+            `<code style="color:#fbbf24">${escapar(mod.quarantineReason ?? 'desconhecido')}</code>`;
+          container.appendChild(aviso);
+        }
+        container.appendChild(this.blocoCabecalho(mod));
+        container.appendChild(this.blocoConteudo(mod));
+      },
+    });
+
+    // Aba 2: Configuração mod.env
+    modTabs.adicionar({
+      id: 'env',
+      titulo: 'mod.env',
+      icone: 'chat',
+      emblema: () => mod.env?.chaves.length || 0,
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:14px; overflow-y:auto; height:100%;';
+        container.appendChild(this.blocoEnv(mod));
+      },
+    });
+
+    // Aba 3: Histórico de Versões
+    modTabs.adicionar({
+      id: 'revisions',
+      titulo: 'Versões',
+      icone: 'engrenagem',
+      montar: async (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:14px; overflow-y:auto; height:100%;';
+        container.appendChild(await this.blocoVersoes(mod));
+      },
+    });
+
+    // Aba 4: Scripts de Voxel
+    modTabs.adicionar({
+      id: 'scripts',
+      titulo: 'Scripts',
+      icone: 'codigo',
+      emblema: () => mod.scripts?.length || 0,
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:10px; overflow-y:auto; height:100%;';
+        const h = document.createElement('h4');
+        h.textContent = 'Scripts de Voxel cadastrados neste mod';
+        h.style.cssText = 'margin:0 0 6px; font-size:14px;';
+        container.appendChild(h);
+
+        const scripts = mod.scripts ?? [];
+        if (scripts.length === 0) {
+          const vazio = document.createElement('p');
+          vazio.textContent = 'Nenhum script registrado neste mod.';
+          vazio.style.cssText = 'font-size:12px; color:#64748b;';
+          container.appendChild(vazio);
+          return;
+        }
+
+        for (const s of scripts) {
+          const card = document.createElement('div');
+          card.style.cssText = 'background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between;';
+          card.innerHTML = `
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#38bdf8;">${s.key}</div>
+              <div style="font-size:11px; color:#64748b;">${s.enabled ? 'Ativo' : 'Desativado'}</div>
+            </div>
+          `;
+          const editBtn = this.botao('Editar Código', '#2563eb');
+          editBtn.onclick = () => this.onOpenEditor(mod.id, s.key);
+          card.appendChild(editBtn);
+          container.appendChild(card);
+        }
+      },
+    });
+
+    this.detalhe.appendChild(modTabs.raiz);
+    modTabs.iniciar();
   }
 
   private blocoCabecalho(mod: ModPackage): HTMLElement {
@@ -195,7 +263,6 @@ export class ModsPage implements UIScreen {
 
     const remover = this.botao('Remover', '#7f1d1d');
     remover.onclick = async () => {
-      // Destrutivo e irreversível: confirmação explícita, dizendo o que será apagado.
       if (!confirm(`Remover o mod "${mod.name}"?\n\nOs blocos que ele colocou no mundo também serão apagados. Isto não pode ser desfeito.`)) return;
       const r = await this.mods.deleteMod(mod.id);
       alert(r.message);
@@ -209,21 +276,16 @@ export class ModsPage implements UIScreen {
     return wrap;
   }
 
-  /**
-   * Editor do `mod.env`.
-   *
-   * Um campo por chave, e não uma caixa de texto livre: a caixa livre obrigaria o jogador a
-   * conhecer a sintaxe para preencher uma chave, e a descrição de cada uma — que é o que explica
-   * *para que serve* — não teria onde aparecer. A caixa de texto continua existindo no editor de
-   * código, para quem quiser editar o arquivo inteiro.
-   *
-   * Chave que falta aparece **em destaque no topo**, com o motivo. É o item 729: o mod em
-   * quarentena por falta de chave precisa dizer qual chave, ali onde se resolve.
-   */
   private blocoEnv(mod: ModPackage): HTMLElement {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'margin-bottom:18px;';
-    if (!mod.env || mod.env.chaves.length === 0) return wrap;
+    if (!mod.env || mod.env.chaves.length === 0) {
+      const texto = document.createElement('p');
+      texto.textContent = 'Este mod não possui chaves mod.env declaradas.';
+      texto.style.cssText = 'font-size:12px; color:#64748b;';
+      wrap.appendChild(texto);
+      return wrap;
+    }
 
     const resolvido = resolverEnv(
       mod.env,
@@ -276,9 +338,6 @@ export class ModsPage implements UIScreen {
       ajuda.style.cssText = 'font-size:11px; color:#64748b; margin-bottom:4px;';
 
       const campo = document.createElement('input');
-      // Chave sensível nasce vazia com marcador de preenchida: mostrar a máscara num `input`
-      // faria o jogador apagá-la para digitar, e apagar significa zerar. Vazio com placeholder
-      // "(preenchida)" diz o estado sem convidar a destruí-lo.
       campo.type = c.sensivel ? 'password' : 'text';
       campo.value = c.sensivel ? '' : (this.mods.vault.valoresDe(mod.id)[c.nome] ?? '');
       campo.placeholder = c.sensivel && c.preenchida
@@ -291,7 +350,6 @@ export class ModsPage implements UIScreen {
 
       campo.onchange = async () => {
         const v = campo.value.trim();
-        // Campo sensível em branco significa "não mexi", não "apague": apagar tem botão próprio.
         if (c.sensivel && v === '') return;
         await this.mods.vault.definir(mod.id, c.nome, v);
         this.render();
@@ -420,7 +478,6 @@ export class ModsPage implements UIScreen {
   private exportar(mod: ModPackage): void {
     const pkg = this.mods.exportMod(mod.id);
     if (!pkg) return;
-    // O download sai do navegador direto: nada de servidor, coerente com o resto do projeto.
     const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -471,7 +528,6 @@ export class ModsPage implements UIScreen {
   }
 }
 
-/** Escapa texto que veio de erro de runtime ou de mod importado, antes de ir para innerHTML. */
 function escapar(texto: string): string {
   const d = document.createElement('div');
   d.textContent = texto;

@@ -1,8 +1,8 @@
-// Tela inicial exibida antes de qualquer geração pesada de mundo (chunks/streaming).
-// Cobre o pedido: "antes de começar quero que apareça um menu".
+// MainMenu unificado com navegacao por abas superiores (Top Tabs Bar) e suporte a Live Preview 3D.
 import { WorldRepository } from '../storage/WorldRepository';
 import { WorldRecord } from '../storage/Database';
 import { CAMADA, CORES, FONTE } from './theme';
+import { Tabs } from './Tabs';
 
 export interface OnlineWorldEntry {
   roomId: string;
@@ -22,185 +22,253 @@ export interface MainMenuCallbacks {
 
 export class MainMenu {
   private overlay: HTMLDivElement;
+  private tabsComponent: Tabs;
   public isOpen = true;
 
   constructor(private cb: MainMenuCallbacks) {
     this.overlay = document.createElement('div');
     this.overlay.id = 'main-menu';
-    // Página inteira, opaca: nada do jogo aparece atrás. É o que a distingue de um overlay.
+    // Fullscreen overlay — mundo 3D visível atrás com blur
     this.overlay.style.cssText = `
       position: fixed; inset: 0; z-index: ${CAMADA.menuInicial};
-      background: radial-gradient(circle at 50% 18%, #16273f, #060a14 70%);
-      display: flex; align-items: center; justify-content: center;
+      background: rgba(6, 10, 20, 0.82); backdrop-filter: blur(10px);
+      display: flex; flex-direction: column;
       font-family: ${FONTE}; color: ${CORES.texto};
     `;
 
-    const panel = document.createElement('div');
-    panel.style.cssText = `
-      width: 540px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
-      background: ${CORES.fundo}; border: 1px solid ${CORES.borda};
-      border-radius: 18px; padding: 28px; box-shadow: 0 30px 60px rgba(0,0,0,0.55);
-      display: flex; flex-direction: column; gap: 16px;
+    /* Header full-width no topo com logo do jogo */
+    const header = document.createElement('div');
+    header.style.cssText = `
+      padding: 16px 40px 12px; background: rgba(15,23,42,0.7);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto;
     `;
-
-    panel.innerHTML = `
-      <div style="text-align:center; margin-bottom: 8px;">
-        <h1 style="margin:0; font-size:26px; letter-spacing: 2px;">CROM PLANEBOX</h1>
-        <p style="margin:4px 0 0; font-size:12px; color:${CORES.textoFraco};">sandbox voxel 3D · IA agêntica · mundos online P2P</p>
-      </div>
+    header.innerHTML = `
+      <h1 style="margin:0; font-size:26px; letter-spacing: 3px; color:${CORES.aviso}; font-weight:800;">CROM PLANEBOX</h1>
+      <p style="margin:0; font-size:11px; color:${CORES.textoFraco};">sandbox voxel 3D · IA agêntica · mundos online P2P</p>
     `;
+    this.overlay.appendChild(header);
 
-    const menuList = document.createElement('div');
-    menuList.id = 'main-menu-list';
-    menuList.style.cssText = 'display: flex; flex-direction: column; gap: 10px;';
-    panel.appendChild(menuList);
+    // Componente Tabs com Top Bar + Dynamic Center Content + Bottom Bar
+    this.tabsComponent = new Tabs();
+    this.setupTabs();
 
-    const detailArea = document.createElement('div');
-    detailArea.id = 'main-menu-detail';
-    detailArea.style.cssText = 'display: none; flex-direction: column; gap: 8px;';
-    panel.appendChild(detailArea);
-
-    this.overlay.appendChild(panel);
+    /* Tabs ocupa todo o espaço restante */
+    this.tabsComponent.raiz.style.flex = '1 1 auto';
+    this.tabsComponent.raiz.style.minHeight = '0';
+    this.overlay.appendChild(this.tabsComponent.raiz);
     document.body.appendChild(this.overlay);
 
-    this.renderRoot();
+    this.tabsComponent.iniciar();
   }
 
-  private button(label: string, sub: string, onClick: () => void): HTMLDivElement {
-    const btn = document.createElement('div');
-    btn.style.cssText = `
-      background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all 0.15s ease;
+  private setupTabs(): void {
+    // Aba 1: Jogar
+    this.tabsComponent.adicionar({
+      id: 'play',
+      titulo: 'Jogar',
+      icone: 'jogar',
+      montar: async (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:12px; overflow-y:auto; height:100%;';
+        await this.renderPlayTab(container);
+      },
+    });
+
+    // Aba 2: Mundos Salvos
+    this.tabsComponent.adicionar({
+      id: 'saved',
+      titulo: 'Mundos Salvos',
+      icone: 'mundo',
+      montar: async (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:12px; overflow-y:auto; height:100%;';
+        await this.renderSavedWorldsTab(container);
+      },
+    });
+
+    // Aba 3: Mundos Online
+    this.tabsComponent.adicionar({
+      id: 'online',
+      titulo: 'Mundos Online',
+      icone: 'rede',
+      montar: async (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:12px; overflow-y:auto; height:100%;';
+        await this.renderOnlineTab(container);
+      },
+    });
+
+    // Aba 4: Configurações Globais
+    this.tabsComponent.adicionar({
+      id: 'settings',
+      titulo: 'Configurações',
+      icone: 'engrenagem',
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:12px; overflow-y:auto; height:100%;';
+        this.renderSettingsTab(container);
+      },
+    });
+  }
+
+  private buttonCard(title: string, subtitle: string, iconName: string, onClick: () => void): HTMLDivElement {
+    const card = document.createElement('div');
+    card.style.cssText = `
+      background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px; padding: 14px 18px; cursor: pointer; transition: all 0.15s ease;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
     `;
-    btn.onmouseenter = () => { btn.style.borderColor = '#38bdf8'; btn.style.background = 'rgba(56,189,248,0.1)'; };
-    btn.onmouseleave = () => { btn.style.borderColor = 'rgba(255,255,255,0.1)'; btn.style.background = 'rgba(30, 41, 59, 0.7)'; };
-    btn.innerHTML = `<div style="font-weight:700; font-size:14px;">${label}</div><div style="font-size:11px; color:#94a3b8; margin-top:2px;">${sub}</div>`;
-    btn.onclick = onClick;
-    return btn;
+    card.onmouseenter = () => {
+      card.style.borderColor = '#38bdf8';
+      card.style.background = 'rgba(56,189,248,0.12)';
+    };
+    card.onmouseleave = () => {
+      card.style.borderColor = 'rgba(255,255,255,0.12)';
+      card.style.background = 'rgba(30, 41, 59, 0.7)';
+    };
+    card.innerHTML = `
+      <div>
+        <div style="font-weight:700; font-size:15px; color:#f8fafc;">${title}</div>
+        <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${subtitle}</div>
+      </div>
+      <div style="background:#0284c7; color:white; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; white-space:nowrap;">
+        Entrar
+      </div>
+    `;
+    card.onclick = onClick;
+    return card;
   }
 
-  private async renderRoot(): Promise<void> {
-    const list = this.overlay.querySelector('#main-menu-list') as HTMLDivElement;
-    const detail = this.overlay.querySelector('#main-menu-detail') as HTMLDivElement;
-    detail.style.display = 'none';
-    list.style.display = 'flex';
-    list.innerHTML = '';
-
+  private async renderPlayTab(container: HTMLElement): Promise<void> {
     const worlds = await WorldRepository.getAllWorlds();
     const lastWorld = worlds[0];
 
     if (lastWorld) {
-      list.appendChild(this.button(`▶ Continuar: ${lastWorld.name}`, 'Carrega o último mundo jogado', () => {
-        this.close();
-        this.cb.onContinue(lastWorld.id);
-      }));
+      container.appendChild(this.buttonCard(
+        `▶ Continuar: ${lastWorld.name}`,
+        `Carrega o último mundo jogado (${new Date(lastWorld.updatedAt).toLocaleDateString()})`,
+        'jogar',
+        () => {
+          this.close();
+          this.cb.onContinue(lastWorld.id);
+        }
+      ));
     }
 
-    list.appendChild(this.button('Mundos Salvos', `${worlds.length} mundo(s) salvo(s) neste navegador`, () => this.renderSavedWorlds(worlds)));
-    list.appendChild(this.button('Criar Novo Mundo', 'Abre o assistente de criação (terreno, modo de jogo, online)', () => {
-      this.close();
-      this.cb.onOpenWizard();
-    }));
-    list.appendChild(this.button('Mundos Online da Crom', 'Ver salas abertas agora ou colar um link de convite', () => this.renderOnline()));
-    list.appendChild(this.button('Configurações Globais', 'Chave de API da IA e modelo padrão', () => this.cb.onOpenGlobalSettings()));
+    container.appendChild(this.buttonCard(
+      'Criar Novo Mundo',
+      'Abre o assistente para personalizar terreno, biomas, modo de jogo e multiplayer',
+      'mais',
+      () => {
+        this.close();
+        this.cb.onOpenWizard();
+      }
+    ));
   }
 
-  private renderSavedWorlds(worlds: WorldRecord[]): void {
-    const list = this.overlay.querySelector('#main-menu-list') as HTMLDivElement;
-    const detail = this.overlay.querySelector('#main-menu-detail') as HTMLDivElement;
-    list.style.display = 'none';
-    detail.style.display = 'flex';
-    detail.innerHTML = '';
-
-    const back = this.button('← Voltar', '', () => this.renderRoot());
-    detail.appendChild(back);
-
+  private async renderSavedWorldsTab(container: HTMLElement): Promise<void> {
+    const worlds = await WorldRepository.getAllWorlds();
     if (worlds.length === 0) {
       const empty = document.createElement('p');
-      empty.style.cssText = 'color:#94a3b8; font-size:12px; text-align:center;';
-      empty.textContent = 'Nenhum mundo salvo ainda. Crie um novo mundo para começar.';
-      detail.appendChild(empty);
+      empty.style.cssText = 'color:#94a3b8; font-size:13px; text-align:center; padding:20px;';
+      empty.textContent = 'Nenhum mundo salvo ainda no navegador. Clique na aba Jogar para criar um novo mundo.';
+      container.appendChild(empty);
       return;
     }
 
     for (const w of worlds) {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 12px;';
-      row.innerHTML = `<div><div style="font-size:13px; font-weight:600;">${w.name}</div><div style="font-size:10px; color:#94a3b8;">seed ${w.seed} · ${new Date(w.updatedAt).toLocaleDateString()}</div></div>`;
+      row.style.cssText = `
+        display:flex; align-items:center; justify-content:space-between;
+        background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.1);
+        border-radius:12px; padding:12px 16px;
+      `;
+      row.innerHTML = `
+        <div>
+          <div style="font-size:14px; font-weight:700; color:#e2e8f0;">${w.name}</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Seed ${w.seed} · Salvo em ${new Date(w.updatedAt).toLocaleDateString()}</div>
+        </div>
+      `;
       const openBtn = document.createElement('button');
-      openBtn.textContent = '▶ Abrir';
-      openBtn.style.cssText = 'background:#0284c7; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;';
-      openBtn.onclick = () => { this.close(); this.cb.onOpenWorld(w.id); };
+      openBtn.textContent = '▶ Carregar Mundo';
+      openBtn.style.cssText = 'background:#0284c7; color:white; border:none; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer;';
+      openBtn.onclick = () => {
+        this.close();
+        this.cb.onOpenWorld(w.id);
+      };
       row.appendChild(openBtn);
-      detail.appendChild(row);
+      container.appendChild(row);
     }
   }
 
-  private async renderOnline(): Promise<void> {
-    const list = this.overlay.querySelector('#main-menu-list') as HTMLDivElement;
-    const detail = this.overlay.querySelector('#main-menu-detail') as HTMLDivElement;
-    list.style.display = 'none';
-    detail.style.display = 'flex';
-    detail.innerHTML = '';
-
-    const back = this.button('← Voltar', '', () => this.renderRoot());
-    detail.appendChild(back);
-
+  private async renderOnlineTab(container: HTMLElement): Promise<void> {
     const joinRow = document.createElement('div');
-    joinRow.style.cssText = 'display:flex; gap:8px;';
+    joinRow.style.cssText = 'display:flex; gap:10px; margin-bottom:8px;';
     const joinInput = document.createElement('input');
-    joinInput.placeholder = 'Colar link ou código de convite...';
-    joinInput.style.cssText = 'flex:1; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:8px 10px; color:white; font-size:12px;';
+    joinInput.placeholder = 'Cole o link de convite ou código da sala...';
+    joinInput.style.cssText = 'flex:1; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 12px; color:white; font-size:13px;';
+
     const joinBtn = document.createElement('button');
-    joinBtn.textContent = 'Entrar';
-    joinBtn.style.cssText = 'background:#10b981; color:white; border:none; border-radius:8px; padding:0 14px; font-weight:600; cursor:pointer;';
+    joinBtn.textContent = 'Conectar';
+    joinBtn.style.cssText = 'background:#10b981; color:white; border:none; border-radius:8px; padding:0 18px; font-weight:700; cursor:pointer;';
     joinBtn.onclick = () => {
       const val = joinInput.value.trim();
-      if (val) { this.close(); this.cb.onJoinLink(val); }
+      if (val) {
+        this.close();
+        this.cb.onJoinLink(val);
+      }
     };
     joinRow.appendChild(joinInput);
     joinRow.appendChild(joinBtn);
-    detail.appendChild(joinRow);
+    container.appendChild(joinRow);
 
     const listTitle = document.createElement('div');
-    listTitle.style.cssText = 'font-size:11px; color:#94a3b8; margin-top:6px;';
-    listTitle.textContent = 'Salas abertas agora no diretório da Crom:';
-    detail.appendChild(listTitle);
+    listTitle.style.cssText = 'font-size:12px; font-weight:700; color:#94a3b8; margin-top:4px;';
+    listTitle.textContent = 'Salas Públicas Abertas no Servidor Relay da Crom:';
+    container.appendChild(listTitle);
 
     const rooms = await this.cb.listOnlineWorlds();
     if (rooms.length === 0) {
       const empty = document.createElement('p');
-      empty.style.cssText = 'color:#64748b; font-size:12px; text-align:center;';
-      empty.textContent = 'Nenhuma sala online no momento (ou o relay de sinalização não está configurado).';
-      detail.appendChild(empty);
+      empty.style.cssText = 'color:#64748b; font-size:12px; text-align:center; padding:12px;';
+      empty.textContent = 'Nenhuma sala pública encontrada no momento (ou relay offline). Você também pode usar conexões locais por abas.';
+      container.appendChild(empty);
     } else {
       for (const r of rooms) {
         const row = document.createElement('div');
-        row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 12px;';
-        row.innerHTML = `<div><div style="font-size:13px; font-weight:600;">${r.name}</div><div style="font-size:10px; color:#94a3b8;">${r.playerCount} jogador(es) conectado(s)</div></div>`;
+        row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:10px 14px;';
+        row.innerHTML = `<div><div style="font-size:13px; font-weight:700; color:#38bdf8;">${r.name}</div><div style="font-size:11px; color:#94a3b8;">${r.playerCount} jogador(es) online</div></div>`;
         const joinBtn2 = document.createElement('button');
-        joinBtn2.textContent = '▶ Entrar';
-        joinBtn2.style.cssText = 'background:#0284c7; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;';
-        joinBtn2.onclick = () => { this.close(); this.cb.onJoinLink(r.roomId); };
+        joinBtn2.textContent = '▶ Entrar na Sala';
+        joinBtn2.style.cssText = 'background:#0284c7; color:white; border:none; padding:7px 12px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;';
+        joinBtn2.onclick = () => {
+          this.close();
+          this.cb.onJoinLink(r.roomId);
+        };
         row.appendChild(joinBtn2);
-        detail.appendChild(row);
+        container.appendChild(row);
       }
     }
   }
 
-  /**
-   * Avisado quando a tela inicial abre ou fecha.
-   *
-   * O `main` usa para **suspender a simulação e esconder o canvas**: sem isso, voltar ao menu
-   * deixava o jogo rodando atrás dele — física, mobs e render continuavam consumindo o frame
-   * atrás de uma tela que o jogador acha que é outro lugar do programa.
-   */
+  private renderSettingsTab(container: HTMLElement): void {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:12px;';
+    card.innerHTML = `
+      <div style="font-size:14px; font-weight:700; color:${CORES.aviso};">Configurações Globais de IA & Sistema</div>
+      <p style="font-size:12px; color:#94a3b8; margin:0; line-height:1.5;">Configure as chaves de API para geração de mundos com IA, modelos LLM e preferências de rendering global.</p>
+    `;
+    const openBtn = document.createElement('button');
+    openBtn.textContent = 'Abrir Painel de Configurações da IA';
+    openBtn.style.cssText = 'background:#0284c7; color:white; border:none; padding:10px 16px; border-radius:8px; font-size:13px; font-weight:700; cursor:pointer; align-self:flex-start;';
+    openBtn.onclick = () => this.cb.onOpenGlobalSettings();
+    card.appendChild(openBtn);
+    container.appendChild(card);
+  }
+
   public onVisibilidade: (aberto: boolean) => void = () => {};
 
   public open(): void {
     this.isOpen = true;
     this.overlay.style.display = 'flex';
-    this.renderRoot();
+    this.tabsComponent.iniciar();
     this.onVisibilidade(true);
   }
 

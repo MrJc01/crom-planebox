@@ -131,7 +131,9 @@ export class UIManager {
   public openBlocking(id: string): void {
     const target = this.blocking.get(id);
     if (!target) return;
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (typeof document !== 'undefined' && document.pointerLockElement) {
+      document.exitPointerLock();
+    }
     for (const [otherId, screen] of this.blocking) {
       if (otherId !== id && screen.isOpen) screen.close();
     }

@@ -1,23 +1,4 @@
-// Abas: a peça que faltava, e a razão de as telas empilharem painéis.
-//
-// ## O defeito que isto corrige
-//
-// Cada tela montava a própria navegação, e o padrão era sempre o mesmo: um botão que chama
-// `render()`, e o `render()` decide o que desenhar. Quando dois caminhos podiam pedir telas
-// diferentes — um clique e um atalho, ou dois cliques rápidos — os dois `render()` corriam e o
-// segundo desenhava por cima sem apagar o primeiro. O sintoma é o relato: *clico numa coisa e
-// abre outra*.
-//
-// A correção estrutural é ter **um dono do que está visível**. Aqui, `ativa` é a única fonte, e
-// `aplicar()` percorre TODOS os painéis a cada troca — mostrando um e escondendo o resto. Não é
-// possível dois painéis visíveis, porque não existe caminho que mostre sem esconder.
-//
-// ## Conteúdo preguiçoso, e o motivo
-//
-// Um painel só é construído na primeira vez que é aberto. Abrir a tela de mods não deve montar o
-// editor de código junto — e, mais importante, não deve *rodar* o que aquele painel faz ao
-// montar. Painéis que consultam o banco ou instrumentam o jogo pagariam esse custo sempre.
-
+// Abas: componente central de navegação por abas com transições fluidas e atalhos.
 import { CORES, FONTE } from './theme';
 import { NomeIcone, icone } from './icons';
 
@@ -33,10 +14,39 @@ export interface DefinicaoAba {
   emblema?: () => number;
 }
 
+// Injeta estilos CSS para animação de slide + fade suave
+const styleId = 'tabs-animation-styles';
+if (typeof document !== 'undefined' && !document.getElementById(styleId)) {
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent = `
+    @keyframes tabFadeInSlide {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .tab-panel-active {
+      animation: tabFadeInSlide 160ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tab-panel-active {
+        animation: none !important;
+      }
+    }
+  `;
+  document.head?.appendChild(style);
+}
+
 export class Tabs {
   readonly raiz = document.createElement('div');
   private barra = document.createElement('div');
   private corpo = document.createElement('div');
+  private rodape = document.createElement('div');
 
   private abas: DefinicaoAba[] = [];
   private botoes = new Map<string, HTMLButtonElement>();
@@ -55,18 +65,31 @@ export class Tabs {
       font-family: ${FONTE};
     `;
 
-    // A barra rola na horizontal em vez de quebrar em duas linhas: com quebra, a altura do
-    // cabeçalho muda conforme a largura, e o corpo pula ao redimensionar.
+    // A barra rola na horizontal com estilo de Top Bar de abas
     this.barra.setAttribute('role', 'tablist');
     this.barra.style.cssText = `
-      display: flex; gap: 4px; padding: 0 4px;
+      display: flex; gap: 4px; padding: 0 40px;
       overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-      border-bottom: 1px solid ${CORES.borda}; flex: 0 0 auto;
+      border-bottom: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto;
+      background: rgba(15, 23, 42, 0.5); min-height: 48px; align-items: stretch;
     `;
 
-    this.corpo.style.cssText = 'flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px 4px 4px;';
+    this.corpo.style.cssText = 'flex: 1 1 auto; min-height: 0; overflow: auto; padding: 20px 40px;';
 
-    this.raiz.append(this.barra, this.corpo);
+    this.rodape.style.cssText = `
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 40px; border-top: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto;
+      font-size: 11px; color: ${CORES.textoFraco}; background: rgba(15, 23, 42, 0.6);
+    `;
+    this.rodape.innerHTML = `
+      <div style="display:flex; gap:14px; align-items:center;">
+        <span><kbd style="background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px; font-family:monospace;">Q / E</kbd> Alternar Aba</span>
+        <span><kbd style="background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px; font-family:monospace;">Esc</kbd> Voltar / Fechar</span>
+      </div>
+      <div style="font-size:10px; opacity:0.7;">Crom Engine Hub</div>
+    `;
+
+    this.raiz.append(this.barra, this.corpo, this.rodape);
     this.ligarTeclado();
   }
 
@@ -78,11 +101,11 @@ export class Tabs {
     b.dataset.aba = aba.id;
     b.style.cssText = `
       display: inline-flex; align-items: center; gap: 8px;
-      background: none; border: none; border-bottom: 2px solid transparent;
-      color: ${CORES.textoFraco}; font-family: ${FONTE}; font-size: 13px; font-weight: 600;
-      padding: 11px 14px; cursor: pointer; white-space: nowrap;
-      transition: color .12s, border-color .12s, background .12s;
-      border-radius: 8px 8px 0 0;
+      background: none; border: none; border-bottom: 3px solid transparent;
+      color: ${CORES.textoFraco}; font-family: ${FONTE}; font-size: 14px; font-weight: 600;
+      padding: 12px 20px; cursor: pointer; white-space: nowrap;
+      transition: color .15s, border-color .15s, background .15s;
+      border-radius: 0;
     `;
     b.append(icone(aba.icone, 17));
 
@@ -115,13 +138,20 @@ export class Tabs {
     return this;
   }
 
-  /**
-   * Troca a aba ativa.
-   *
-   * Id desconhecido cai na primeira aba em vez de deixar a tela em branco: uma preferência
-   * gravada de uma versão anterior — que tinha outras abas — não deve resultar num painel vazio
-   * sem explicação.
-   */
+  public proxima(): void {
+    if (this.abas.length === 0) return;
+    const idx = this.abas.findIndex((a) => a.id === this.ativa);
+    const proxIdx = (idx + 1) % this.abas.length;
+    this.ir(this.abas[proxIdx].id);
+  }
+
+  public anterior(): void {
+    if (this.abas.length === 0) return;
+    const idx = this.abas.findIndex((a) => a.id === this.ativa);
+    const antIdx = (idx - 1 + this.abas.length) % this.abas.length;
+    this.ir(this.abas[antIdx].id);
+  }
+
   public ir(id: string): void {
     const alvo = this.paineis.has(id) ? id : this.abas[0]?.id;
     if (!alvo || alvo === this.ativa) {
@@ -145,13 +175,6 @@ export class Tabs {
     aba.aoAtivar?.(painel);
   }
 
-  /**
-   * Aplica o estado visual a **todos** os painéis e botões.
-   *
-   * Percorrer tudo, e não só o que mudou, é o que torna impossível dois painéis visíveis. É mais
-   * trabalho por troca — dezenas de atribuições de estilo — e é irrelevante: uma troca de aba
-   * acontece por gesto humano, não por quadro.
-   */
   private aplicar(): void {
     for (const aba of this.abas) {
       const ativo = aba.id === this.ativa;
@@ -159,6 +182,15 @@ export class Tabs {
       const p = this.paineis.get(aba.id)!;
 
       p.style.display = ativo ? 'block' : 'none';
+      if (ativo) {
+        p.classList.remove('tab-panel-active');
+        // Força reflow para reiniciar animação suave
+        void p.offsetWidth;
+        p.classList.add('tab-panel-active');
+      } else {
+        p.classList.remove('tab-panel-active');
+      }
+
       b.setAttribute('aria-selected', String(ativo));
       b.tabIndex = ativo ? 0 : -1;
       b.style.color = ativo ? CORES.aviso : CORES.textoFraco;
@@ -172,34 +204,42 @@ export class Tabs {
         em.style.display = n > 0 ? '' : 'none';
       }
     }
-    // A aba ativa entra em vista quando a barra está rolada — atalho de teclado pode ativar uma
-    // aba que está fora da área visível.
-    //
-    // Guardado porque `scrollIntoView` é conveniência, não requisito: se ela não existir no
-    // ambiente, a troca de aba precisa acontecer do mesmo jeito. Rolar não pode ser o motivo de
-    // um painel não abrir.
+
     const botao = this.ativa ? this.botoes.get(this.ativa) : undefined;
     botao?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
-  /** Setas navegam entre abas, como manda o padrão de `tablist`. */
   private ligarTeclado(): void {
-    this.barra.addEventListener('keydown', (e) => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignora atalhos de digitação se estiver escrevendo num input ou textarea
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
       const i = this.abas.findIndex((a) => a.id === this.ativa);
       if (i < 0) return;
-      let alvo = -1;
-      if (e.key === 'ArrowRight') alvo = (i + 1) % this.abas.length;
-      else if (e.key === 'ArrowLeft') alvo = (i - 1 + this.abas.length) % this.abas.length;
-      else if (e.key === 'Home') alvo = 0;
-      else if (e.key === 'End') alvo = this.abas.length - 1;
-      if (alvo < 0) return;
-      e.preventDefault();
-      this.ir(this.abas[alvo].id);
-      this.botoes.get(this.abas[alvo].id)?.focus();
-    });
+
+      if (e.key === 'ArrowRight' || e.code === 'KeyE') {
+        e.preventDefault();
+        this.proxima();
+        this.botoes.get(this.ativa || '')?.focus();
+      } else if (e.key === 'ArrowLeft' || e.code === 'KeyQ') {
+        e.preventDefault();
+        this.anterior();
+        this.botoes.get(this.ativa || '')?.focus();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        this.ir(this.abas[0]?.id);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        this.ir(this.abas[this.abas.length - 1]?.id);
+      }
+    };
+
+    this.raiz.addEventListener('keydown', handler);
   }
 
-  /** Abre a tela na aba pedida (ou na primeira). Chamado ao abrir a tela, não ao construí-la. */
   public iniciar(id?: string): void {
     this.ir(id ?? this.ativa ?? this.abas[0]?.id ?? '');
   }
@@ -208,17 +248,14 @@ export class Tabs {
     return this.ativa;
   }
 
-  /** Redesenha os emblemas sem trocar de aba. */
   public atualizarEmblemas(): void {
     if (this.ativa) this.aplicar();
   }
 
-  /** Painel de uma aba, para quem precisar redesenhar o conteúdo por fora. */
   public painelDe(id: string): HTMLElement | undefined {
     return this.paineis.get(id);
   }
 
-  /** Força a remontagem de uma aba na próxima ativação. */
   public invalidar(id: string): void {
     this.montadas.delete(id);
     const p = this.paineis.get(id);

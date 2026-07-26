@@ -173,6 +173,7 @@ export class HUD {
       const estado = remaining >= healthPerHeart * 0.999 ? 'cheio' : remaining > 0 ? 'meio' : 'vazio';
       heartsHtml += this.iconeVital('coracao', estado, '#ef4444');
     }
+    heartsHtml += `<span style="font-size:12px; font-weight:700; color:#ef4444; margin-left:6px; font-family:monospace;">${Math.max(0, Math.ceil(health))}/${maxHealth}</span>`;
     this.healthEl.innerHTML = heartsHtml;
 
     const totalDrumsticks = 10;
@@ -183,6 +184,7 @@ export class HUD {
       const estado = remaining >= hungerPerIcon * 0.999 ? 'cheio' : remaining > 0 ? 'meio' : 'vazio';
       hungerHtml += this.iconeVital('gota', estado, '#f59e0b');
     }
+    hungerHtml += `<span style="font-size:12px; font-weight:700; color:#f59e0b; margin-left:6px; font-family:monospace;">${Math.max(0, Math.ceil(hunger))}/${maxHunger}</span>`;
     this.hungerEl.innerHTML = hungerHtml;
   }
 

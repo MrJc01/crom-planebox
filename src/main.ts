@@ -39,7 +39,6 @@ import { WorldCreationWizard } from './ui/WorldCreationWizard';
 import { UIManager } from './ui/UIManager';
 import { CharacterCreator } from './ui/CharacterCreator';
 import { ModsPage } from './ui/ModsPage';
-import { GameMenu } from './ui/GameMenu';
 import { DebugPanel } from './ui/DebugPanel';
 import { profiler } from './core/profiler';
 import { getPathCacheStats } from './entities/Pathfinding';
@@ -601,39 +600,6 @@ async function bootstrap() {
     rede: () => ({ ...peerSync.getTrafficStats(), papel: peerSync.role, peers: peerSync.peerCount }),
     posicao: () => ({ x: player.pos.x, y: player.pos.y, z: player.pos.z }),
     cacheRotas: () => getPathCacheStats(),
-  });
-
-  const gameMenu = new GameMenu(audio);
-  gameMenu.onRetomar = () => uiManager.closeBlocking('game-menu');
-  gameMenu.registrar({
-    id: 'personagem', icone: 'personagem', titulo: 'Personagem', atalho: 'F4',
-    descricao: 'Aparência, cores e porte. É o visual que os outros veem online.',
-    acao: () => uiManager.openBlocking('character-creator'),
-  });
-  gameMenu.registrar({
-    id: 'mods', icone: 'mods', titulo: 'Mods', atalho: 'F6',
-    descricao: 'O que cada modificação adicionou, histórico de versões e exportar.',
-    acao: () => uiManager.openBlocking('mods-page'),
-  });
-  gameMenu.registrar({
-    id: 'editor', icone: 'codigo', titulo: 'Editor de código', atalho: 'F7',
-    descricao: 'Editar o comportamento dos mods com o mundo aberto.',
-    acao: () => uiManager.openBlocking('code-editor'),
-  });
-  gameMenu.registrar({
-    id: 'inventario', icone: 'inventario', titulo: 'Inventário', atalho: 'E',
-    descricao: 'Blocos, ferramentas e bancada de criação.',
-    acao: () => uiManager.openBlocking('inventory'),
-  });
-  gameMenu.registrar({
-    id: 'mundo', icone: 'engrenagem', titulo: 'Mundo e rede', atalho: '',
-    descricao: 'Câmera, modo de jogo, multiplayer e jogadores conectados.',
-    acao: () => uiManager.openBlocking('pause'),
-  });
-  gameMenu.registrar({
-    id: 'ia', icone: 'chat', titulo: 'Conversar com a IA', atalho: 'T',
-    descricao: 'Criar mods, construir e modificar o jogo pela conversa.',
-    acao: () => { uiManager.closeBlocking('game-menu'); uiManager.openFloating('chat'); },
   });
 
   // HUD & UI Overlays (ficam ocultos até o jogo realmente começar, para o MainMenu não competir com eles)
@@ -1294,9 +1260,9 @@ async function bootstrap() {
     uiManager.retomarControle();
   };
   document.body.appendChild(dicaClique);
-  uiManager.onPointerLockPendente = (pendente) => {
-    dicaClique.style.display = pendente && gameStarted ? 'block' : 'none';
-  };
+  // A visibilidade do botão agora é avaliada de forma reativa a cada frame no tick(),
+  // o que impede que ele fique preso na tela se o pointerLock for perdido por outro
+  // motivo (como a abertura de um menu).
   // Registro único de atalhos de tela. Antes cada tela instalava o próprio `keydown`, e o do
   // inventário nem consultava o gerenciador — daí abrir por cima de qualquer outra.
   uiManager.registrarAtalho('KeyE', 'inventory');
@@ -1309,7 +1275,6 @@ async function bootstrap() {
   uiManager.registerBlocking(characterCreator);
   uiManager.registerBlocking(modsPage);
   uiManager.registerBlocking(codeEditor);
-  uiManager.registerBlocking(gameMenu);
   uiManager.registerFloating(chatOverlay);
 
   const pauseMenu = new PauseMenu({
@@ -1326,6 +1291,20 @@ async function bootstrap() {
     getFadeChunks: () => fadeAgenda.ligado,
     setFadeChunks: (v) => { fadeAgenda.ligado = v; },
     setOp: setPlayerOp,
+    audio,
+    onSairParaMenuInicial: () => {
+      uiManager.closeBlocking('pause');
+      if (document.pointerLockElement) document.exitPointerLock();
+      savePlayerNow();
+      chatOverlay.hide();
+      mainMenu.open();
+    },
+    atalhosRapidos: [
+      { icone: 'personagem', titulo: 'Personagem', tecla: 'F4', acao: () => uiManager.openBlocking('character-creator') },
+      { icone: 'mods', titulo: 'Mods', tecla: 'F6', acao: () => uiManager.openBlocking('mods-page') },
+      { icone: 'codigo', titulo: 'Editor', tecla: 'F7', acao: () => uiManager.openBlocking('code-editor') },
+      { icone: 'inventario', titulo: 'Inventário', tecla: 'E', acao: () => uiManager.openBlocking('inventory') },
+    ],
   });
   uiManager.registerBlocking(pauseMenu);
   inventoryModal.blockOpen = () => pauseMenu.isOpen;
@@ -1403,16 +1382,6 @@ async function bootstrap() {
     listOnlineWorlds: () => signaling.listRooms(),
   });
 
-  // Sair da partida pelo hub: fecha tudo, solta o ponteiro e volta à tela inicial. O mundo é
-  // salvo continuamente, então não há nada a descartar aqui.
-  gameMenu.onSairParaMenuInicial = () => {
-    uiManager.closeBlocking('game-menu');
-    if (document.pointerLockElement) document.exitPointerLock();
-    savePlayerNow();
-    chatOverlay.hide();
-    mainMenu.open();
-  };
-
   // A tela inicial é uma PÁGINA, não uma camada sobre o jogo: enquanto ela está aberta, o
   // canvas some e a simulação não roda. Antes, voltar ao menu deixava física, criaturas e
   // render trabalhando atrás dele.
@@ -1472,9 +1441,8 @@ async function bootstrap() {
       if (e.code === 'Escape') {
         e.preventDefault();
         if (document.pointerLockElement) document.exitPointerLock();
-        // O hub é o destino do ESC. O menu de pausa continua existindo, agora como uma das
-        // entradas dele ("Mundo e rede"), em vez de ser a única porta.
-        if (!uiManager.handleEscape()) uiManager.openBlocking('game-menu');
+        // O hub é o destino do ESC. Ele concentra áudio, atalhos, saída da partida e mods de configuração.
+        if (!uiManager.handleEscape()) uiManager.openBlocking('pause');
         return;
       }
       if (e.ctrlKey && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) {
@@ -1578,6 +1546,12 @@ async function bootstrap() {
       streamAccum = 0;
       profiler.begin('chunks'); streamChunks(); profiler.end('chunks');
     }
+
+    // A dica do cursor precisa sumir na mesma hora em que um menu abre, senão fica por cima
+    // do Hub com o maior z-index do jogo e bloqueia a navegação central.
+    const wantDica = uiManager.aguardandoGesto && gameStarted && !uiManager.isAnyBlockingOpen();
+    if (wantDica && dicaClique.style.display === 'none') dicaClique.style.display = 'block';
+    else if (!wantDica && dicaClique.style.display === 'block') dicaClique.style.display = 'none';
 
     const rules = gameModeManager.rules;
     if (cameraManager.mode === 'fps') {
