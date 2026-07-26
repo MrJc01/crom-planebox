@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1278 itens)
+# Checklist Mestre — Painel de Especialistas (1280 itens)
 
-> **Estado em 26/07/2026** — 604 de 1278 itens tratados (47%), com **852 testes** passando,
+> **Estado em 26/07/2026** — 607 de 1280 itens tratados (47%), com **860 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 88 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 516 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 674 | Pendente. |
+> | `[~]` | 519 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 673 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -3225,6 +3225,28 @@ nada explicando o porquê.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1291 `P1` **Tier não afeta a VELOCIDADE de quebra** — `breakCooldown` é fixo (0,42 / 0,16). Uma picareta melhor hoje só desbloqueia blocos e bate mais forte; minerar pedra com diamante leva o mesmo tempo que com madeira, que é o oposto da expectativa do gênero
+- [~] 1291 `P1` **Tier passou a afetar a velocidade de quebra** — antes:  — `breakCooldown` é fixo (0,42 / 0,16). Uma picareta melhor hoje só desbloqueia blocos e bate mais forte; minerar pedra com diamante leva o mesmo tempo que com madeira, que é o oposto da expectativa do gênero
 - [ ] 1292 `P1` **Não existe classe de ferramenta** (picareta / machado / pá / espada). Sem isso, "espada de ferro" seria só um rótulo diferente para a picareta de ferro
 - [ ] 1293 `P2` **Nenhum bloco exige tier 4**, então a picareta de diamante não abre porta nenhuma — só melhora números
+
+### Item 1291 — a razão de subir de tier
+
+A tier decidia **se** um bloco podia ser quebrado e quanto dano causava em combate, mas não **quão
+rápido** se minerava: `breakCooldown` era fixo. Minerar pedra com a picareta de diamante levava
+exatamente o mesmo tempo que com a de madeira.
+
+Isso desfazia boa parte da razão de subir de tier — o jogador gasta uma corrente inteira de
+progressão para ganhar acesso a blocos novos e **nenhum conforto** nos que já minerava.
+
+Duas regras, as duas para manter a mineração uma decisão e não uma formalidade:
+
+**A vantagem é relativa ao bloco, não absoluta.** Uma picareta de diamante numa pedra que só pede
+madeira tem três degraus de vantagem; na obsidiana, que pede ferro, tem um. É o que faz o material
+duro continuar duro mesmo com a melhor ferramenta — sem isso, o fim da progressão apagaria a
+diferença entre os materiais, e obsidiana viraria terra.
+
+**Só acelera o que resiste.** Terra, areia e folhagem não têm `minToolTier`: já saem num golpe.
+Acelerá-las não daria sensação nenhuma e ainda tornaria o modo detalhe difícil de controlar.
+
+- [~] 1294 `P1` **`fatorDeVelocidade`** em módulo próprio, com teto de ~2,2× — sem o piso, uma corrente de tiers longa levaria o fator a zero e o mundo deixaria de ter custo
+- [~] 1295 `P1` **8 testes**, incluindo "ferramenta insuficiente não é penalizada aqui" (quem barra o bloco é a regra de tier mínimo; penalizar de novo seria punir duas vezes pelo mesmo motivo, num lugar onde ninguém procuraria)

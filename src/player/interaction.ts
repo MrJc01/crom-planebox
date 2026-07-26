@@ -1,6 +1,7 @@
 // Interação: raycast voxel (DDA), quebrar/colocar, modo de construção Box,
 // Modo Detalhe (voxel fino 1/3 m vs bloco cheio 1 m = 3×3×3), hotbar e recursos.
 import * as THREE from 'three';
+import { fatorDeVelocidade } from './velocidadeDeQuebra';
 import { World } from '../world/world';
 import { VoxelPhysics } from '../world/physics';
 import { B, BLOCKS, isSolid, isDecor, isLog, isReplaceable } from '../world/blocks';
@@ -317,7 +318,7 @@ export class Interaction {
 
     const hit = this.raycast(new THREE.Vector3().copy(camera.position), dir);
     if (!hit) return;
-    this.breakCooldown = this.detailMode ? 0.09 : 0.16;
+    this.breakCooldown = (this.detailMode ? 0.09 : 0.16) * fatorDeVelocidade(tier, hit.type);
 
     // cortar tronco → derruba a árvore inteira (independente do modo)
     if (isLog(hit.type) && !BLOCKS[hit.type].structural) {
