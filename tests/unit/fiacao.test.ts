@@ -305,6 +305,27 @@ describe('cama — o ponto de renascimento chega ao jogo (item 010)', () => {
     expect(/pontoDeRenascimento = pr \? .* : null/.test(main)).toBe(true);
   });
 
+  it('CRÍTICO: dormir chega ao relógio do mundo', () => {
+    // `porQueNaoPodeDormir` e `RITMO_DORMINDO` são um módulo puro: sem estas duas linhas, ele
+    // passaria nos 11 testes próprios e a cama continuaria só definindo o spawn.
+    expect(/porQueNaoPodeDormir\(/.test(main), 'ninguém pergunta se pode').toBe(true);
+    expect(/if \(dormindo\) ritmo = RITMO_DORMINDO/.test(main), 'o relógio não acelera').toBe(true);
+    expect(/deveAcordar\(/.test(main), 'ninguém acorda').toBe(true);
+  });
+
+  it('CRÍTICO: o ponto de renascimento é conferido na hora de USAR', () => {
+    // Conferir só na hora de gravar não adianta: entre gravar e morrer o mundo muda, e quem tapou
+    // o próprio quarto renasceria dentro da pedra, preso, logo depois de morrer.
+    expect(/soterrado/.test(main), 'nada confere o ponto').toBe(true);
+  });
+
+  it('CRÍTICO: acordar avisa os convidados na hora', () => {
+    // O envio periódico é de 10 em 10 segundos. Nesse intervalo o convidado ainda estaria de noite,
+    // com o céu de outro horário e criaturas que o anfitrião já não simula.
+    const trecho = main.slice(main.indexOf('deveAcordar('), main.indexOf('deveAcordar(') + 900);
+    expect(/world_time/.test(trecho), 'acorda em silêncio').toBe(true);
+  });
+
   it('usar um bloco vem ANTES da recusa por estar com ferramenta na mão', () => {
     // O estado normal de quem acabou de minerar é ter a picareta selecionada. Se a recusa viesse
     // primeiro, clicar na cama não faria nada, e nada explicaria por quê.

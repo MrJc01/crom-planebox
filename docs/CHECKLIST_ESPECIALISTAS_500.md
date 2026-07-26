@@ -103,7 +103,7 @@ loop de objetivos que puxe o jogador do primeiro dia até um chefe final.*
 - [~] 006 `P0` Definir e documentar o **loop central de 30 minutos** (acordar → coletar → craftar → abrigar → explorar) — `docs/LOOP_CENTRAL.md`, com os quinze passos, os portões que obrigam a ordem, e uma seção final do que o loop **ainda não tem**
 - [~] 007 `P0` Sistema de objetivos/conquistas guiando o jogador novato ("faça sua primeira picareta") — `src/game/Objetivos.ts` + cartão no HUD, 21 testes de lógica e 9 de fiação
 - [~] 008 `P0` Curva de progressão em tiers de material (madeira → pedra → ferro → diamante) com gate real de acesso — a corrente vai de 1 a 4 sem buraco, **cada degrau coleta algo que o anterior não coletava**, e o último tem porta própria (obsidiana, itens 1287/1293). O gate é "quebra mas não dropa", não parede: gateia a *aquisição* sem trancar ninguém no cenário
-- [ ] 009 `P1` Primeira noite como evento de tensão: inimigos surgem só após o anoitecer
+- [~] 009 `P1` Primeira noite como evento de tensão — **auditado**: a regra de luz já faz isso. `effectiveLight = max(sky * sunScale, block)`; ao meio-dia a superfície dá 15 e nada nasce, de madrugada dá ~1,8 e passa do limiar 6. Caverna nasce de dia também, que é o certo. Falta só o enquadramento da PRIMEIRA noite como evento (item 1345)
 - [~] 010 `P1` Sistema de "camas"/ponto de renascimento definido pelo jogador — bloco `B.BED`, receita do primeiro dia, clique direito define o ponto; ver a seção 61
 - [~] 011 `P1` Morte com penalidade escolhível por mundo (dropar inventário / manter / hardcore) — `src/game/penalidadeDeMorte.ts`, escolhida na criação do mundo; ver a seção 60
 - [ ] 012 `P1` Diário de bordo no mundo registrando marcos alcançados
@@ -3559,7 +3559,82 @@ devolvido ao menu por um toast, o que se lê como defeito, não como regra.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1339 `P1` **A cama não passa de noite** — ela define onde renascer e nada mais. Dormir para pular a noite é metade do que uma cama significa no gênero, e é também o que daria consequência ao item 009
-- [ ] 1340 `P1` **Nada valida o ponto de renascimento na hora de usar** — se o jogador tapar o lugar com pedra, ele renasce dentro dela. `estaAbrigado` já sabe distinguir "fechado" de "soterrado" e resolveria
+- [~] 1339 `P1` **Dormir até o amanhecer** — `src/game/dormir.ts`, com as quatro recusas explicadas; ver a seção 62
+- [~] 1340 `P1` **O ponto é conferido na hora de usar** — corpo inteiro, não só os pés; se ficou soterrado, volta ao spawn do mundo com aviso
 - [ ] 1341 `P2` **Não há como ver nem limpar o ponto de renascimento** — quem esqueceu onde dormiu não tem como descobrir, e não há como voltar ao spawn original sem morrer lá
 - [ ] 1342 `P2` **A cama não é sincronizada no multijogador** — o bloco é replicado, mas o "usei esta cama" é local, o que está certo; falta o convidado ver que a cama do anfitrião foi usada
+
+---
+
+## 62 — Dormir até o amanhecer (itens 1339, 1340, e a auditoria do 009)
+
+A cama definia onde renascer, e nada mais. Isso é metade do que uma cama significa no gênero, e era
+a metade menos interessante: quem fez tudo certo — casa fechada, tocha acesa, cama no canto — ainda
+tinha que **esperar a noite passar olhando para a parede**. Sete minutos e meio de relógio real, sem
+nada para fazer, como recompensa por ter se preparado bem.
+
+### As quatro recusas, e o que cada uma protege
+
+Elas vivem num módulo puro porque cada uma é uma regra de jogo com uma razão — não uma guarda
+defensiva. Enterradas num `if` composto dentro do laço principal, seriam indistinguíveis umas das
+outras, e a primeira a ser "simplificada" levaria a razão junto.
+
+**De dia, não.** Adiantaria o relógio um dia inteiro para pular… o dia. O jogador perderia as horas
+de luz, que são justamente quando dá para explorar a superfície em segurança.
+
+**A céu aberto, não.** Esta é a regra que faz dormir ser a **recompensa por ter se preparado**, e
+não a maneira de não precisar se preparar. Sem ela a cama vira um botão de pular a noite, e a noite
+é metade do jogo: o perigo, o motivo de construir, o motivo de fazer tochas.
+
+**Convidado, não.** O relógio do mundo é do anfitrião. Um convidado adiantando o próprio veria um
+amanhecer que não aconteceu para mais ninguém, e a correção seguinte o puxaria de volta — o sol
+subiria e desceria na cara dele.
+
+**Já dormindo, não.**
+
+E cada recusa **devolve a frase pronta**, não um código. "Não é possível dormir" manda o jogador
+adivinhar entre quatro motivos, e o mais provável é ele concluir que a cama está quebrada. Um teste
+exige que as quatro frases sejam diferentes entre si: quatro recusas com a mesma frase são uma só.
+
+### Três detalhes que falham calados
+
+**Dormir acelera, não salta.** A luz do céu está assada na cor dos vértices, e o mundo é re-meshado
+quando `sunScale` cruza o limiar. Um salto faria isso de uma vez, com o sol pulando no céu e um
+engasgo visível. A 90× a noite passa em uns 4 segundos, pelos mesmos degraus de sempre.
+
+**Acordar é decidido pela FASE**, não por um valor de `timeOfDay`. É a mesma noção que o resto do
+jogo usa para dizer o que é noite; um número solto aqui poderia sair de sincronia com ela sem nada
+apontar a discordância. E sem a parada, o relógio a 90× daria voltas no dia inteiro.
+
+**Acordar avisa os convidados na hora.** O envio periódico é de 10 em 10 segundos, e nesse intervalo
+eles ainda estariam de noite — com o céu de outro horário e criaturas que o anfitrião já não simula.
+
+**Definir o ponto acontece sempre, antes de qualquer recusa.** É a metade da cama que não pode
+falhar: quem tentar dormir de dia ainda assim quer ter marcado ali o lugar para onde volta.
+
+### O ponto conferido na hora de usar (1340)
+
+Entre gravar e morrer, o mundo muda. Quem tapar o próprio quarto com pedra — ou tiver a casa
+preenchida por um amigo, por um fluido escoando ou por um script de mod — renasceria **dentro da
+rocha**, preso, no momento em que acabou de morrer e ainda está entendendo o que houve. O spawn do
+mundo é uma volta longa, mas é uma volta; ficar entalado não é.
+
+A conferência é do **corpo inteiro**, não só dos pés: com o pé livre e a cabeça na pedra, o jogador
+nasce com a câmera dentro do bloco e vê o mundo de dentro para fora.
+
+### O item 009, auditado em vez de refeito
+
+"Inimigos surgem só após o anoitecer" já acontecia, e por uma regra melhor que a literal:
+`effectiveLight = max(sky * sunScale, block)`. Ao meio-dia a superfície dá 15 e nada nasce; de
+madrugada dá ~1,8 e passa do limiar 6. Caverna gera de dia também, que é o comportamento certo — a
+regra é a **luz**, não a hora, e é isso que faz a tocha ser ferramenta de território.
+
+- [~] 1343 `P1` **`dormir.ts`** com as quatro recusas explicadas, 11 testes
+- [~] 1344 `P1` **4 travas de fiação** — o módulo é puro e passaria nos 11 testes com a cama continuando a só definir spawn
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1345 `P2` **A primeira noite não é enquadrada como evento** — ela tem peso mecânico (hostis, abrigo, dormir), mas nada no jogo a marca como diferente das outras
+- [ ] 1346 `P2` **Não há tela de sono** — o mundo corre a 90× com o jogador de pé no meio dele, em vez de escurecer. Funciona, mas parece um bug de velocidade
+- [ ] 1347 `P2` **Dormir não cura nem restaura fome** — passar a noite abrigado não tem nenhum efeito no corpo, o que torna a cama útil só pelo tempo
+- [ ] 1348 `P3` **O convidado não tem como pedir para dormir** — a recusa é honesta, mas num mundo compartilhado ninguém dorme nunca, a menos que o anfitrião resolva

@@ -56,6 +56,7 @@ import { GameModeManager } from './game/GameModeManager';
 import { EventoDeProgresso, RastreadorDeObjetivos } from './game/Objetivos';
 import { chaveDeCelula, mapearAbrigo } from './game/abrigo';
 import { aplicarPenalidade, penalidadeDoMundo } from './game/penalidadeDeMorte';
+import { RITMO_DORMINDO, deveAcordar, porQueNaoPodeDormir } from './game/dormir';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -187,7 +188,30 @@ async function bootstrap() {
    * momento em que ele já está morto e sem nada para reagir.
    */
   let pontoDeRenascimento: THREE.Vector3 | null = null;
-  const ondeRenascer = (): THREE.Vector3 => (pontoDeRenascimento ? pontoDeRenascimento.clone() : findSpawn());
+
+  /**
+   * Onde colocar o jogador ao renascer.
+   *
+   * O ponto é conferido **na hora de usar**, e não na hora de gravar: entre uma coisa e outra o
+   * mundo muda. Quem tapar o próprio quarto com pedra — ou tiver a casa preenchida por um amigo,
+   * por um fluido escoando ou por um script de mod — renasceria dentro de rocha maciça, preso, num
+   * momento em que acabou de morrer e ainda está entendendo o que houve. O spawn do mundo é uma
+   * volta longa, mas é uma volta; ficar entalado não é.
+   */
+  const ondeRenascer = (): THREE.Vector3 => {
+    if (!pontoDeRenascimento) return findSpawn();
+    const p = pontoDeRenascimento;
+    const livre = (dy: number) => {
+      const t = world.getBlock(Math.floor(p.x), Math.floor(p.y + dy), Math.floor(p.z));
+      return t === B.AIR || !isSolid(t);
+    };
+    // O corpo inteiro, e não só os pés: com o pé livre e a cabeça na pedra, o jogador nasce com a
+    // câmera dentro do bloco e vê o mundo de dentro para fora.
+    if (livre(0) && livre(SCALE)) return p.clone();
+    hud.showToast('Seu ponto de renascimento ficou soterrado — voltando ao spawn do mundo.');
+    pontoDeRenascimento = null;
+    return findSpawn();
+  };
 
   player.pos.copy(findSpawn());
 
@@ -1184,10 +1208,27 @@ async function bootstrap() {
   // câmera enfiada no colchão no instante em que ela mais precisa mostrar o que houve.
   inter.onUseBlock = (blockType) => {
     if (blockType !== B.BED) return;
+
+    // Definir o ponto acontece SEMPRE, e antes de qualquer recusa de dormir. É a metade da cama que
+    // nunca pode falhar: quem tentar dormir de dia, ou sem estar abrigado, ainda assim quer ter
+    // marcado ali o lugar para onde volta.
     pontoDeRenascimento = player.pos.clone();
-    hud.showToast('Ponto de renascimento definido nesta cama.');
-    audio.play(SOUNDS.uiAbrir, { channel: 'ui' });
     schedulePlayerSave();
+    audio.play(SOUNDS.uiAbrir, { channel: 'ui' });
+
+    const motivo = porQueNaoPodeDormir({
+      ehNoite: fasesDoDia(timeOfDay) === 'noite',
+      abrigado: abrigoAtual !== null,
+      souORelogio: peerSync.role !== 'guest',
+      jaDormindo: dormindo,
+    });
+    if (motivo) {
+      hud.showToast(`Ponto de renascimento definido. ${motivo}`);
+      return;
+    }
+
+    dormindo = true;
+    hud.showToast('Dormindo até o amanhecer...');
   };
 
   chatOverlay.getLocationContext = () => {
@@ -1765,6 +1806,8 @@ async function bootstrap() {
   let abrigoAtual: Set<string> | null = null;
   /** Já avisamos nesta noite que o jogador está descoberto? Zera ao amanhecer. */
   let avisouDescoberto = false;
+  /** O jogador está dormindo: o relógio do mundo corre acelerado até o amanhecer. */
+  let dormindo = false;
   let netAccum = 0;
   /** Acumulador do retrato de criaturas enviado aos convidados. */
   let mobSyncAccum = 0;
@@ -1846,6 +1889,9 @@ async function bootstrap() {
       if (Math.abs(erro) < 0.0008) relogioAlvo = null;
       else ritmo = 1 + Math.sign(erro) * 0.3;
     }
+    // Dormir corre o relógio em vez de saltá-lo. Um salto faria `sunScale` cruzar o limiar de uma
+    // vez, com o mundo inteiro re-meshado num quadro e o sol pulando no céu.
+    if (dormindo) ritmo = RITMO_DORMINDO;
     timeOfDay = (timeOfDay + (dt * ritmo) / DAY_LENGTH) % 1;
 
     // O anfitrião é o relógio do mundo: sem isto, cada par contava o tempo desde que entrou, e
@@ -1876,6 +1922,19 @@ async function bootstrap() {
     // noite, antes da parte perigosa, e o jogador ganharia por ter sobrevivido a metade dela.
     if (faseAtual === 'amanhecer' && faseAnterior !== 'amanhecer') {
       registrarProgresso({ tipo: 'amanheceu' });
+    }
+    // Acordar é decidido pela FASE, e não por um valor de `timeOfDay`: é a mesma noção que o resto
+    // do jogo usa para dizer o que é noite, e um número solto aqui poderia sair de sincronia com
+    // ela sem nada apontar a discordância. Sem esta parada, o relógio a 90× daria voltas no dia.
+    if (dormindo && deveAcordar(faseAtual)) {
+      dormindo = false;
+      hud.showToast('Bom dia.');
+      // O relógio saltou horas: os convidados precisam saber agora, e não no envio periódico de
+      // 10 em 10 segundos — nesse intervalo eles ainda estariam de noite, com o céu de outro
+      // horário e criaturas que o anfitrião já não simula.
+      if (peerSync.role === 'host') {
+        peerSync.broadcast({ type: 'world_time', timeOfDay, worldDay, forcedWeather: climaForcado ?? null });
+      }
     }
 
     profiler.begin('mods'); modRuntime.tickAll(dt); profiler.end('mods');

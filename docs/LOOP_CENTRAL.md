@@ -101,8 +101,9 @@ propaganda:
 - **Não há razão para uma segunda volta.** O loop fecha no papel, mas depois da obsidiana não há
   material melhor nem objetivo maior. Falta o topo: armadura, chefe, ou uma dimensão (itens 018,
   019, 1286).
-- **A noite não é perigosa o bastante** para justificar o abrigo do passo 6. Os hostis nascem, mas
-  não há evento que force o jogador a se esconder (item 009).
+- **A primeira noite não é enquadrada como evento.** A regra de luz já faz os hostis nascerem só no
+  escuro, e dormir exige abrigo — então a noite tem peso mecânico. Falta o peso *narrativo*: nada
+  no jogo marca a primeira noite como diferente das outras (item 1345).
 - **A cama encurta a volta, mas nada encurta a descida.** O ponto de renascimento resolve morrer
   longe (item 010); continua não havendo transporte, atalho ou elevador, então a décima descida à
   mesma caverna é idêntica à primeira.
