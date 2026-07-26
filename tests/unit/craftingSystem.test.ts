@@ -140,4 +140,30 @@ describe('corrente de progressão de ferramentas — itens 008 e 195', () => {
     );
     expect(usaDiamante).toBe(true);
   });
+
+  it('CRÍTICO: o ÚLTIMO degrau da corrente abre porta própria', () => {
+    // O par simétrico do teste acima, e o que faltava. Aquele garante que nenhum bloco exige mais
+    // do que a melhor picareta alcança; este garante o contrário — que a melhor picareta alcança
+    // algo que as outras não.
+    //
+    // Sem ele, a ponta da progressão degenera em silêncio: a receita mais cara do jogo sai, todos
+    // os testes passam, e o efeito prático é só "os mesmos blocos, mais rápido". Não falha em
+    // lugar nenhum, e é exatamente por isso que precisa de um teste — foi o estado real por uma
+    // rodada inteira, com a picareta de diamante pronta e nenhum bloco pedindo tier 4.
+    const maiorTier = Math.max(...tiers);
+    const porta = BLOCKS.filter((b) => b && b.minToolTier === maiorTier);
+    expect(porta.length, `nenhum bloco exige tier ${maiorTier}`).toBeGreaterThan(0);
+  });
+
+  it('cada tier acima do primeiro desbloqueia algum bloco a mais que o anterior', () => {
+    // Um degrau que não amplia o conjunto de blocos coletáveis é um degrau que o jogador pode
+    // pular sem perder nada — e uma receita cara que ninguém tem motivo para fazer.
+    const coletaveisCom = (t: number) =>
+      BLOCKS.filter((b) => b && b.drops !== undefined && b.drops >= 0 && (b.minToolTier ?? 0) <= t).length;
+
+    for (const t of tiers) {
+      expect(coletaveisCom(t), `o tier ${t} não coleta nada que o ${t - 1} já não colete`)
+        .toBeGreaterThan(coletaveisCom(t - 1));
+    }
+  });
 });

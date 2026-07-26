@@ -50,7 +50,7 @@ export interface BlockDef {
   colors: [number[], number[], number[]];
   /** item concedido ao quebrar (id de bloco); -1 = nada */
   drops: number;
-  /** Tier mínimo de ferramenta para o bloco realmente dropar item ao quebrar (0=mão, 1=madeira, 2=pedra, 3=ferro). Só se aplica no Modo Sobrevivência. */
+  /** Tier mínimo de ferramenta para o bloco realmente dropar item ao quebrar (0=mão, 1=madeira, 2=pedra, 3=ferro, 4=diamante). Só se aplica no Modo Sobrevivência. */
   minToolTier?: number;
   /** Blocos com comportamento especial (luminoso, fluido) — usado para separar em aba própria no inventário criativo. */
   interactive?: boolean;
@@ -114,7 +114,16 @@ BLOCKS[B.IRON_BLOCK] = def('bloco de ferro', 0xf1f5f9, 0xe2e8f0, 0xcbd5e1, { str
 BLOCKS[B.GOLD_BLOCK] = def('bloco de ouro', 0xfde047, 0xeab308, 0xca8a04, { structural: true, drops: B.GOLD_BLOCK, minToolTier: 2 });
 BLOCKS[B.DIAMOND_BLOCK] = def('bloco de diamante', 0x38bdf8, 0x0284c7, 0x0369a1, { structural: true, drops: B.DIAMOND_BLOCK, minToolTier: 3 });
 BLOCKS[B.GLOWSTONE] = def('pedra luminosa', 0xfef08a, 0xfde047, 0xeab308, { structural: true, drops: B.GLOWSTONE, interactive: true });
-BLOCKS[B.OBSIDIAN] = def('obsidiana', 0x1e1b4b, 0x18181b, 0x09090b, { structural: true, drops: B.OBSIDIAN, minToolTier: 3 });
+// Obsidiana é a porta do tier 4 — o único bloco do jogo que a picareta de diamante abre e as
+// outras não. Antes exigia tier 3, e a consequência era que o último degrau da progressão não
+// desbloqueava nada: a picareta mais cara do jogo só fazia os mesmos blocos saírem mais rápido.
+//
+// Ela é a candidata certa por três motivos, e não por ser a mais escura: **nasce sozinha** no
+// encontro de lava com água (`fluids.ts`), que é um evento comum em caverna profunda, então a
+// porta aparece no caminho de quem já está no fundo; **não é ingrediente de nada**, então subir a
+// exigência não tranca nenhuma receita anterior; e o portão aqui é "quebra mas não dropa"
+// (`awardDrop`), então ninguém fica preso atrás de uma parede que não consegue remover.
+BLOCKS[B.OBSIDIAN] = def('obsidiana', 0x1e1b4b, 0x18181b, 0x09090b, { structural: true, drops: B.OBSIDIAN, minToolTier: 4 });
 BLOCKS[B.BRICK] = def('tijolo', 0xb91c1c, 0x991b1b, 0x7f1d1d, { structural: true, drops: B.BRICK });
 BLOCKS[B.DARK_STONE] = def('pedra escura', 0x334155, 0x1e293b, 0x0f172a, { structural: true, drops: B.DARK_STONE, minToolTier: 1 });
 BLOCKS[B.LAVA] = def('lava', 0xea580c, 0xc2410c, 0x9a3412, { solid: false, opaque: false, interactive: true });

@@ -3199,7 +3199,7 @@ código, e por isso nenhum teste o encontraria — foi preciso perguntar "para q
 
 - [ ] 1285 `P1` ~~Espada/machado por tier~~ **REDIMENSIONADO** — o jogo não tem *tipo* de ferramenta, só `toolTier` genérico, e `damageForTier` já faz a tier valer no combate. Uma espada seria só outro rótulo com o mesmo efeito. Fazer isso de verdade exige um conceito de **classe de ferramenta** (velocidade por material, dano por tipo) — mudança de desenho, não de receita
 - [ ] 1286 `P1` **Diamante sem uso além da picareta** — armadura ou ferramenta especial, senão o tier 4 é um beco
-- [ ] 1287 `P2` **Nenhum bloco exige tier 4**, então a picareta de diamante hoje só é mais rápida (se a velocidade por tier existir) — vale um bloco exclusivo dela, para o degrau ter porta própria
+- [~] 1287 `P2` **Nenhum bloco exige tier 4** — feito: a obsidiana passou a exigi-lo (ver "O último degrau ganha porta"). Anotei esta mesma lacuna **duas vezes**, aqui e em 1293, em rodadas diferentes; 1293 é a duplicata
 
 ### O teto por saturação — descoberto ao conferir a própria correção anterior
 
@@ -3227,7 +3227,37 @@ nada explicando o porquê.
 
 - [~] 1291 `P1` **Tier passou a afetar a velocidade de quebra** — antes:  — `breakCooldown` é fixo (0,42 / 0,16). Uma picareta melhor hoje só desbloqueia blocos e bate mais forte; minerar pedra com diamante leva o mesmo tempo que com madeira, que é o oposto da expectativa do gênero
 - [ ] 1292 `P1` **Não existe classe de ferramenta** (picareta / machado / pá / espada). Sem isso, "espada de ferro" seria só um rótulo diferente para a picareta de ferro
-- [ ] 1293 `P2` **Nenhum bloco exige tier 4**, então a picareta de diamante não abre porta nenhuma — só melhora números
+- [~] 1293 `P2` **Duplicata de 1287** — a mesma lacuna anotada duas vezes, em rodadas diferentes. Feita junto
+
+### O último degrau ganha porta — itens 1287/1293
+
+A picareta de diamante existia, batia mais forte e minerava mais rápido, e mesmo assim **não
+desbloqueava um único bloco**: o maior `minToolTier` do jogo era 3. O efeito prático da receita
+mais cara era "os mesmos blocos, só que antes".
+
+A obsidiana passou a exigir tier 4. Ela é a candidata certa por três motivos, e nenhum deles é ser
+a mais escura:
+
+- **Nasce sozinha** no encontro de lava com água (`fluids.ts`), evento comum em caverna profunda —
+  a porta aparece no caminho de quem já está no fundo, em vez de exigir uma expedição própria.
+- **Não é ingrediente de nada**, então subir a exigência não tranca nenhuma receita anterior. Se
+  fosse o minério de ferro, o jogo ficaria sem corrente de progressão nenhuma.
+- O portão é **"quebra mas não dropa"** (`awardDrop`), não uma parede: ninguém fica preso atrás de
+  obsidiana que não consegue remover — inclusive a que o próprio jogador criou por acidente
+  jogando água na lava.
+
+**O teste que faltava era o simétrico do que existia.** Já havia "todo tier exigido tem picareta
+que o alcança" — que impede conteúdo inalcançável. Faltava o contrário: "a melhor picareta alcança
+algo que as outras não". Sem ele, a ponta da progressão degenera **em silêncio**: a receita sai,
+todos os testes passam, e não falha em lugar nenhum. Foi o estado real por uma rodada inteira.
+
+Somei um segundo, mais geral: **cada tier coleta algo que o anterior não coletava**. Um degrau que
+não amplia o conjunto de blocos coletáveis é um degrau que o jogador pode pular sem perder nada —
+e uma receita cara que ninguém tem motivo para fazer.
+
+- [~] 1296 `P1` **Obsidiana exige tier 4** — o único bloco que a picareta de diamante abre
+- [~] 1297 `P1` **Teste "o último degrau abre porta própria"** — o simétrico que faltava
+- [~] 1298 `P2` **Teste "cada tier desbloqueia algo a mais que o anterior"** — pega o degrau vazio no meio, não só na ponta
 
 ### Item 1291 — a razão de subir de tier
 
