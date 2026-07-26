@@ -6,6 +6,8 @@
 //
 // A persistência fica no `WorldRepository` e a aplicação no runtime 3D no `ModService`.
 
+import { BlocoComparavel, ConflitoDeCor, corDeHex, verificarContraste } from './contraste';
+import type { ColorInput } from './ModTypes';
 import {
   BLOCKS,
   CUSTOM_BLOCK_ID_BASE,
@@ -120,6 +122,32 @@ export function allocateBlockIds(pkg: ModPackage, otherMods: ModPackage[] = []):
   }
 
   return pkg;
+}
+
+/**
+ * O bloco novo é distinguível dos que já existem? — item 076.
+ *
+ * ## Por que NÃO está dentro de `validateModPackage`
+ *
+ * Aquela função roda também na **carga** de um mod já salvo. Um bloco criado antes desta regra
+ * existir passaria a reprovar, e o mod iria para quarentena sozinho na próxima abertura do mundo
+ * — o jogador perderia conteúdo por causa de uma regra nova. A regra vale para o que está sendo
+ * **criado agora**, e é por isso que ela mora separada e é chamada só no caminho de criação.
+ *
+ * Compara contra os blocos nativos e contra os de outros mods, ignorando os do próprio pacote:
+ * um mod que declara uma família coerente (pedra, pedra musgosa) não deve brigar consigo mesmo.
+ */
+export function conflitoDeContraste(
+  topo: ColorInput,
+  ignorarModId?: string,
+): ConflitoDeCor | null {
+  const existentes: BlocoComparavel[] = [];
+  for (const d of BLOCKS) {
+    if (!d || d.reserved) continue;
+    if (ignorarModId && (d as any).modId === ignorarModId) continue;
+    existentes.push({ nome: d.name, topo: [d.colors[0][0], d.colors[0][1], d.colors[0][2]] });
+  }
+  return verificarContraste(corDeHex(topo), existentes);
 }
 
 /** Registra os blocos de um mod no array global `BLOCKS`, nos ids que o pacote já carrega. */

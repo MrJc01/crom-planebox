@@ -147,7 +147,7 @@ describe('ModService — criação de conteúdo pela IA', () => {
   it('criar duas vezes o mesmo mod não duplica nem apaga o conteúdo existente', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'azul', name: 'Cristal Azul', topColor: '#38bdf8' });
+    await svc.addBlock(details.modId, { key: 'azul', name: 'Cristal Azul', topColor: '#ff2fd0' });
 
     const segunda = await svc.createMod('Cristal');
     expect(segunda.ok).toBe(true);
@@ -158,7 +158,7 @@ describe('ModService — criação de conteúdo pela IA', () => {
   it('adiciona bloco, registra na hora e salva com id estável', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    const res = await svc.addBlock(details.modId, { key: 'azul', name: 'Cristal Azul', topColor: '#38bdf8', opaque: false });
+    const res = await svc.addBlock(details.modId, { key: 'azul', name: 'Cristal Azul', topColor: '#ff2fd0', opaque: false });
 
     expect(res.ok).toBe(true);
     expect(res.details.blockId).toBe(CUSTOM_BLOCK_ID_BASE);
@@ -170,8 +170,8 @@ describe('ModService — criação de conteúdo pela IA', () => {
   it('normaliza a chave do bloco e recusa duplicata', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'Cristal Azul', name: 'Cristal Azul', topColor: 0 });
-    const dup = await svc.addBlock(details.modId, { key: 'cristal_azul', name: 'Outro', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'Cristal Azul', name: 'Cristal Azul', topColor: 0xd400ff });
+    const dup = await svc.addBlock(details.modId, { key: 'cristal_azul', name: 'Outro', topColor: 0x00ffd4 });
 
     expect(fake.mods.get(details.modId)!.blocks[0].key).toBe('cristal_azul');
     expect(dup.ok).toBe(false);
@@ -180,7 +180,7 @@ describe('ModService — criação de conteúdo pela IA', () => {
 
   it('recusa adicionar conteúdo a um mod inexistente com mensagem acionável', async () => {
     const { svc } = newService();
-    const res = await svc.addBlock('mod-fantasma', { key: 'x', name: 'X', topColor: 0 });
+    const res = await svc.addBlock('mod-fantasma', { key: 'x', name: 'X', topColor: 0xff8a00 });
     expect(res.ok).toBe(false);
     expect(res.message).toContain('create_mod');
   });
@@ -216,7 +216,7 @@ describe('ModService — criação de conteúdo pela IA', () => {
   it('aceita estrutura que mistura bloco do mod com bloco da paleta base', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Templos');
-    await svc.addBlock(details.modId, { key: 'cristal', name: 'Cristal', topColor: 0x38bdf8 });
+    await svc.addBlock(details.modId, { key: 'cristal', name: 'Cristal', topColor: 0x7cff1a });
 
     const res = await svc.addStructure(details.modId, {
       key: 'altar', name: 'Altar',
@@ -242,7 +242,7 @@ describe('ModService — colocar conteúdo no mundo e salvar', () => {
   it('carimba a estrutura no mundo e salva os blocos', async () => {
     const { svc, world } = newService();
     const { details } = await svc.createMod('Templos');
-    await svc.addBlock(details.modId, { key: 'cristal', name: 'Cristal', topColor: 0x38bdf8 });
+    await svc.addBlock(details.modId, { key: 'cristal', name: 'Cristal', topColor: 0x7cff1a });
     await svc.addStructure(details.modId, {
       key: 'altar', name: 'Altar',
       blocks: [
@@ -303,7 +303,7 @@ describe('ModService — ciclo completo com reload (o requisito central)', () =>
     // --- Sessão 1: a IA cria uma modificação inteira -------------------------------------
     const s1 = newService();
     const { details } = await s1.svc.createMod('Reino de Cristal');
-    const blocoRes = await s1.svc.addBlock(details.modId, { key: 'cristal', name: 'Cristal Azul', topColor: '#38bdf8' });
+    const blocoRes = await s1.svc.addBlock(details.modId, { key: 'cristal', name: 'Cristal Azul', topColor: '#ff2fd0' });
     await s1.svc.addEntity(details.modId, {
       key: 'guardiao', name: 'Guardião',
       parts: [{ offsetX: 0, offsetY: 1, offsetZ: 0, sizeX: 1, sizeY: 2, sizeZ: 1, color: '#38bdf8' }],
@@ -347,7 +347,7 @@ describe('ModService — ciclo completo com reload (o requisito central)', () =>
   it('mod desabilitado não é aplicado no load, mas suas definições continuam salvas', async () => {
     const s1 = newService();
     const { details } = await s1.svc.createMod('Cristal');
-    const blocoRes = await s1.svc.addBlock(details.modId, { key: 'c', name: 'Cristal', topColor: 0 });
+    const blocoRes = await s1.svc.addBlock(details.modId, { key: 'c', name: 'Cristal', topColor: 0xff00aa });
     await s1.svc.setEnabled(details.modId, false);
 
     resetCustomBlocks();
@@ -366,7 +366,7 @@ describe('ModService — ciclo completo com reload (o requisito central)', () =>
   it('remover um mod limpa do mundo os blocos que ele havia colocado', async () => {
     const { svc, world } = newService();
     const { details } = await svc.createMod('Cristal');
-    const blocoRes = await svc.addBlock(details.modId, { key: 'c', name: 'Cristal', topColor: 0 });
+    const blocoRes = await svc.addBlock(details.modId, { key: 'c', name: 'Cristal', topColor: 0xff00aa });
     await svc.addStructure(details.modId, { key: 't', name: 'T', blocks: [{ dx: 0, dy: 0, dz: 0, block: 'c' }] });
     await svc.placeStructure(details.modId, 't', 7, 7, 7);
     expect(world.placed.get('7,7,7')).toBe(blocoRes.details.blockId);
@@ -394,7 +394,7 @@ describe('ModService — exportar e importar', () => {
   it('exporta JSON portátil e devolve null para mod inexistente', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'c', name: 'Cristal', topColor: 0x38bdf8 });
+    await svc.addBlock(details.modId, { key: 'c', name: 'Cristal', topColor: 0x7cff1a });
 
     const pkg = svc.exportMod(details.modId)!;
     expect(pkg.formatVersion).toBe(1);
@@ -407,7 +407,7 @@ describe('ModService — exportar e importar', () => {
 
     // Mod nativo deste mundo, ocupando o primeiro id.
     const nativo = await svc.createMod('Nativo');
-    await svc.addBlock(nativo.details.modId, { key: 'pedra_azul', name: 'Pedra Azul', topColor: 0 });
+    await svc.addBlock(nativo.details.modId, { key: 'pedra_azul', name: 'Pedra Azul', topColor: 0xff00aa });
     expect(BLOCKS[CUSTOM_BLOCK_ID_BASE].name).toBe('Pedra Azul');
 
     // Mod de fora que também acha que é dono do id base.
@@ -512,7 +512,7 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
     // só o número do bloco, então divergir de id faz o convidado pintar o mundo trocado.
     const doAnfitriao: ModPackage = {
       id: 'mod-cristal', name: 'Cristal', version: '1.0.0', enabled: true,
-      blocks: [{ key: 'azul', name: 'Cristal Azul', blockId: CUSTOM_BLOCK_ID_BASE + 5, topColor: '#38bdf8' }],
+      blocks: [{ key: 'azul', name: 'Cristal Azul', blockId: CUSTOM_BLOCK_ID_BASE + 5, topColor: '#ff2fd0' }],
       entities: [], structures: [], createdAt: 0, updatedAt: 0,
     };
 
@@ -528,7 +528,7 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
     const { svc } = newService();
     await svc.applyRemoteMods([{
       id: 'mod-x', name: 'X', version: '1.0.0', enabled: true,
-      blocks: [{ key: 'a', name: 'A', blockId: 70, topColor: 0 }],
+      blocks: [{ key: 'a', name: 'A', blockId: 70, topColor: 0xff00aa }],
       entities: [], structures: [], createdAt: 0, updatedAt: 0,
     } as ModPackage]);
 
@@ -539,7 +539,7 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
     const { svc } = newService();
     const applied = await svc.applyRemoteMods([
       { id: '', name: '', version: '1', enabled: true, blocks: [], entities: [], structures: [], createdAt: 0, updatedAt: 0 } as ModPackage,
-      { id: 'mod-ok', name: 'OK', version: '1', enabled: true, blocks: [{ key: 'b', name: 'B', blockId: 80, topColor: 0 }], entities: [], structures: [], createdAt: 0, updatedAt: 0 } as ModPackage,
+      { id: 'mod-ok', name: 'OK', version: '1', enabled: true, blocks: [{ key: 'b', name: 'B', blockId: 80, topColor: 0xff00aa }], entities: [], structures: [], createdAt: 0, updatedAt: 0 } as ModPackage,
     ]);
 
     expect(applied).toBe(1);
@@ -553,7 +553,7 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
 
     await svc.applyRemoteMods([{
       id: 'mod-remoto', name: 'Remoto', version: '1.0.0', enabled: true,
-      blocks: [{ key: 'a', name: 'A', blockId: 90, topColor: 0 }],
+      blocks: [{ key: 'a', name: 'A', blockId: 90, topColor: 0xff00aa }],
       entities: [], structures: [], createdAt: 0, updatedAt: 0,
     } as ModPackage]);
 
@@ -566,7 +566,7 @@ describe('ModService — sincronização P2P (o convidado precisa concordar sobr
     svc.onModChanged = (m) => echoes.push(m.id);
 
     const { details } = await svc.createMod('Local');
-    await svc.addBlock(details.modId, { key: 'c', name: 'C', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'c', name: 'C', topColor: 0xff00aa });
 
     expect(echoes.length).toBeGreaterThanOrEqual(2); // criação + adição de bloco
     expect(echoes[0]).toBe(details.modId);
@@ -660,8 +660,8 @@ describe('ModService — versionamento e rollback', () => {
   it('cada alteração grava uma revisão do estado anterior', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
-    await svc.addBlock(details.modId, { key: 'b', name: 'B', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0xff00aa });
+    await svc.addBlock(details.modId, { key: 'b', name: 'B', topColor: 0xff00aa });
 
     const revs = await svc.listRevisions(details.modId);
     expect(revs.length).toBe(2);
@@ -673,15 +673,15 @@ describe('ModService — versionamento e rollback', () => {
     const { details } = await svc.createMod('Cristal');
     expect(svc.getMod(details.modId)!.revision).toBe(1);
 
-    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0xff00aa });
     expect(svc.getMod(details.modId)!.revision).toBe(2);
   });
 
   it('CRÍTICO: rollback devolve o mod ao conteúdo da revisão escolhida', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'bom', name: 'Bom', topColor: 0 });
-    await svc.addBlock(details.modId, { key: 'ruim', name: 'Ruim', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'bom', name: 'Bom', topColor: 0xff00aa });
+    await svc.addBlock(details.modId, { key: 'ruim', name: 'Ruim', topColor: 0xff00aa });
     expect(svc.getMod(details.modId)!.blocks).toHaveLength(2);
 
     // Revisão 2 é o estado logo após "bom" e antes de "ruim".
@@ -695,8 +695,8 @@ describe('ModService — versionamento e rollback', () => {
   it('o rollback é reversível: o estado anterior vira uma revisão nova', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
-    await svc.addBlock(details.modId, { key: 'b', name: 'B', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0xff00aa });
+    await svc.addBlock(details.modId, { key: 'b', name: 'B', topColor: 0xff00aa });
 
     const antes = (await svc.listRevisions(details.modId)).length;
     await svc.rollbackMod(details.modId, 2);
@@ -709,7 +709,7 @@ describe('ModService — versionamento e rollback', () => {
   it('a revisão avança mesmo voltando no conteúdo — histórico linear, nunca reescrito', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0xff00aa });
     const antes = svc.getMod(details.modId)!.revision;
 
     await svc.rollbackMod(details.modId, 1);
@@ -719,7 +719,7 @@ describe('ModService — versionamento e rollback', () => {
   it('recusa revisão inexistente informando as disponíveis', async () => {
     const { svc } = newService();
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0 });
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: 0xff00aa });
 
     const res = await svc.rollbackMod(details.modId, 99);
     expect(res.ok).toBe(false);
@@ -741,12 +741,12 @@ describe('ModService — isolamento e export', () => {
     // Grava direto no repositório um pacote inválido, simulando corrupção no save.
     fake.mods.set('mod-quebrado', {
       id: 'mod-quebrado', name: '', version: '1', enabled: true, revision: 1,
-      blocks: [{ key: 'CHAVE INVÁLIDA', name: '', blockId: 64, topColor: 0 }],
+      blocks: [{ key: 'CHAVE INVÁLIDA', name: '', blockId: 64, topColor: 0xff00aa }],
       entities: [], structures: [], createdAt: 0, updatedAt: 0,
     } as any);
     fake.mods.set('mod-bom', {
       id: 'mod-bom', name: 'Bom', version: '1', enabled: true, revision: 1,
-      blocks: [{ key: 'ok', name: 'OK', blockId: 70, topColor: 0 }],
+      blocks: [{ key: 'ok', name: 'OK', blockId: 70, topColor: 0xff00aa }],
       entities: [], structures: [], createdAt: 0, updatedAt: 0,
     } as any);
 
@@ -766,7 +766,7 @@ describe('ModService — isolamento e export', () => {
   it('mod em quarentena não é reaplicado nos carregamentos seguintes', async () => {
     fake.mods.set('mod-x', {
       id: 'mod-x', name: 'X', version: '1', enabled: true, revision: 1, quarantined: true,
-      blocks: [{ key: 'a', name: 'A', blockId: 64, topColor: 0 }],
+      blocks: [{ key: 'a', name: 'A', blockId: 64, topColor: 0xff00aa }],
       entities: [], structures: [], createdAt: 0, updatedAt: 0,
     } as any);
 
@@ -780,7 +780,7 @@ describe('ModService — isolamento e export', () => {
     const { svc } = newService();
     svc.setActiveSession('thread-secreta');
     const { details } = await svc.createMod('Cristal');
-    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: '#38bdf8' });
+    await svc.addBlock(details.modId, { key: 'a', name: 'A', topColor: '#ff2fd0' });
 
     const pkg = svc.exportMod(details.modId)!;
 
@@ -788,6 +788,6 @@ describe('ModService — isolamento e export', () => {
     expect(pkg.mod.quarantined).toBeUndefined();
     expect(pkg.mod.blocks[0].blockId).toBeUndefined();
     // Mas o conteúdo que importa continua lá.
-    expect(pkg.mod.blocks[0]).toMatchObject({ key: 'a', name: 'A', topColor: '#38bdf8' });
+    expect(pkg.mod.blocks[0]).toMatchObject({ key: 'a', name: 'A', topColor: '#ff2fd0' });
   });
 });

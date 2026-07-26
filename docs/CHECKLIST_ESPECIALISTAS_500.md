@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1248 itens)
+# Checklist Mestre — Painel de Especialistas (1254 itens)
 
-> **Estado em 26/07/2026** — 571 de 1248 itens tratados (45%), com **818 testes** passando,
+> **Estado em 26/07/2026** — 578 de 1254 itens tratados (46%), com **829 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 488 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 677 | Pendente. |
+> | `[~]` | 495 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 676 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -192,7 +192,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [x] 073 `P1` Paleta central declarativa com cores por face (topo/lateral/base) — `src/world/blocks.ts`
 - [x] 074 `P1` 28 blocos base cobrindo terreno, minerais, vegetação e fluidos
 - [~] 075 `P0` Blocos criados pela IA passam pelo mesmo `def()` da paleta base — `src/world/blocks.ts`
-- [ ] 076 `P0` Validador de contraste: recusar bloco novo cuja cor de topo seja idêntica a um existente
+- [~] 076 `P0` **Validador de contraste perceptual** no caminho de criação, com sugestão de direção
 - [ ] 077 `P1` Derivação automática de cor lateral/base a partir do topo (escurecimento consistente)
 - [ ] 078 `P1` Guia de arte escrito para a IA seguir ao inventar blocos (saturação e luminância alvo)
 - [ ] 079 `P1` Suporte a textura procedural por bloco (ruído, listras, xadrez) além de cor sólida
@@ -3057,3 +3057,34 @@ cada `CY` para decidir qual dos dois significados ele tinha ali.
 - [~] 1262 `P0` **Seis varreduras corrigidas** — `main.ts`, `EventSystem`, `MCPExecutors` (×3) e `WorldPerception`
 - [~] 1263 `P1` **Teste que reprova varredura descendente com literal** — o número estava em seis arquivos; sem isso, o sétimo nasce com o mesmo defeito. O regex distingue laço descendente de `for (let y = 0; y < CY; y++)`, que é ascendente e legítimo
 - [~] 1264 `P1` **Teste do caso concreto**: torre a `WORLD_MAX_Y - 3` é encontrada pela varredura
+
+## 54. Validador de contraste — item 076
+
+O jogador pede "cria um bloco de pedra escura" e a IA gera um cinza. Já existe um cinza quase
+igual. Os dois viram blocos distintos no inventário, com nomes e receitas diferentes, e
+**indistinguíveis na tela**. O jogador quebra o errado, constrói com o errado, e nada o avisa.
+
+**Não é um erro que o agente perceba sozinho**: ele não vê a tela, e do ponto de vista dele o
+bloco foi criado com sucesso.
+
+### Três decisões
+
+**Distância perceptual, não RGB cru.** `#00FF00`→`#00E000` e `#0000FF`→`#0000E0` têm a mesma
+distância numérica em RGB; aos olhos o par verde é muito mais parecido, porque a visão é bem mais
+sensível ao verde. A luminância Rec. 709 entra como eixo principal — a mesma ponderação já usada
+na gradação de cor, para o jogo ter uma só noção de "quanto isto é claro".
+
+**Fora de `validateModPackage`.** Aquela função roda também na **carga** de um mod salvo. Um bloco
+criado antes desta regra existir passaria a reprovar e o mod iria para quarentena sozinho na
+próxima abertura — o jogador perderia conteúdo por causa de uma regra nova. A regra vale para o
+que está sendo criado **agora**.
+
+**Um conflito, não a lista.** Uma cor parecida com cinco cinzas geraria cinco reclamações sobre o
+mesmo problema, e o agente que lê isso tende a tratar como cinco correções separadas.
+
+- [~] 1265 `P0` **`distanciaPerceptual`** ponderada por luminância
+- [~] 1266 `P0` **`conflitoDeContraste`** contra blocos nativos e de outros mods, ignorando os do próprio pacote — uma família coerente não deve brigar consigo mesma
+- [~] 1267 `P1` **Sugestão com direção** ("clareie" / "escureça"), escolhendo o lado que afasta do vizinho. "Escolha outra cor" devolve o problema para quem não sabe resolvê-lo
+- [~] 1268 `P1` **Limiar calibrado em 0,055** — alto demais proibiria variações legítimas, e o agente passaria a inventar cores berrantes para passar na validação: pior que o problema original
+- [~] 1269 `P1` **11 testes**, incluindo o que prova a ponderação perceptual (par verde vs par azul de mesma distância RGB)
+- [~] 1270 `P2` **Testes do `ModService` ganharam cores reais** — usavam `topColor: 0` como valor descartável, e o validador (corretamente) passou a recusar

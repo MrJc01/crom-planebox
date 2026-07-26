@@ -28,6 +28,7 @@ import { SecretVault } from './SecretVault';
 import {
   allocateBlockIds,
   applyModBlocks,
+  conflitoDeContraste,
   normalizeKey,
   resolveStructureBlocks,
   revokeModBlocks,
@@ -440,6 +441,18 @@ export class ModService {
 
     const errors = validateModPackage(candidate);
     if (errors.length > 0) return { ok: false, message: `Bloco inválido: ${errors.join(' ')}` };
+
+    // Contraste só aqui, no caminho de CRIAÇÃO. O agente não vê a tela: para ele um cinza novo
+    // idêntico a um cinza existente foi criado com sucesso, e o jogador fica com dois blocos
+    // indistinguíveis, com nomes e receitas diferentes, sem nada avisando.
+    const conflito = conflitoDeContraste(draft.topColor, modId);
+    if (conflito) {
+      return {
+        ok: false,
+        message: `A cor de topo é quase idêntica à do bloco "${conflito.conflitaCom}" — ` +
+          `os dois ficariam indistinguíveis no jogo. Tente outra: ${conflito.sugestao}.`,
+      };
+    }
 
     try {
       allocateBlockIds(candidate, this.mods.filter((m) => m.id !== modId));
