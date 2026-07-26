@@ -245,10 +245,20 @@ export class ModRuntime {
     }
   }
 
-  /** Recolhe os blocos que o handler alterou e avisa o host para persistir e sincronizar. */
+  /**
+   * Recolhe os blocos que o handler alterou e avisa o host para persistir e sincronizar.
+   *
+   * O contexto é reconferido porque um handler assíncrono pode terminar **depois** do mod ser
+   * descarregado — o jogador desligou o mod, ou o editor salvou uma revisão nova, enquanto uma
+   * promessa ainda corria. Sem esta guarda, os blocos de um mod que já não existe seriam gravados
+   * e replicados em nome dele, e o desfazer do mod não os alcançaria: eles chegaram depois de a
+   * atribuição ter sido apagada.
+   */
   private flush(ctx: ModContext, api: Record<string, any>): void {
     const changes = api.__drain();
-    if (changes.length > 0) this.onBlocksChanged(ctx.mod.id, changes);
+    if (changes.length === 0) return;
+    if (this.contexts.get(ctx.mod.id) !== ctx) return; // mod descarregado ou recarregado no meio
+    this.onBlocksChanged(ctx.mod.id, changes);
   }
 
   /**

@@ -503,3 +503,50 @@ describe('a referência ensina o formato que sobrevive ao Worker', () => {
     expect(exemplos).toMatch(/await api\./);
   });
 });
+
+describe('handler em voo depois do descarregamento (item 1366)', () => {
+  it('CRÍTICO: bloco de um mod já descarregado não é gravado em nome dele', async () => {
+    // Um handler assíncrono pode terminar DEPOIS de o mod ser descarregado — o jogador desligou o
+    // mod, ou o editor salvou uma revisão nova, enquanto uma promessa ainda corria. Sem a guarda,
+    // os blocos seriam gravados e replicados em nome de um mod que já não existe, e o desfazer não
+    // os alcançaria: eles chegaram depois de a atribuição ter sido apagada.
+    const host = fakeHost();
+    const rt = new ModRuntime(host);
+    const escritos: any[] = [];
+    rt.onBlocksChanged = (_id, changes) => escritos.push(...changes);
+
+    // O adiamento é por MICROTAREFAS, e não `setTimeout`: o sandbox não entrega `setTimeout` ao
+    // mod, e usá-lo aqui faria o handler estourar um `TypeError` — o teste passaria pelo motivo
+    // errado, provando que a guarda funciona quando o handler nem chega a escrever.
+    await rt.loadMod(modComScript(`
+      api.on('tick', async () => {
+        await 0; await 0; await 0;
+        api.world.setBlock(1, 11, 1, 'pedra');
+      });
+    `));
+
+    rt.tickAll(0.016);
+    rt.unloadMod('mod-teste');           // o mod some enquanto a promessa ainda corre
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(escritos).toEqual([]);
+  });
+
+  it('o mod VIVO continua gravando — a guarda não pode matar o recurso', async () => {
+    const host = fakeHost();
+    const rt = new ModRuntime(host);
+    const escritos: any[] = [];
+    rt.onBlocksChanged = (_id, changes) => escritos.push(...changes);
+
+    await rt.loadMod(modComScript(`
+      api.on('tick', async () => {
+        await 0; await 0; await 0;
+        api.world.setBlock(1, 11, 1, 'pedra');
+      });
+    `));
+
+    rt.tickAll(0.016);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(escritos.length).toBeGreaterThan(0);
+  });
+});

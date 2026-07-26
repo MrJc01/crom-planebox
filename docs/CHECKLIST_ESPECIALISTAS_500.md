@@ -3854,4 +3854,26 @@ poder de congelar o jogo — um handler que nunca resolve travaria a aba inteira
 
 - [ ] 1364 `P1` **O orçamento de 4 ms por frame só mede tempo síncrono** — um handler assíncrono escapa dele por completo, e hoje nada limita quanto tempo de relógio um mod pode ocupar entre `await`s
 - [ ] 1365 `P2` **Nada avisa o autor do mod de que ele esqueceu um `await`** — uma leitura sem `await` funciona hoje e vai quebrar no Worker. Um aviso no log ao detectar `getBlock` usado como valor bruto pouparia a descoberta tardia
-- [ ] 1366 `P2` **`unloadMod` não cancela handlers em voo** — o mod é descarregado, mas uma promessa pendente ainda pode chamar `flush` sobre um contexto morto
+- [~] 1366 `P2` **`flush` reconfere o contexto** — bloco de mod já descarregado não é mais gravado em nome dele
+
+### Continuação da 66 — a corrida do descarregamento, e um teste meu que passava errado
+
+**1366:** um handler assíncrono pode terminar **depois** de o mod ser descarregado — o jogador
+desligou o mod, ou o editor salvou uma revisão nova, enquanto uma promessa ainda corria. Os blocos
+seriam gravados e replicados em nome de um mod que já não existe, e o desfazer não os alcançaria:
+chegaram depois de a atribuição ter sido apagada. `flush` passou a reconferir que o contexto ainda é
+o registrado.
+
+**E o teste que escrevi para isso passava pelo motivo errado.** Usei
+`await new Promise((r) => setTimeout(r, 5))` dentro do mod — e o sandbox **não entrega `setTimeout`
+ao mod**. O handler estourava um `TypeError` antes de escrever bloco nenhum, e o teste ficava verde
+provando que a guarda funciona quando não há nada para guardar. Só o par simétrico ("o mod vivo
+continua gravando") revelou o engano, ao falhar.
+
+Fica registrado o fato que eu não tinha percebido: **um mod hoje não consegue adiar para uma
+macrotarefa.** Sem `setTimeout` nem `setInterval`, o único assíncrono que ele alcança são
+microtarefas e a própria API. Isso limita a reentrância de `tick` **hoje** — e deixa de limitar no
+dia do Worker, quando cada chamada de API vira ida e volta de verdade. É exatamente por isso que a
+proteção foi construída agora, e não lá.
+
+- [~] 1367 `P1` **Guarda de contexto no `flush`**, com o par simétrico que impede "consertar" parando de gravar
