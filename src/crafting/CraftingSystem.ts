@@ -90,6 +90,29 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
   },
   {
+    /**
+     * Picareta de diamante — o topo da corrente de progressão.
+     *
+     * ## O buraco que ela fecha
+     *
+     * As picaretas iam até o tier 3 (ferro), e **nenhum bloco exige tier 4** — então nada estava
+     * inalcançável. O problema era outro, e mais silencioso: o diamante era o fim da corrente
+     * **sem uso**. O jogador minerava minério de diamante com a picareta de ferro, montava o
+     * bloco de diamante… e acabava ali. O material mais raro do jogo não levava a lugar nenhum.
+     *
+     * Uma progressão em que o último degrau não abre nada é uma progressão que termina antes do
+     * fim: o jogador para de minerar quando percebe que já tem tudo o que importa, no ferro.
+     */
+    id: 'diamond_pickaxe',
+    name: 'Picareta de Diamante',
+    outputTool: { tier: 4, label: 'picareta de diamante' },
+    shape: [
+      [B.DIAMOND_BLOCK, B.DIAMOND_BLOCK, B.DIAMOND_BLOCK],
+      [null, B.LOG, null],
+      [null, B.LOG, null],
+    ],
+  },
+  {
     id: 'iron_pickaxe',
     name: 'Picareta de Ferro',
     outputTool: { tier: 3, label: 'picareta de ferro' },

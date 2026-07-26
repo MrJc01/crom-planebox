@@ -112,3 +112,32 @@ describe('CraftingSystem — cadeia dos minérios (rodada de cavernas)', () => {
     }
   });
 });
+
+describe('corrente de progressão de ferramentas — itens 008 e 195', () => {
+  const tiers = CRAFTING_RECIPES.filter((r) => r.outputTool).map((r) => r.outputTool!.tier).sort();
+
+  it('CRÍTICO: a corrente vai de 1 a 4 sem buraco', () => {
+    // Um degrau faltando no meio deixaria um bloco inalcançável: o jogador teria a picareta
+    // anterior e nenhuma receita para a seguinte.
+    expect(tiers).toEqual([1, 2, 3, 4]);
+  });
+
+  it('CRÍTICO: todo tier exigido por algum bloco tem uma picareta que o alcança', () => {
+    // A verificação que importa de verdade. Um bloco pedindo tier 5 sem picareta de tier 5 é
+    // conteúdo que existe no mundo e ninguém consegue pegar — e nada no jogo avisaria.
+    const maiorExigido = Math.max(
+      ...BLOCKS.filter((b) => b && b.minToolTier).map((b) => b!.minToolTier!),
+    );
+    expect(Math.max(...tiers)).toBeGreaterThanOrEqual(maiorExigido);
+  });
+
+  it('o material mais raro leva a alguma coisa', () => {
+    // O diamante era o fim da corrente SEM uso: minerava-se com a picareta de ferro, montava-se o
+    // bloco, e acabava ali. Uma progressão cujo último degrau não abre nada termina antes do fim —
+    // o jogador para de minerar ao perceber que já tem tudo o que importa, no ferro.
+    const usaDiamante = CRAFTING_RECIPES.some(
+      (r) => r.outputTool && JSON.stringify(r.shape ?? []).includes(String(B.DIAMOND_BLOCK)),
+    );
+    expect(usaDiamante).toBe(true);
+  });
+});

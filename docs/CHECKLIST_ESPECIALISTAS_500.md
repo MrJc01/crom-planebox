@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1265 itens)
+# Checklist Mestre — Painel de Especialistas (1272 itens)
 
-> **Estado em 26/07/2026** — 594 de 1265 itens tratados (46%), com **846 testes** passando,
+> **Estado em 26/07/2026** — 601 de 1272 itens tratados (47%), com **849 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 86 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 508 | **Entregue** ao longo das rodadas, com teste. |
+> | `[x]` | 88 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 513 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 671 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -329,7 +329,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 
 - [x] 193 `P0` Grade de crafting com receitas por padrão — `src/crafting/CraftingSystem.ts`
 - [x] 194 `P1` Templates de estrutura colocáveis como item — `src/crafting/StructureTemplates.ts`
-- [ ] 195 `P0` Árvore de receitas cobrindo todos os tiers de ferramenta
+- [~] 195 `P0` **Corrente de ferramentas fechada de 1 a 4** — faltava a picareta de diamante
 - [~] 196 `P0` **Receitas sem forma (shapeless) além das com forma — já existiam ambas; verificado**
 - [ ] 197 `P1` Livro de receitas na UI mostrando o que é craftável agora
 - [ ] 198 `P1` Fundição com receitas próprias
@@ -358,8 +358,8 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [x] 218 `P0` Gravidade, pulo e voo criativo — `src/player/controller.ts`
 - [x] 219 `P1` Blocos com gravidade (areia, cascalho) caindo sem suporte
 - [x] 220 `P1` Colapso estrutural de blocos `structural` sem apoio
-- [ ] 221 `P0` Simulação de fluido: água escoando por níveis
-- [ ] 222 `P0` Lava escoando, solidificando em contato com água
+- [x] 221 `P0` ~~Água escoando por níveis~~ — **auditado, já existe** em `world/fluids.ts` (`WATER_SPREAD`, escoamento por nível)
+- [x] 222 `P0` ~~Lava escoando e solidificando~~ — **auditado, já existe**: `LAVA_SPREAD` e água+lava → obsidiana
 - [ ] 223 `P1` Empuxo e natação com física própria
 - [ ] 224 `P1` Escadas e trepadeiras alterando o movimento vertical
 - [ ] 225 `P1` Agachar impedindo cair da borda
@@ -3168,3 +3168,35 @@ Três decisões que os testes fixaram:
 
 - [~] 1279 `P0` **`OrcamentoDeQuadro`** em módulo próprio — dentro de `bootstrap()` não seria testável sem subir o jogo
 - [~] 1280 `P1` **7 testes**, incluindo a assimetria subida/descida e o piso que impede o congelamento
+
+## 56. Varredura de auditoria dos `P0` restantes
+
+Antes de escrever mais código, varri os `P0` pendentes procurando o que já estava feito. O padrão
+se repetiu.
+
+**Feitos, marcados como verificados:**
+
+- **221 e 222 (fluidos).** `world/fluids.ts` já escoa por níveis (`WATER_SPREAD`, `LAVA_SPREAD`) e
+  já solidifica água+lava em obsidiana. Os dois itens estavam pendentes por engano de auditoria.
+
+**O buraco que a varredura encontrou — e não estava no checklist:**
+
+As picaretas iam até o tier 3 (ferro). Nenhum bloco exige tier 4, então **nada estava
+inalcançável** — não era esse o problema. O problema era mais silencioso: **o diamante era o fim
+da corrente sem uso**. O jogador minerava minério de diamante com a picareta de ferro, montava o
+bloco de diamante, e acabava ali. O material mais raro do jogo não levava a lugar nenhum.
+
+Uma progressão cujo último degrau não abre nada **termina antes do fim**: o jogador para de
+minerar ao perceber que já tem tudo o que importa, no ferro. É um defeito de desenho, não de
+código, e por isso nenhum teste o encontraria — foi preciso perguntar "para que serve o diamante?".
+
+- [~] 1281 `P0` **Picareta de diamante** (tier 4), fechando a corrente madeira → pedra → ferro → diamante
+- [~] 1282 `P1` **Teste de corrente sem buraco** — um degrau faltando no meio deixaria o jogador com a picareta anterior e nenhuma receita para a seguinte
+- [~] 1283 `P1` **Teste "todo tier exigido tem picareta que o alcança"** — um bloco pedindo tier 5 sem ferramenta de tier 5 é conteúdo que existe no mundo e ninguém pega, sem nada avisando
+- [~] 1284 `P1` **Teste "o material mais raro leva a alguma coisa"**
+
+### Anotado como faltando, descoberto nesta varredura
+
+- [ ] 1285 `P1` **Espada/machado por tier** — só a picareta tem corrente; combate e coleta de madeira não progridem
+- [ ] 1286 `P1` **Diamante sem uso além da picareta** — armadura ou ferramenta especial, senão o tier 4 é um beco
+- [ ] 1287 `P2` **Nenhum bloco exige tier 4**, então a picareta de diamante hoje só é mais rápida (se a velocidade por tier existir) — vale um bloco exclusivo dela, para o degrau ter porta própria
