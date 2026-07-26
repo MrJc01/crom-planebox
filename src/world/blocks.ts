@@ -37,6 +37,7 @@ export const enum B {
   GOLD_ORE = 31,
   DIAMOND_ORE = 32,
   TORCH = 33,
+  BED = 34,
 }
 
 export interface BlockDef {
@@ -140,6 +141,13 @@ BLOCKS[B.TORCH] = def('tocha', 0xfde047, 0x9a7d4d, 0x6e5230, {
   solid: false, opaque: false, decor: true, drops: B.TORCH, interactive: true,
 });
 BLOCKS[B.TORCH].lightLevel = 14;
+// Cama: o ponto de renascimento do jogador (item 010). `decor` porque ela é baixa — uma caixinha
+// no chão, não um cubo inteiro — e porque isso já lhe dá o comportamento certo de não bloquear
+// passagem nem vedar o abrigo. `interactive` para cair na aba de blocos especiais do inventário,
+// que é onde estão os blocos que se **usam** em vez de só empilhar.
+BLOCKS[B.BED] = def('cama', 0xdc2626, 0xb45309, 0x78350f, {
+  solid: false, opaque: false, decor: true, drops: B.BED, interactive: true,
+});
 
 // --- Blocos customizados (sistema de mods) ---------------------------------
 //

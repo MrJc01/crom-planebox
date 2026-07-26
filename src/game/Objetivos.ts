@@ -138,6 +138,16 @@ export const OBJETIVOS: DefinicaoDeObjetivo[] = [
     conta: (e) => (e.tipo === 'abrigado' ? 1 : 0),
   },
   {
+    // Vem logo depois do abrigo, e não perto do fim, porque a cama serve para as descidas — e as
+    // descidas começam três passos adiante. Uma cama fabricada depois do diamante chegaria tarde
+    // demais para o que ela existe para fazer.
+    id: 'cama',
+    titulo: 'Fabrique uma cama',
+    dica: 'Três tábuas sobre três troncos. Clique nela para renascer ali em vez de no spawn.',
+    meta: 1,
+    conta: aoFabricarBloco(B.BED),
+  },
+  {
     id: 'carvao',
     titulo: 'Encontre carvão',
     dica: 'Ele aparece já nos primeiros metros abaixo da superfície, salpicado na pedra.',

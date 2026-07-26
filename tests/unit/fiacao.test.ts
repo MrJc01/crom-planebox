@@ -279,6 +279,41 @@ describe('penalidade de morte — o custo chega ao jogo (item 011)', () => {
   });
 });
 
+describe('cama — o ponto de renascimento chega ao jogo (item 010)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: clicar na cama é atendido', () => {
+    const inter = FONTE.find((f) => f.arquivo.endsWith('player/interaction.ts'))!.texto;
+    expect(/this\.onUseBlock\(/.test(inter), 'a interação não dispara').toBe(true);
+    expect(/inter\.onUseBlock\s*=/.test(main), 'ninguém atende').toBe(true);
+  });
+
+  it('CRÍTICO: a morte usa o ponto de renascimento, não o spawn do mundo', () => {
+    // O erro provável: gravar o ponto e continuar renascendo em `findSpawn()`. A cama funcionaria,
+    // salvaria, apareceria no save — e não faria absolutamente nada.
+    expect(/player\.pos\.copy\(ondeRenascer\(\)\)/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: o ponto é salvo E restaurado', () => {
+    expect(/pontoDeRenascimento:/.test(main), 'não é salvo').toBe(true);
+    expect(/savedPlayer\?\.pontoDeRenascimento/.test(main), 'não é restaurado').toBe(true);
+  });
+
+  it('CRÍTICO: mundo sem save zera o ponto', () => {
+    // Sem isto, a cama do mundo anterior puxaria o jogador para dentro de um mundo novo, em
+    // coordenadas que ali não significam nada — possivelmente dentro de pedra maciça.
+    expect(/pontoDeRenascimento = pr \? .* : null/.test(main)).toBe(true);
+  });
+
+  it('usar um bloco vem ANTES da recusa por estar com ferramenta na mão', () => {
+    // O estado normal de quem acabou de minerar é ter a picareta selecionada. Se a recusa viesse
+    // primeiro, clicar na cama não faria nada, e nada explicaria por quê.
+    const inter = FONTE.find((f) => f.arquivo.endsWith('player/interaction.ts'))!.texto;
+    const corpo = inter.slice(inter.indexOf('tryPlace('));
+    expect(corpo.indexOf('onUseBlock')).toBeLessThan(corpo.indexOf('slot.toolTier !== undefined'));
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos

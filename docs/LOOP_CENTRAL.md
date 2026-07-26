@@ -29,7 +29,7 @@ O loop **fecha**, e é isso que o faz um loop em vez de uma lista: cada volta re
 lugar com ferramenta melhor, e por isso mais curta. Uma corrente que só vai para frente termina; um
 ciclo que encurta a cada volta é o que mantém alguém jogando.
 
-## Os quinze passos concretos
+## Os dezesseis passos concretos
 
 São os objetivos de `src/game/Objetivos.ts`, na ordem, com o tempo aproximado. Não é uma lista de
 sugestões: cada degrau depende do anterior **por mecânica**, não por decreto.
@@ -42,15 +42,16 @@ sugestões: cada degrau depende do anterior **por mecânica**, não por decreto.
 | 4 | Minere pedra | 3–5 | Pedregulho é o material da picareta seguinte |
 | 5 | Picareta de pedra | 5–6 | Dura mais e minera mais rápido (`velocidadeDeQuebra.ts`) |
 | 6 | Esteja abrigado ao escurecer | 6–9 | À noite nascem criaturas hostis lá fora |
-| 7 | Encontre carvão | 9–12 | Aparece nos primeiros metros abaixo da superfície |
-| 8 | Faça tochas | 12–13 | **A caverna é escura demais para achar minério sem elas** |
-| 9 | Sobreviva ao amanhecer | 13–16 | O dia volta sozinho; é a primeira tensão real |
-| 10 | Desça 15 metros | 16–19 | O ferro não existe na superfície |
-| 11 | Encontre ferro | 19–22 | A picareta de pedra já dá conta dele |
-| 12 | Picareta de ferro | 22–24 | **Só ela coleta minério de diamante** |
-| 13 | Encontre diamante | 24–28 | Entre 20 e 26 metros, e raro (`ORE_TIERS`) |
-| 14 | Picareta de diamante | 28–29 | O último degrau da corrente |
-| 15 | Colete obsidiana | 29–30 | **Nenhuma outra picareta a recolhe** |
+| 7 | Fabrique uma cama | 9–10 | Renascer no abrigo, e não no spawn, encurta toda morte seguinte |
+| 8 | Encontre carvão | 10–12 | Aparece nos primeiros metros abaixo da superfície |
+| 9 | Faça tochas | 12–13 | **A caverna é escura demais para achar minério sem elas** |
+| 10 | Sobreviva ao amanhecer | 13–16 | O dia volta sozinho; é a primeira tensão real |
+| 11 | Desça 15 metros | 16–19 | O ferro não existe na superfície |
+| 12 | Encontre ferro | 19–22 | A picareta de pedra já dá conta dele |
+| 13 | Picareta de ferro | 22–24 | **Só ela coleta minério de diamante** |
+| 14 | Encontre diamante | 24–28 | Entre 20 e 26 metros, e raro (`ORE_TIERS`) |
+| 15 | Picareta de diamante | 28–29 | O último degrau da corrente |
+| 16 | Colete obsidiana | 29–30 | **Nenhuma outra picareta a recolhe** |
 
 Os números em negrito são os **portões**: os pontos onde o jogo diz "não" e o jogador precisa
 voltar um passo. Sem eles a ordem seria decorativa e o jogador poderia pular direto para o fim.
@@ -59,7 +60,7 @@ voltar um passo. Sem eles a ordem seria decorativa e o jogador poderia pular dir
 
 Implementadas em `RastreadorDeObjetivos`, testadas em `tests/unit/objetivos.test.ts`.
 
-**Um passo de cada vez.** O HUD mostra **um** objetivo, nunca a lista. Um novato diante de quinze
+**Um passo de cada vez.** O HUD mostra **um** objetivo, nunca a lista. Um novato diante de dezesseis
 caixinhas continua sem saber por onde começar — que é exatamente o problema que o guia existe para
 resolver.
 
@@ -102,9 +103,9 @@ propaganda:
   019, 1286).
 - **A noite não é perigosa o bastante** para justificar o abrigo do passo 6. Os hostis nascem, mas
   não há evento que force o jogador a se esconder (item 009).
-- **O ponto de renascimento é sempre o spawn original** (item 010). O custo da morte já existe e é
-  escolhido na criação do mundo (item 011), mas a caminhada de volta do fundo de uma caverna é
-  sempre a mesma caminhada longa.
+- **A cama encurta a volta, mas nada encurta a descida.** O ponto de renascimento resolve morrer
+  longe (item 010); continua não havendo transporte, atalho ou elevador, então a décima descida à
+  mesma caverna é idêntica à primeira.
 - **O tempo da tabela é estimativa**, não medição. Nada no jogo registra quanto o jogador leva de
   fato até a primeira ferramenta (item 022).
 - **Não há tutorial de controles.** O guia diz *o que* fazer; quem não sabe que se coloca bloco com

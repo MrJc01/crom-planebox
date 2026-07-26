@@ -73,6 +73,8 @@ export class Interaction {
    * ar que ficou. Opcional para não obrigar quem só quer a notificação.
    */
   onBlockChange: (x: number, y: number, z: number, blockType: number, blocoAnterior?: number) => void = () => {};
+  /** Clique direito sobre um bloco que se **usa** (hoje só a cama). */
+  onUseBlock: (blockType: number, x: number, y: number, z: number) => void = () => {};
 
   constructor(
     private world: World,
@@ -358,11 +360,22 @@ export class Interaction {
   tryPlace(camera: THREE.Camera): void {
     if (this.placeCooldown > 0) return;
     const slot = this.hotbar[this.selected];
-    if (slot.toolTier !== undefined) return;
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const hit = this.raycast(new THREE.Vector3().copy(camera.position), dir);
     if (!hit) return;
+
+    // Usar um bloco vem ANTES de colocar, e antes até da recusa por estar com ferramenta na mão:
+    // clicar numa cama é uma ação sobre o bloco existente, não sobre o que está na hotbar. Sem esta
+    // ordem, o jogador com a picareta selecionada — o estado normal de quem acabou de minerar —
+    // clicaria na cama e nada aconteceria, sem nada explicando por quê.
+    if (hit.type === B.BED) {
+      this.placeCooldown = 0.3;
+      this.onUseBlock(hit.type, hit.x, hit.y, hit.z);
+      return;
+    }
+
+    if (slot.toolTier !== undefined) return;
 
     if (slot.structureId) {
       this.placeCooldown = 0.4;

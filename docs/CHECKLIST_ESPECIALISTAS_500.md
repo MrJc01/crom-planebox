@@ -104,7 +104,7 @@ loop de objetivos que puxe o jogador do primeiro dia até um chefe final.*
 - [~] 007 `P0` Sistema de objetivos/conquistas guiando o jogador novato ("faça sua primeira picareta") — `src/game/Objetivos.ts` + cartão no HUD, 21 testes de lógica e 9 de fiação
 - [~] 008 `P0` Curva de progressão em tiers de material (madeira → pedra → ferro → diamante) com gate real de acesso — a corrente vai de 1 a 4 sem buraco, **cada degrau coleta algo que o anterior não coletava**, e o último tem porta própria (obsidiana, itens 1287/1293). O gate é "quebra mas não dropa", não parede: gateia a *aquisição* sem trancar ninguém no cenário
 - [ ] 009 `P1` Primeira noite como evento de tensão: inimigos surgem só após o anoitecer
-- [ ] 010 `P1` Sistema de "camas"/ponto de renascimento definido pelo jogador
+- [~] 010 `P1` Sistema de "camas"/ponto de renascimento definido pelo jogador — bloco `B.BED`, receita do primeiro dia, clique direito define o ponto; ver a seção 61
 - [~] 011 `P1` Morte com penalidade escolhível por mundo (dropar inventário / manter / hardcore) — `src/game/penalidadeDeMorte.ts`, escolhida na criação do mundo; ver a seção 60
 - [ ] 012 `P1` Diário de bordo no mundo registrando marcos alcançados
 - [ ] 013 `P2` Estrutura de "vilas" geradas com NPCs que dão missões simples
@@ -3505,7 +3505,61 @@ caminho novo.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1329 `P1` **A lista de mundos não mostra que um mundo acabou** — o jogador clica, recebe um toast e volta. Devia estar riscado na lista, com a data
+- [~] 1329 `P1` **A lista de mundos mostra o mundo encerrado** — riscado, com a data, e o botão desabilitado. Ele **continua na lista** de propósito: foi uma partida, e apagá-la sozinho seria decidir pelo jogador que aquilo não vale nada
 - [ ] 1330 `P1` **Os itens largados não expiram nem são marcados** — quem morre duas vezes no mesmo lugar não distingue as duas pilhas, e nada avisa que elas somem (ou que não somem)
 - [ ] 1331 `P2` **A ferramenta não perde durabilidade na morte** — como ela não cai, `dropar` acaba sendo mais brando do que a descrição sugere para quem só carrega ferramenta
 - [ ] 1332 `P2` **Hardcore não avisa antes** — nenhuma confirmação ao escolher, e nenhum aviso de vida baixa que reconheça que aquela vida é única
+
+---
+
+## 61 — A cama, e o mundo que aparece encerrado (itens 010, 1329)
+
+### A cama (010)
+
+O ponto de renascimento era sempre o spawn procedural. Com a penalidade de morte recém-ligada
+(item 011), isso ficou desproporcional: morrer a 25 metros de profundidade custava os itens **e**
+uma travessia inteira do mundo para voltar a eles — e itens que expiram numa caminhada dessas são,
+na prática, itens perdidos, o que transforma `dropar` em `hardcore` disfarçado.
+
+Três decisões que não são óbvias:
+
+**A receita é do primeiro dia** — três tábuas sobre três troncos. A cama existe para encurtar a
+caminhada de volta depois de morrer; uma cama cara só ficaria pronta depois de o jogador já ter
+passado pela parte em que morrer dói, ou seja, chegaria tarde demais para servir para o que foi
+feita. Um teste exige que **nenhum ingrediente peça ferramenta**.
+
+**Folhas seriam o estofado óbvio, e são uma armadilha**: têm `drops: -1`, então o jogador nunca
+conseguiria nenhuma e a receita seria impossível sem nada explicando. Virou teste: todo ingrediente
+da cama precisa cair de algum bloco ou sair de alguma receita.
+
+**Guarda-se o ponto, não a cama.** Se a cama for quebrada depois, o jogador ainda renasce ali.
+Validar que o bloco continua sendo uma cama mandaria de volta ao outro lado do mundo quem tivesse a
+casa desmanchada por um amigo — num momento em que ele já está morto e sem nada para reagir.
+
+**Usar o bloco vem antes da recusa por estar com ferramenta na mão.** O estado normal de quem acabou
+de minerar é ter a picareta selecionada; com a ordem invertida, clicar na cama não faria nada, e
+nada explicaria por quê.
+
+E a cama entrou na corrente de objetivos, logo depois do abrigo — não perto do fim: ela serve para
+as descidas, e as descidas começam três passos adiante.
+
+### O mundo encerrado aparece encerrado (1329)
+
+Um mundo hardcore que acabou continua na lista **de propósito**: foi uma partida, e apagá-la sozinho
+seria decidir pelo jogador que aquilo não vale nada. Mas precisa *parecer* encerrado — riscado, com
+a data, botão desabilitado. Sem isso a única forma de descobrir era clicar em Carregar e ser
+devolvido ao menu por um toast, o que se lê como defeito, não como regra.
+
+- [~] 1333 `P1` **Bloco `B.BED`**, `decor` (não veda o abrigo nem bloqueia passagem) e `interactive`
+- [~] 1334 `P1` **`onUseBlock`** na interação — o primeiro bloco do jogo que se **usa** em vez de só empilhar
+- [~] 1335 `P1` **Ponto de renascimento por jogador**, não por mundo: a cama do anfitrião puxaria os convidados para dentro dela
+- [~] 1336 `P1` **9 travas de fiação**, incluindo "a morte usa o ponto, não `findSpawn()`" — o erro provável era a cama salvar, aparecer no save e não fazer nada
+- [~] 1337 `P2` **Objetivo "Fabrique uma cama"** entre o abrigo e o carvão
+- [~] 1338 `P2` **Mundo encerrado riscado na lista**, com a data e o botão desabilitado
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1339 `P1` **A cama não passa de noite** — ela define onde renascer e nada mais. Dormir para pular a noite é metade do que uma cama significa no gênero, e é também o que daria consequência ao item 009
+- [ ] 1340 `P1` **Nada valida o ponto de renascimento na hora de usar** — se o jogador tapar o lugar com pedra, ele renasce dentro dela. `estaAbrigado` já sabe distinguir "fechado" de "soterrado" e resolveria
+- [ ] 1341 `P2` **Não há como ver nem limpar o ponto de renascimento** — quem esqueceu onde dormiu não tem como descobrir, e não há como voltar ao spawn original sem morrer lá
+- [ ] 1342 `P2` **A cama não é sincronizada no multijogador** — o bloco é replicado, mas o "usei esta cama" é local, o que está certo; falta o convidado ver que a cama do anfitrião foi usada

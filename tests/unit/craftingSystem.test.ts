@@ -167,3 +167,37 @@ describe('corrente de progressão de ferramentas — itens 008 e 195', () => {
     }
   });
 });
+
+describe('cama — o ponto de renascimento (item 010)', () => {
+  it('CRÍTICO: existe receita de cama', () => {
+    expect(CRAFTING_RECIPES.some((r) => r.outputBlock === B.BED)).toBe(true);
+  });
+
+  it('CRÍTICO: os ingredientes são do PRIMEIRO DIA', () => {
+    // A cama existe para encurtar a caminhada de volta depois de morrer. Uma cama cara só ficaria
+    // pronta depois de o jogador já ter passado pela parte em que morrer dói — ela chegaria tarde
+    // demais para servir para o que foi feita.
+    const receita = CRAFTING_RECIPES.find((r) => r.outputBlock === B.BED)!;
+    const usados = new Set(JSON.parse(JSON.stringify(receita.shape ?? [])).flat().filter((c: unknown) => c !== null));
+    for (const bloco of usados as Set<number>) {
+      expect(BLOCKS[bloco].minToolTier ?? 0, `${BLOCKS[bloco].name} exige ferramenta`).toBe(0);
+    }
+  });
+
+  it('CRÍTICO: todo ingrediente da cama é coletável de fato', () => {
+    // `folhas` seriam o "estofado" óbvio, e são uma armadilha: elas têm `drops: -1`, então o
+    // jogador nunca conseguiria nenhuma, e a receita ficaria impossível sem nada explicando.
+    const receita = CRAFTING_RECIPES.find((r) => r.outputBlock === B.BED)!;
+    const usados = new Set(JSON.parse(JSON.stringify(receita.shape ?? [])).flat().filter((c: unknown) => c !== null));
+    for (const bloco of usados as Set<number>) {
+      const obtivel = BLOCKS.some((b) => b && b.drops === bloco)
+        || CRAFTING_RECIPES.some((r) => r.outputBlock === bloco);
+      expect(obtivel, `${BLOCKS[bloco].name} não cai de nada nem sai de receita`).toBe(true);
+    }
+  });
+
+  it('a cama devolve a si mesma ao ser quebrada', () => {
+    // Sem isto, mudar de ideia sobre onde dormir custaria uma cama nova a cada vez.
+    expect(BLOCKS[B.BED].drops).toBe(B.BED);
+  });
+});

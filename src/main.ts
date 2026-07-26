@@ -15,7 +15,7 @@ import { PredefinicaoId, gradacaoEm } from './render/grading';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
-import { isSolid } from './world/blocks';
+import { B, isSolid } from './world/blocks';
 import { AudioSystem } from './audio/AudioSystem';
 import { SOUNDS, soundForBreak, soundForFootstep, soundForPlace } from './audio/synth';
 import { LightEngine } from './world/lighting';
@@ -177,6 +177,17 @@ async function bootstrap() {
     }
     return new THREE.Vector3(0.5, TOPO_VARREDURA, 0.5);
   }
+
+  /**
+   * Onde o jogador renasce: a cama que ele usou, ou o spawn procedural do mundo.
+   *
+   * Guardado como ponto, e não como "as coordenadas da cama": se a cama for quebrada depois, o
+   * jogador ainda renasce ali. O alternativo — validar que o bloco continua sendo uma cama —
+   * mandaria de volta ao outro lado do mundo quem tivesse a casa desmanchada por um amigo, num
+   * momento em que ele já está morto e sem nada para reagir.
+   */
+  let pontoDeRenascimento: THREE.Vector3 | null = null;
+  const ondeRenascer = (): THREE.Vector3 => (pontoDeRenascimento ? pontoDeRenascimento.clone() : findSpawn());
 
   player.pos.copy(findSpawn());
 
@@ -1163,9 +1174,20 @@ async function bootstrap() {
       hud.showToast('Você morreu! Renascendo no spawn...');
     }
 
-    player.pos.copy(findSpawn());
+    player.pos.copy(ondeRenascer());
     player.vel.set(0, 0, 0);
     survivalSystem.reset();
+  };
+
+  // Cama: define onde renascer. Guardar a posição do jogador, e não a do bloco, evita renascer
+  // dentro da própria cama — que é um bloco `decor` e não empurraria ninguém para fora, mas deixa a
+  // câmera enfiada no colchão no instante em que ela mais precisa mostrar o que houve.
+  inter.onUseBlock = (blockType) => {
+    if (blockType !== B.BED) return;
+    pontoDeRenascimento = player.pos.clone();
+    hud.showToast('Ponto de renascimento definido nesta cama.');
+    audio.play(SOUNDS.uiAbrir, { channel: 'ui' });
+    schedulePlayerSave();
   };
 
   chatOverlay.getLocationContext = () => {
@@ -1220,6 +1242,9 @@ async function bootstrap() {
       inventory: inter.hotbar.map((s) => ({ label: s.label, block: s.block, count: s.count, infinite: s.infinite, toolTier: s.toolTier })),
       isOp: localIsOp,
       objetivos: objetivos.serializar(),
+      pontoDeRenascimento: pontoDeRenascimento
+        ? { x: pontoDeRenascimento.x, y: pontoDeRenascimento.y, z: pontoDeRenascimento.z }
+        : undefined,
       updatedAt: Date.now(),
     }).catch(() => {});
   }
@@ -1359,6 +1384,12 @@ async function bootstrap() {
     // chamada no ramo do `else`, o progresso do mundo anterior vazaria para o mundo recém-criado.
     objetivos.restaurar(savedPlayer?.objetivos);
     atualizarCartaoDeObjetivo();
+
+    // Idem ao progresso dos objetivos: zerar no ramo sem save é o que impede a cama do mundo
+    // anterior de puxar o jogador para dentro de um mundo novo, em coordenadas que ali não
+    // significam nada.
+    const pr = savedPlayer?.pontoDeRenascimento;
+    pontoDeRenascimento = pr ? new THREE.Vector3(pr.x, pr.y, pr.z) : null;
 
     localStorage.setItem(LAST_WORLD_KEY, worldId);
 

@@ -38,6 +38,23 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
   },
   {
+    /**
+     * Cama — o ponto de renascimento (item 010).
+     *
+     * Ingredientes de propósito **baratos e do primeiro dia**: tábuas e troncos. A cama existe para
+     * encurtar a caminhada de volta depois de morrer, e uma cama cara só ficaria pronta depois de o
+     * jogador já ter passado pela parte em que morrer dói.
+     */
+    id: 'bed_from_planks',
+    name: 'Cama',
+    outputBlock: B.BED,
+    outputCount: 1,
+    shape: [
+      [B.PLANK, B.PLANK, B.PLANK],
+      [B.LOG, B.LOG, B.LOG],
+    ],
+  },
+  {
     id: 'iron_block_from_ore',
     name: 'Minério de Ferro → Bloco de Ferro',
     outputBlock: B.IRON_BLOCK,

@@ -189,25 +189,39 @@ export class MainMenu {
     }
 
     for (const w of worlds) {
+      // Mundo hardcore que acabou. Ele continua na lista de propósito — foi uma partida, e apagá-la
+      // sozinho seria decidir pelo jogador que aquilo não vale nada. Mas precisa **parecer**
+      // encerrado: sem isso, a única forma de descobrir era clicar em Carregar e ser devolvido ao
+      // menu por um toast, o que se lê como defeito, não como regra.
+      const encerrado = !!w.encerradoEm;
+
       const row = document.createElement('div');
       row.style.cssText = `
         display:flex; align-items:center; justify-content:space-between;
-        background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.1);
+        background:rgba(30,41,59,${encerrado ? 0.3 : 0.6}); border:1px solid rgba(255,255,255,0.1);
         border-radius:12px; padding:12px 16px;
+        ${encerrado ? 'opacity:0.6;' : ''}
       `;
+      const legenda = encerrado
+        ? `Uma vida só · encerrado em ${new Date(w.encerradoEm!).toLocaleDateString()}`
+        : `Seed ${w.seed} · Salvo em ${new Date(w.updatedAt).toLocaleDateString()}`;
       row.innerHTML = `
         <div>
-          <div style="font-size:14px; font-weight:700; color:#e2e8f0;">${w.name}</div>
-          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Seed ${w.seed} · Salvo em ${new Date(w.updatedAt).toLocaleDateString()}</div>
+          <div style="font-size:14px; font-weight:700; color:${encerrado ? '#94a3b8' : '#e2e8f0'}; ${encerrado ? 'text-decoration:line-through;' : ''}">${w.name}</div>
+          <div style="font-size:11px; color:${encerrado ? '#f87171' : '#94a3b8'}; margin-top:2px;">${legenda}</div>
         </div>
       `;
       const acoes = document.createElement('div');
       acoes.style.cssText = 'display:flex; gap:8px; align-items:center; flex:0 0 auto;';
 
       const openBtn = document.createElement('button');
-      openBtn.textContent = '▶ Carregar Mundo';
-      openBtn.style.cssText = 'background:#0284c7; color:white; border:none; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer;';
+      openBtn.textContent = encerrado ? 'Encerrado' : '▶ Carregar Mundo';
+      openBtn.disabled = encerrado;
+      openBtn.style.cssText = encerrado
+        ? 'background:transparent; color:#64748b; border:1px solid rgba(255,255,255,0.12); padding:8px 14px; border-radius:8px; font-size:12px; font-weight:700; cursor:not-allowed;'
+        : 'background:#0284c7; color:white; border:none; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer;';
       openBtn.onclick = () => {
+        if (encerrado) return;
         this.close();
         this.cb.onOpenWorld(w.id);
       };

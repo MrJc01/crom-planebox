@@ -73,6 +73,13 @@ export interface PlayerRecord {
    * dar a todos os mundos antigos um progresso vazio que já é o padrão.
    */
   objetivos?: Record<string, number>;
+  /**
+   * Onde este jogador renasce, definido por ele ao usar uma cama (item 010).
+   *
+   * Ausente = o spawn procedural do mundo. É por jogador e não por mundo: cada um dorme na sua
+   * casa, e um ponto compartilhado faria a cama do anfitrião puxar os convidados para dentro dela.
+   */
+  pontoDeRenascimento?: { x: number; y: number; z: number };
   updatedAt: number;
 }
 
