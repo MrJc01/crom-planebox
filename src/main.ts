@@ -54,7 +54,7 @@ import { EventSystem } from './events/EventSystem';
 import { UndoManager } from './storage/UndoManager';
 import { GameModeManager } from './game/GameModeManager';
 import { EventoDeProgresso, RastreadorDeObjetivos } from './game/Objetivos';
-import { estaAbrigado } from './game/abrigo';
+import { chaveDeCelula, mapearAbrigo } from './game/abrigo';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -1682,6 +1682,10 @@ async function bootstrap() {
   let saveAccum = 0;
   let relogioDeProfundidade = 0;
   let relogioDeAbrigo = 0;
+  /** Células do espaço fechado onde o jogador está, ou `null` se ele está a céu aberto. */
+  let abrigoAtual: Set<string> | null = null;
+  /** Já avisamos nesta noite que o jogador está descoberto? Zera ao amanhecer. */
+  let avisouDescoberto = false;
   let netAccum = 0;
   /** Acumulador do retrato de criaturas enviado aos convidados. */
   let mobSyncAccum = 0;
@@ -1815,6 +1819,41 @@ async function bootstrap() {
     const souAutoridade = peerSync.role !== 'guest';
     entitySystem.autoridade = souAutoridade;
     mobSpawner.enabled = rules.hasSurvival && souAutoridade;
+
+    // O abrigo do jogador, mapeado uma vez e usado por dois: o objetivo "esteja abrigado ao
+    // escurecer" e a regra que impede um hostil de nascer dentro de casa.
+    //
+    // É uma busca em largura, cara demais para rodar por quadro — daí o relógio de 2 s. E só de
+    // noite: de dia nada nasce por luz mesmo, e estar abrigado não quer dizer nada.
+    // A condição é `hasSurvival`, e não `mobSpawner.enabled`: o convidado não gera criaturas — quem
+    // as gera é o anfitrião — mas tem objetivos próprios, e prendê-lo à autoridade deixaria "esteja
+    // abrigado" impossível para todo mundo que entra num mundo dos outros.
+    if (rules.hasSurvival && fasesDoDia(timeOfDay) === 'noite') {
+      relogioDeAbrigo -= dt;
+      if (relogioDeAbrigo <= 0) {
+        relogioDeAbrigo = 2;
+        abrigoAtual = mapearAbrigo(
+          world, Math.floor(player.pos.x), Math.floor(player.pos.y), Math.floor(player.pos.z),
+        );
+        if (abrigoAtual) {
+          registrarProgresso({ tipo: 'abrigado' });
+        } else if (!avisouDescoberto && !objetivos.concluido('abrigo')) {
+          // Uma vez por noite, e só enquanto o objetivo está pendente. A verificação já sabe a
+          // resposta, e o silêncio é o que faz o objetivo parecer quebrado para quem levantou as
+          // quatro paredes e esqueceu o teto: ele fez tudo, nada acontece, e nada diz o que falta.
+          //
+          // Depois de cumprido o objetivo, o aviso vira sermão — quem sai à noite de propósito já
+          // sabe o que está fazendo.
+          avisouDescoberto = true;
+          hud.showToast('Você está a céu aberto — feche um espaço antes que as criaturas apareçam.');
+        }
+      }
+    } else {
+      // Amanheceu (ou o modo mudou): o mapa antigo deixaria uma bolha permanente sem spawn onde a
+      // casa esteve, mesmo depois de o jogador atravessar o mundo.
+      abrigoAtual = null;
+      avisouDescoberto = false;
+    }
     const ponto = mobSpawner.update(dt, world, player.pos, {
       timeOfDay,
       sunScale,
@@ -1823,6 +1862,12 @@ async function bootstrap() {
       moonIllumination: iluminacaoDaFase(gs.getMoonPhase()),
       hostileCount: entitySystem.hostileCount,
       maxY: CY,
+      // A casa protege. Sem isto ela não protegia de nada: o interior fechado é o lugar mais
+      // escuro do mundo à noite, e `MIN_SPAWN_DISTANCE` são menos de cinco metros — ou seja, o
+      // melhor berço que o sorteio poderia encontrar era exatamente dentro do abrigo.
+      dentroDoAbrigo: abrigoAtual
+        ? (x, y, z) => abrigoAtual!.has(chaveDeCelula(x, y, z))
+        : undefined,
     });
     if (ponto) entitySystem.spawnHostile(ponto.kind, ponto.x, ponto.y, ponto.z);
 
@@ -1952,20 +1997,6 @@ async function bootstrap() {
         relogioDeProfundidade = 0.5;
         const superficie = gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height;
         registrarProgresso({ tipo: 'profundidade', metros: (superficie - player.pos.y) / SCALE });
-      }
-    }
-
-    // Abrigo: uma busca em largura pelo ar em volta, cara demais para rodar por quadro. As três
-    // condições que a cercam não são otimização prematura, são o que a mantém barata de verdade —
-    // ela só existe enquanto o objetivo está pendente E está escuro lá fora, que é a única hora em
-    // que estar abrigado quer dizer alguma coisa.
-    if (rules.hasSurvival && !objetivos.concluido('abrigo') && fasesDoDia(timeOfDay) === 'noite') {
-      relogioDeAbrigo -= dt;
-      if (relogioDeAbrigo <= 0) {
-        relogioDeAbrigo = 2;
-        if (estaAbrigado(world, Math.floor(player.pos.x), Math.floor(player.pos.y), Math.floor(player.pos.z))) {
-          registrarProgresso({ tipo: 'abrigado' });
-        }
       }
     }
 

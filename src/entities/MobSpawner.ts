@@ -70,6 +70,18 @@ export interface SpawnContext {
   moonIllumination?: number;
   hostileCount: number;
   maxY: number;
+  /**
+   * A célula (em mini-voxels) está dentro do espaço fechado onde o jogador se abrigou?
+   *
+   * Ausente = ninguém está abrigado, e a regra não se aplica. Ver `src/game/abrigo.ts`.
+   *
+   * Sem isto, a casa não protege de nada: `MIN_SPAWN_DISTANCE` são 14 mini-voxels — menos de cinco
+   * metros — e o interior de uma casa fechada é justamente o lugar mais escuro do mundo à noite,
+   * portanto o **melhor** berço que o sorteio poderia encontrar. O jogador constrói para se
+   * proteger e o jogo o pune por ter construído, que é o caminho mais curto para ele parar de
+   * construir.
+   */
+  dentroDoAbrigo?: (x: number, y: number, z: number) => boolean;
 }
 
 /**
@@ -82,8 +94,18 @@ export function effectiveLight(packed: number, sunScale: number): number {
   return Math.max(skyOf(packed) * sunScale, blockOf(packed));
 }
 
-/** A célula serve de berço? Precisa de chão sólido, dois voxels livres acima e estar escura. */
-export function isSpawnable(world: SpawnWorld, x: number, y: number, z: number, sunScale: number): boolean {
+/**
+ * A célula serve de berço? Precisa de chão sólido, dois voxels livres acima, estar escura — e
+ * **estar fora do abrigo do jogador**.
+ */
+export function isSpawnable(
+  world: SpawnWorld, x: number, y: number, z: number, sunScale: number,
+  dentroDoAbrigo?: (x: number, y: number, z: number) => boolean,
+): boolean {
+  // Primeiro, porque é o mais barato (uma consulta a um conjunto) e o que mais recusa à noite,
+  // quando o jogador está dentro de casa e metade dos sorteios cai lá dentro.
+  if (dentroDoAbrigo?.(x, y, z)) return false;
+
   const ground = world.getBlock(x, y - 1, z);
   if (!isSolid(ground)) return false;
 
@@ -125,7 +147,7 @@ export function findSpawnPoint(
     const y1 = Math.min(ctx.maxY - 2, Math.floor(player.y) + 12);
 
     for (let y = y1; y >= y0; y--) {
-      if (!isSpawnable(world, x, y, z, ctx.sunScale)) continue;
+      if (!isSpawnable(world, x, y, z, ctx.sunScale, ctx.dentroDoAbrigo)) continue;
       const kind = MOB_KINDS[Math.floor(rng() * MOB_KINDS.length)] ?? 'zumbi';
       return { x: x + 0.5, y, z: z + 0.5, kind };
     }

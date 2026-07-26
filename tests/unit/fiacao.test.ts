@@ -141,8 +141,30 @@ describe('objetivos — o guia do novato está de fato ligado (item 007)', () =>
     // A versão anterior contava doze blocos colocados, e doze blocos de terra em fila cumpriam.
     // `estaAbrigado` é uma busca em largura pura: sem esta chamada ela seria mais um módulo
     // completo, testado e inerte.
-    expect(/estaAbrigado\s*\(/.test(main), 'a verificação de abrigo não é chamada').toBe(true);
+    expect(/mapearAbrigo\s*\(/.test(main), 'a verificação de abrigo não é chamada').toBe(true);
     expect(/registrarProgresso\(\{\s*tipo:\s*'abrigado'/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: a casa também protege de spawn — o abrigo chega ao MobSpawner', () => {
+    // O mesmo mapa serve a duas coisas, e ligar só uma delas é o erro provável: o objetivo marcaria
+    // e o jogador continuaria acordando com um zumbi dentro do quarto.
+    expect(/dentroDoAbrigo:/.test(main), 'o spawner não recebe o abrigo').toBe(true);
+    const spawner = FONTE.find((f) => f.arquivo.endsWith('entities/MobSpawner.ts'))!.texto;
+    expect(/dentroDoAbrigo\?\.\(/.test(spawner), 'o spawner recebe e ignora').toBe(true);
+  });
+
+  it('CRÍTICO: o mapa do abrigo é LIMPO quando amanhece', () => {
+    // Um `Set` que nunca é zerado deixaria uma bolha permanente sem spawn onde a casa esteve —
+    // seguindo o jogador pelo mundo inteiro, e sem nada denunciando por quê.
+    expect(/abrigoAtual = null/.test(main), 'o mapa nunca é limpo').toBe(true);
+  });
+
+  it('o aviso de "está descoberto" é uma vez por noite, não a cada verificação', () => {
+    // A verificação roda a cada 2 s. Sem a trava, o jogador a céu aberto receberia trinta toasts
+    // por noite — e um aviso que aparece trinta vezes deixa de ser aviso e vira ruído que se
+    // aprende a ignorar, inclusive quando ele estiver certo.
+    expect(/avisouDescoberto = true/.test(main), 'não trava').toBe(true);
+    expect(/avisouDescoberto = false/.test(main), 'trava e nunca solta').toBe(true);
   });
 
   it('CRÍTICO: fabricar alimenta o progresso', () => {

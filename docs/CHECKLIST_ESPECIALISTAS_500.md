@@ -3394,6 +3394,54 @@ objetivo por cumprido ali premiaria um acidente ruim.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1315 `P1` **A verificação de abrigo só existe para o objetivo** — a mesma pergunta ("este ponto é fechado?") decide se uma criatura deve nascer ali, e o `MobSpawner` ainda não a faz. Hostil nascendo dentro da casa é o defeito clássico que ela resolveria
+- [~] 1315 `P1` **A casa passou a proteger de spawn** — `mapearAbrigo` devolve o conjunto de células, e o `MobSpawner` recusa qualquer berço dentro dele
 - [ ] 1316 `P2` **Um salão acima de ~10×10×10 m conta como "lá fora"** — consequência assumida do orçamento, mas uma base grande legítima seria reprovada sem explicação nenhuma na tela
-- [ ] 1317 `P2` **Nada avisa o jogador de que ele está descoberto** ao anoitecer — a verificação já sabe, e o silêncio faz o objetivo parecer quebrado para quem construiu e esqueceu o teto
+- [~] 1317 `P2` **Aviso de "você está a céu aberto"**, uma vez por noite e só enquanto o objetivo está pendente
+
+---
+
+## 59 — A casa que não protegia (itens 1315, 1317)
+
+O mapeamento de abrigo tinha um segundo uso óbvio, e não tê-lo feito junto teria deixado o jogo
+numa posição pior que a de antes: o objetivo diria "você está abrigado" e o jogador continuaria
+acordando com um zumbi dentro do quarto.
+
+**O interior de uma casa fechada é o lugar mais escuro do mundo à noite.** A regra de spawn é
+"nasce onde a luz efetiva é ≤ 6", e `MIN_SPAWN_DISTANCE` são 14 mini-voxels — menos de cinco metros.
+Somando as duas, o **melhor** berço que o sorteio poderia encontrar era exatamente dentro do abrigo.
+O jogador constrói para se proteger e o jogo o pune por ter construído, que é o caminho mais curto
+para ele parar de construir.
+
+`mapearAbrigo` passou a devolver **o conjunto de células** em vez de um sim/não. A busca já visita
+exatamente essas células; jogá-las fora e recomeçar para cada candidato a spawn custaria uma
+varredura por candidato. Com o conjunto, a pergunta "este ponto está dentro da casa?" é uma consulta
+de tabela.
+
+Três detalhes que viraram teste porque falham calados:
+
+**O mapa precisa ser limpo ao amanhecer.** Um `Set` que nunca zera deixaria uma bolha permanente sem
+spawn onde a casa esteve — seguindo o jogador pelo mundo inteiro, sem nada denunciando por quê.
+
+**O bloqueio não pode matar o spawn.** Sem um teste que exija criaturas nascendo *fora* do abrigo,
+"consertar" seria trivial e inútil: bastaria nunca gerar ninguém, e a noite deixaria de existir como
+ameaça.
+
+**A condição é `hasSurvival`, não `mobSpawner.enabled`.** O convidado não gera criaturas — quem as
+gera é o anfitrião — mas tem objetivos próprios. Prender o mapeamento à autoridade deixaria "esteja
+abrigado" impossível para todo mundo que entra num mundo dos outros.
+
+O aviso do 1317 fecha o outro lado: quem levantou as quatro paredes e esqueceu o teto fazia tudo,
+nada acontecia, e nada dizia o que faltava. Agora recebe uma frase — **uma vez por noite**, porque a
+verificação roda a cada 2 s e trinta toasts por noite deixam de ser aviso e viram ruído que se
+aprende a ignorar, inclusive quando estiver certo. E só enquanto o objetivo está pendente: depois de
+cumprido, quem sai à noite de propósito já sabe o que está fazendo.
+
+- [~] 1318 `P1` **`mapearAbrigo`** devolvendo o conjunto de células, com `estaAbrigado` como invólucro fino
+- [~] 1319 `P1` **4 testes de spawn abrigado**, incluindo "o bloqueio não mata o spawn fora do abrigo"
+- [~] 1320 `P1` **3 travas de fiação novas** — o mesmo mapa serve a duas coisas, e ligar só uma era o erro provável
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1321 `P1` **A criatura já nascida não é expulsa** — a regra vale para o berço, não para quem já está dentro. Quem tapar o buraco com um zumbi dentro fica com ele lá para sempre
+- [ ] 1322 `P2` **O abrigo só é mapeado a partir do jogador** — num mundo com dois jogadores, a casa do outro não protege ninguém enquanto ele não estiver dentro dela
+- [ ] 1323 `P2` **A porta ainda não existe** — sem um bloco que abra e feche, todo abrigo é selado com bloco e reaberto na pá, e o "buraco derruba o abrigo" fica sendo a mecânica de entrar e sair

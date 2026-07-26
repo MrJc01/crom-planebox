@@ -73,20 +73,32 @@ const VIZINHOS: Array<[number, number, number]> = [
   [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
 ];
 
+/** Chave de célula a partir de coordenadas de mini-voxel. */
+export function chaveDeCelula(x: number, y: number, z: number): string {
+  return `${Math.floor(x / SCALE)},${Math.floor(y / SCALE)},${Math.floor(z / SCALE)}`;
+}
+
 /**
- * O ponto (em mini-voxels) está num espaço fechado?
+ * O **conjunto de células** do espaço fechado em volta do ponto, ou `null` se não houver abrigo.
  *
- * Devolve `false` também quando o próprio ponto está dentro de rocha maciça: quem está soterrado
- * não está abrigado, está preso, e dar o objetivo por cumprido ali seria premiar um acidente.
+ * Devolver o conjunto, e não só um sim/não, é o que permite a segunda pergunta: "esta outra célula
+ * está dentro do mesmo abrigo?". É dela que o `MobSpawner` precisa para não fazer um hostil nascer
+ * dentro da casa do jogador — o defeito clássico do gênero, e o que faz alguém deixar de construir.
+ *
+ * A busca já visita exatamente essas células; jogá-las fora e recomeçar para cada candidato a
+ * spawn custaria uma varredura por candidato.
+ *
+ * `null` também quando o próprio ponto está dentro de rocha maciça: quem está soterrado não está
+ * abrigado, está preso, e dar o objetivo por cumprido ali seria premiar um acidente ruim.
  */
-export function estaAbrigado(
+export function mapearAbrigo(
   mundo: LeitorDeBlocos, px: number, py: number, pz: number,
   orcamento = ORCAMENTO_DE_BUSCA,
-): boolean {
+): Set<string> | null {
   const inicioX = Math.floor(px / SCALE);
   const inicioY = Math.floor(py / SCALE);
   const inicioZ = Math.floor(pz / SCALE);
-  if (barra(mundo.getBlock(px, py, pz))) return false;
+  if (barra(mundo.getBlock(px, py, pz))) return null;
 
   const teto = Math.floor(TOPO_VARREDURA / SCALE);
   const visitados = new Set<string>();
@@ -94,13 +106,13 @@ export function estaAbrigado(
   visitados.add(`${inicioX},${inicioY},${inicioZ}`);
 
   while (fila.length > 0) {
-    if (visitados.size > orcamento) return false; // o ar não acaba: está do lado de fora
+    if (visitados.size > orcamento) return null; // o ar não acaba: está do lado de fora
     const [x, y, z] = fila.pop()!;
 
     for (const [dx, dy, dz] of VIZINHOS) {
       const nx = x + dx, ny = y + dy, nz = z + dz;
       // Sair pelo topo do mundo é sair a céu aberto, e nenhuma parede pode fechar isso.
-      if (ny > teto) return false;
+      if (ny > teto) return null;
       if (ny < 0) continue;
       const chave = `${nx},${ny},${nz}`;
       if (visitados.has(chave)) continue;
@@ -110,5 +122,13 @@ export function estaAbrigado(
     }
   }
 
-  return true; // a busca se esgotou sozinha: o espaço tem fim
+  return visitados; // a busca se esgotou sozinha: o espaço tem fim
+}
+
+/** O ponto (em mini-voxels) está num espaço fechado? */
+export function estaAbrigado(
+  mundo: LeitorDeBlocos, px: number, py: number, pz: number,
+  orcamento = ORCAMENTO_DE_BUSCA,
+): boolean {
+  return mapearAbrigo(mundo, px, py, pz, orcamento) !== null;
 }

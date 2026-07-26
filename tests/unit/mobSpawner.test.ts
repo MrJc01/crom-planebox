@@ -228,3 +228,43 @@ describe('intervaloDeSpawn — a fase da lua muda o ritmo', () => {
     expect(spawner.update(3.9, mundo, { x: 0, y: 40, z: 0 }, ctx)).toBeNull();
   });
 });
+
+describe('a casa protege — o abrigo do jogador não é berço (item 1315)', () => {
+  // O defeito clássico do gênero, e o que faz alguém deixar de construir: o interior de uma casa
+  // fechada é o lugar mais escuro do mundo à noite, e `MIN_SPAWN_DISTANCE` são 14 mini-voxels —
+  // menos de cinco metros. Ou seja, o **melhor** berço que o sorteio poderia encontrar era
+  // exatamente dentro do abrigo. O jogador constrói para se proteger, e o jogo o pune por isso.
+
+  /** Finge que tudo dentro de um raio horizontal do jogador é o abrigo dele. */
+  const abrigoAoRedor = (raio: number) => (x: number, _y: number, z: number) =>
+    Math.hypot(x - PLAYER.x, z - PLAYER.z) <= raio;
+
+  it('CRÍTICO: nenhum ponto sorteado cai dentro do abrigo', () => {
+    const dentro = abrigoAoRedor(MAX_SPAWN_DISTANCE + 10); // abrigo cobrindo todo o alcance
+    const ctx = { ...CTX, dentroDoAbrigo: dentro };
+    for (let i = 0; i < 60; i++) {
+      expect(findSpawnPoint(world(), PLAYER, ctx, Math.random)).toBeNull();
+    }
+  });
+
+  it('CRÍTICO: o bloqueio NÃO mata o spawn fora do abrigo', () => {
+    // Sem esta verificação, "consertar" seria trivial e inútil: bastaria nunca gerar ninguém, e a
+    // noite deixaria de existir como ameaça.
+    const ctx = { ...CTX, dentroDoAbrigo: abrigoAoRedor(MIN_SPAWN_DISTANCE - 1) };
+    let achou = 0;
+    for (let i = 0; i < 60; i++) if (findSpawnPoint(world(), PLAYER, ctx, Math.random)) achou++;
+    expect(achou).toBeGreaterThan(0);
+  });
+
+  it('`isSpawnable` recusa a célula abrigada mesmo com tudo o mais perfeito', () => {
+    const w = world();
+    expect(isSpawnable(w, 5, 10, 5, 0.12)).toBe(true);
+    expect(isSpawnable(w, 5, 10, 5, 0.12, () => true)).toBe(false);
+  });
+
+  it('sem abrigo mapeado, a regra não muda nada', () => {
+    // `undefined` é o estado normal: de dia, e sempre que o jogador está a céu aberto.
+    const w = world();
+    expect(isSpawnable(w, 5, 10, 5, 0.12, undefined)).toBe(true);
+  });
+});
