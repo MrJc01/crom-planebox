@@ -1189,11 +1189,31 @@ Sem armazenamento (navegação privada, IndexedDB bloqueado) o cofre fica em mem
 carrega assim mesmo: derrubar o carregamento porque não há onde guardar chaves seria trocar um
 problema pequeno por um total.
 
-- [ ] 729 `P1` UI pede a chave que falta ao ativar o mod, explicando para que serve
-- [ ] 730 `P1` Importar um mod lista as chaves que ele exige antes de instalar
+- [~] 729 `P1` **Editor de `mod.env` na página de mods, com a chave que falta em destaque**
+
+#### A ponte com a configuração de IA do jogo
+
+`AI_MOD_ROUTER=$AI_ROUTER` funciona **sem o jogador colar a mesma chave duas vezes** — é o que o
+pedido descrevia. As globais `AI_ROUTER`, `AI_API_KEY` e `AI_MODEL` são **derivadas** da
+configuração de IA já existente, não copiadas para o cofre: copiar criaria uma segunda cópia da
+chave, que envelheceria em silêncio quando o jogador trocasse a das configurações.
+
+Global gravada vence a derivada, para quem quiser uma conta separada só para os mods.
+
+#### Um campo por chave, não uma caixa de texto
+
+A caixa de texto livre obrigaria o jogador a conhecer a sintaxe para preencher uma chave, e a
+descrição de cada uma — que é o que explica *para que serve* — não teria onde aparecer. A edição
+do arquivo inteiro continua possível no editor de código.
+
+Detalhe que evita destruição acidental: **chave sensível nasce com o campo vazio** e o marcador
+`(preenchida — digite para substituir)`. Mostrar a máscara num `input` faria o jogador apagá-la
+para digitar, e campo vazio significaria zerar. Apagar de propósito tem botão próprio.
+
+- [~] 730 `P1` **As chaves exigidas aparecem no painel do mod, com descrição, antes de ligar**
 - [ ] 731 `P1` Validação de formato por chave (URL, token, enum de modelos)
-- [ ] 732 `P1` Editar `mod.env` pela UI, com os campos sensíveis mascarados
-- [ ] 733 `P1` Ferramenta MCP `read_mod_env` — devolve o esquema e quais chaves estão preenchidas, **nunca o valor**
+- [~] 732 `P1` **Aviso quando não há armazenamento persistente — as chaves valem só a sessão**
+- [~] 733 `P1` **Chave sensível em campo `password`, com botão próprio para apagar**
 - [ ] 734 `P1` Ferramenta MCP `set_mod_env` para as chaves não sensíveis (modelo, idioma)
 - [ ] 735 `P0` Agente **não consegue ler valor de segredo** por nenhuma ferramenta
 - [ ] 736 `P0` Segredo nunca aparece em log, toast, snapshot ou mensagem de erro

@@ -91,6 +91,22 @@ export class SecretVault {
     await this.definir(GLOBAL, nome, valor);
   }
 
+  /**
+   * Globais **derivadas** da configuração do jogo, sem gravar nada.
+   *
+   * É a ponte que o pedido descrevia: `AI_MOD_ROUTER=$AI_ROUTER` funciona sem o jogador colar a
+   * mesma chave duas vezes. Não são gravadas de propósito — copiá-las para o cofre criaria uma
+   * segunda cópia da chave que envelheceria em silêncio quando ele trocasse a das configurações.
+   *
+   * As globais gravadas (`definirGlobal`) vencem: quem quiser uma conta separada para os mods
+   * define a sua e ela sobrepõe a derivada.
+   */
+  public derivadas: GlobaisEnv = {};
+
+  public globaisComDerivadas(): GlobaisEnv {
+    return { ...this.derivadas, ...this.globais() };
+  }
+
   /** Grava vários de uma vez — é o que a tela de edição do `mod.env` usa ao salvar. */
   public async definirVarios(modId: string, valores: ValoresEnv): Promise<void> {
     for (const [nome, valor] of Object.entries(valores)) {

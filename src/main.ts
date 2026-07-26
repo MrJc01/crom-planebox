@@ -504,7 +504,7 @@ async function bootstrap() {
       return resolverEnv(
         mod.env,
         mcpExecutors.modService.vault.valoresDe(modId),
-        mcpExecutors.modService.vault.globais(),
+        mcpExecutors.modService.vault.globaisComDerivadas(),
       );
     },
     season: () => ({
@@ -1126,6 +1126,27 @@ async function bootstrap() {
   }
   inter.onChanged = () => { inventoryModal.renderHotbar(); schedulePlayerSave(); };
 
+  /**
+   * Espelha a configuração de IA do jogo nas globais derivadas do cofre.
+   *
+   * É o que faz `AI_MOD_ROUTER=$AI_ROUTER` funcionar sem o jogador colar a mesma chave duas
+   * vezes — o pedido original. Derivadas e não gravadas: copiá-las criaria uma segunda cópia da
+   * chave, que envelheceria em silêncio quando ele trocasse a das configurações.
+   */
+  async function sincronizarGlobaisDeIA(): Promise<void> {
+    try {
+      const cfg = await WorldRepository.getSettings();
+      mcpExecutors.modService.vault.derivadas = {
+        AI_ROUTER: cfg.provider,
+        AI_API_KEY: cfg.provider === 'google_aistudio' ? cfg.googleApiKey : cfg.openRouterApiKey,
+        AI_MODEL: cfg.model,
+      };
+    } catch {
+      // Sem configuração ainda: os mods que herdam simplesmente não têm a chave, e quem exigir
+      // uma vai para quarentena dizendo qual é — que é o comportamento certo.
+    }
+  }
+
   const loadWorldById = async (worldId: string) => {
     console.log(`🌍 [main.ts] Carregando e inicializando mundo ID: "${worldId}"`);
     // Migração antes de qualquer leitura: os passos normalizam mods e campos do mundo, e o
@@ -1147,6 +1168,7 @@ async function bootstrap() {
     // (estações erradas) apareceria longe de qualquer coisa que o jogador tenha feito ali.
     limparPerfis();
     relampago.reset();
+    void sincronizarGlobaisDeIA();
     for (const key of Array.from(materiaisFade.keys())) encerrarFade(key);
     fadeAgenda.limpar();
     mcpExecutors.setWorldId(worldId);

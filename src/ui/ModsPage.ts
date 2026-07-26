@@ -10,6 +10,7 @@
 import { UIScreen } from './UIManager';
 import { ModService } from '../mods/ModService';
 import { ModRuntime } from '../mods/ModRuntime';
+import { descreverEnv, resolverEnv } from '../mods/ModEnv';
 import { ModPackage } from '../mods/ModTypes';
 
 export class ModsPage implements UIScreen {
@@ -159,6 +160,7 @@ export class ModsPage implements UIScreen {
     }
 
     this.detalhe.appendChild(this.blocoCabecalho(mod));
+    this.detalhe.appendChild(this.blocoEnv(mod));
     this.detalhe.appendChild(this.blocoConteudo(mod));
     this.detalhe.appendChild(await this.blocoVersoes(mod));
   }
@@ -204,6 +206,114 @@ export class ModsPage implements UIScreen {
 
     acoes.append(alternar, editar, exportar, remover);
     wrap.append(h, meta, acoes);
+    return wrap;
+  }
+
+  /**
+   * Editor do `mod.env`.
+   *
+   * Um campo por chave, e não uma caixa de texto livre: a caixa livre obrigaria o jogador a
+   * conhecer a sintaxe para preencher uma chave, e a descrição de cada uma — que é o que explica
+   * *para que serve* — não teria onde aparecer. A caixa de texto continua existindo no editor de
+   * código, para quem quiser editar o arquivo inteiro.
+   *
+   * Chave que falta aparece **em destaque no topo**, com o motivo. É o item 729: o mod em
+   * quarentena por falta de chave precisa dizer qual chave, ali onde se resolve.
+   */
+  private blocoEnv(mod: ModPackage): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'margin-bottom:18px;';
+    if (!mod.env || mod.env.chaves.length === 0) return wrap;
+
+    const resolvido = resolverEnv(
+      mod.env,
+      this.mods.vault.valoresDe(mod.id),
+      this.mods.vault.globaisComDerivadas(),
+    );
+    const descricoes = descreverEnv(mod.env, resolvido);
+
+    const titulo = document.createElement('h4');
+    titulo.textContent = 'mod.env — configuração e chaves';
+    titulo.style.cssText = 'margin:0 0 4px; font-size:14px;';
+
+    const nota = document.createElement('p');
+    nota.textContent =
+      'Estes valores ficam só neste computador. Não são exportados nem enviados para outros jogadores.';
+    nota.style.cssText = 'margin:0 0 10px; font-size:11px; color:#64748b;';
+    wrap.append(titulo, nota);
+
+    if (resolvido.faltando.length > 0) {
+      const aviso = document.createElement('div');
+      aviso.textContent = `⚠️ Faltam chaves obrigatórias: ${resolvido.faltando.join(', ')}. O mod não carrega sem elas.`;
+      aviso.style.cssText =
+        'background:rgba(180,83,9,0.2); border:1px solid #b45309; color:#fbbf24;' +
+        'padding:8px 10px; border-radius:8px; font-size:12px; margin-bottom:10px;';
+      wrap.appendChild(aviso);
+    }
+
+    if (!this.mods.vault.disponivel) {
+      const aviso = document.createElement('div');
+      aviso.textContent =
+        '🔐 Sem armazenamento persistente neste navegador: as chaves valem só até fechar a aba.';
+      aviso.style.cssText =
+        'background:rgba(30,41,59,0.6); border:1px solid #475569; color:#94a3b8;' +
+        'padding:8px 10px; border-radius:8px; font-size:12px; margin-bottom:10px;';
+      wrap.appendChild(aviso);
+    }
+
+    for (const c of descricoes) {
+      const linha = document.createElement('div');
+      linha.style.cssText = 'margin-bottom:10px;';
+
+      const rotulo = document.createElement('label');
+      rotulo.textContent = c.nome + (c.obrigatoria ? ' *' : '');
+      rotulo.style.cssText = `display:block; font-size:12px; font-weight:700; margin-bottom:2px; color:${
+        c.obrigatoria && !c.preenchida ? '#fbbf24' : '#e2e8f0'
+      };`;
+
+      const ajuda = document.createElement('div');
+      ajuda.textContent = c.descricao;
+      ajuda.style.cssText = 'font-size:11px; color:#64748b; margin-bottom:4px;';
+
+      const campo = document.createElement('input');
+      // Chave sensível nasce vazia com marcador de preenchida: mostrar a máscara num `input`
+      // faria o jogador apagá-la para digitar, e apagar significa zerar. Vazio com placeholder
+      // "(preenchida)" diz o estado sem convidar a destruí-lo.
+      campo.type = c.sensivel ? 'password' : 'text';
+      campo.value = c.sensivel ? '' : (this.mods.vault.valoresDe(mod.id)[c.nome] ?? '');
+      campo.placeholder = c.sensivel && c.preenchida
+        ? '(preenchida — digite para substituir)'
+        : c.preenchida ? '' : 'vazio';
+      campo.style.cssText =
+        'width:100%; box-sizing:border-box; background:rgba(15,23,42,0.7);' +
+        'border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:7px 9px;' +
+        'color:white; font-size:12px; font-family:monospace;';
+
+      campo.onchange = async () => {
+        const v = campo.value.trim();
+        // Campo sensível em branco significa "não mexi", não "apague": apagar tem botão próprio.
+        if (c.sensivel && v === '') return;
+        await this.mods.vault.definir(mod.id, c.nome, v);
+        this.render();
+      };
+
+      linha.append(rotulo, ajuda, campo);
+
+      if (c.sensivel && c.preenchida) {
+        const limpar = document.createElement('button');
+        limpar.textContent = 'Apagar esta chave';
+        limpar.style.cssText =
+          'margin-top:4px; background:none; border:none; color:#f87171; font-size:11px; cursor:pointer; padding:0;';
+        limpar.onclick = async () => {
+          await this.mods.vault.definir(mod.id, c.nome, '');
+          this.render();
+        };
+        linha.appendChild(limpar);
+      }
+
+      wrap.appendChild(linha);
+    }
+
     return wrap;
   }
 

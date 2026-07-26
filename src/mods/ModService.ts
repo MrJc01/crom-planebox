@@ -208,7 +208,7 @@ export class ModService {
           this.markQuarantined(mod, `mod.env inválido: ${problemas.map((p) => `${p.chave}: ${p.motivo}`).join('; ')}`);
           continue;
         }
-        const { faltando } = resolverEnv(mod.env, this.vault.valoresDe(mod.id), this.vault.globais());
+        const { faltando } = resolverEnv(mod.env, this.vault.valoresDe(mod.id), this.vault.globaisComDerivadas());
         if (faltando.length > 0) {
           this.markQuarantined(mod, `faltam chaves obrigatórias em mod.env: ${faltando.join(', ')}`);
           continue;

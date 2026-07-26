@@ -276,3 +276,31 @@ describe('o segredo não sai da máquina — a garantia estrutural', () => {
     expect(validarEsquema(pkg.env).length).toBeGreaterThan(0);
   });
 });
+
+describe('globais derivadas — a ponte com a configuração do jogo', () => {
+  it('CRÍTICO: o esquema padrão resolve com as globais derivadas da configuração de IA', () => {
+    // É o pedido original: `AI_MOD_ROUTER=$AI_ROUTER` funciona sem o jogador colar a mesma chave
+    // duas vezes. Se isto quebrasse, todo mod novo nasceria sem provedor.
+    const derivadas = { AI_ROUTER: 'openrouter', AI_API_KEY: 'sk-do-jogo', AI_MODEL: 'x' };
+    const r = resolverEnv(esquemaPadrao(), {}, derivadas);
+    expect(r.valores.AI_MOD_ROUTER).toBe('openrouter');
+    expect(r.faltando).toEqual([]);
+  });
+
+  it('a global gravada vence a derivada — dá para usar uma conta separada nos mods', () => {
+    const esq: EsquemaEnv = {
+      chaves: [{ nome: 'K', descricao: 'x', obrigatoria: false, sensivel: true, padrao: '$AI_API_KEY' }],
+    };
+    const derivadas = { AI_API_KEY: 'do-jogo' };
+    const gravadas = { AI_API_KEY: 'so-dos-mods' };
+    // É assim que `globaisComDerivadas` compõe: gravadas por cima das derivadas.
+    expect(resolverEnv(esq, {}, { ...derivadas, ...gravadas }).valores.K).toBe('so-dos-mods');
+  });
+
+  it('sem configuração de IA, o mod não recebe lixo — recebe ausência', () => {
+    const r = resolverEnv(esquemaPadrao(), {}, {});
+    expect(r.valores.AI_MOD_ROUTER).toBeUndefined();
+    // E como a chave padrão é opcional, o mod ainda carrega.
+    expect(r.faltando).toEqual([]);
+  });
+});
