@@ -54,6 +54,10 @@ export interface ModHostBridge {
   weather(): { current: string; next: string; progress: number; lightning: boolean; wet: number };
   /** Impõe um clima, ou devolve o mundo à sequência natural com `null`. */
   setWeather(clima: string | null): boolean;
+  /** Estação vigente sob o jogador, já atenuada pelos pesos de bioma. */
+  season(): { current: string; next: string; transition: number; strength: number; effect: Record<string, number> };
+  /** Declara como um bioma responde às estações. Ver `api.season.defineProfile`. */
+  defineSeasonProfile(bioma: string, perfis: Record<string, Record<string, number>>): boolean;
   /** Toca um som do catálogo, opcionalmente posicionado no mundo. */
   playSound(nome: string, posicao?: { x: number; y: number; z: number }, volume?: number): void;
 }
@@ -280,6 +284,31 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
       isStorm: () => host.weather().current === 'tempestade',
       /** `null` devolve o mundo à sequência derivada da semente. Devolve false se o nome não existe. */
       set: (clima: string | null) => host.setWeather(clima),
+    },
+
+    /**
+     * Estações do ano.
+     *
+     * `defineProfile` é o ponto central: uma estação, para um bioma, é uma **tabela de números**,
+     * não código. É isso que permite criar um bioma com estações próprias sem editar o motor —
+     * e sem que um mod com erro possa quebrar o ciclo do mundo.
+     */
+    season: {
+      /** `{ current, next, transition, strength, effect }`. */
+      current: () => host.season(),
+      is: (nome: string) => host.season().current === nome,
+      /** Multiplicador de crescimento de planta agora, neste ponto. 0 = parado (inverno). */
+      growth: () => host.season().effect.crescimento ?? 1,
+      /**
+       * Declara o comportamento sazonal de um bioma. Parcial em dois níveis: só as estações que
+       * interessam, e dentro delas só os campos que interessam.
+       *
+       *   api.season.defineProfile('floresta', { inverno: { crescimento: 0.4, neve: 3 } })
+       *
+       * Campos: folhagem, grama, temperatura, umidade, crescimento, duracaoDoDia, neve.
+       */
+      defineProfile: (bioma: string, perfis: Record<string, Record<string, number>>) =>
+        host.defineSeasonProfile(bioma, perfis),
     },
 
     /** Chave-valor do mod, isolado dos demais. Dura a sessão. */

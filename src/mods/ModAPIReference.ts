@@ -60,6 +60,11 @@ export const MOD_API_REFERENCE = {
     'api.weather.current()': "{ current, next, progress, lightning, wet } — clima já traduzido pelo bioma local",
     'api.weather.isRaining()': 'true em chuva ou tempestade',
     'api.weather.isStorm()': 'true só em tempestade (tem raios)',
+    'api.season.current()': '{ current, next, transition, strength, effect } — estação sob o jogador, já atenuada pelo bioma',
+    'api.season.is(nome)': "true se a estação é essa: 'primavera','verao','outono','inverno'",
+    'api.season.growth()': 'multiplicador de crescimento de planta agora (0 = parado, no inverno)',
+    'api.season.defineProfile(bioma, perfis)': "declara como um bioma responde às estações, SEM código. Ex.: api.season.defineProfile('floresta', { inverno: { crescimento: 0.4, neve: 3 } }). Campos: folhagem, grama, temperatura, umidade, crescimento, duracaoDoDia, neve",
+
     'api.weather.set(clima|null)': "impõe um clima para o mundo todo; null devolve à sequência natural. Nomes: 'limpo','nublado','chuva','tempestade','neve','neblina'",
 
     'api.ui.toast(texto)': 'mensagem curta na tela',

@@ -5,6 +5,7 @@ import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
 import { WorldGen, WATER_LEVEL } from './world/worldgen';
 import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
+import { EstadoSazonal, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
@@ -79,6 +80,8 @@ async function bootstrap() {
    * Ver `src/world/weather.ts` para por que isso importa no P2P e no save.
    */
   let clima: ClimaAtual = climaEm(seed, 0, 'planicie');
+  /** Estação vigente sob o jogador, já atenuada pelos pesos de bioma. */
+  let estacao: EstadoSazonal = estadoSazonal(0, [{ id: 'planicie', peso: 1 }]);
   /** Clima imposto por um mod ou pelo anfitrião. `undefined` = segue a sequência do mundo. */
   let climaForcado: import('./world/weather').ClimaId | undefined;
   /**
@@ -441,6 +444,31 @@ async function bootstrap() {
       lightning: clima.raios,
       wet: clima.molha,
     }),
+    season: () => ({
+      current: estacao.estacao,
+      next: estacao.proxima,
+      transition: estacao.travessia,
+      strength: estacao.forca,
+      effect: { ...estacao.efeito },
+    }),
+    defineSeasonProfile: (bioma, perfis) => {
+      // Validação antes de aceitar: um perfil com campo inventado ou valor não numérico viraria
+      // NaN propagado por todo o sistema de cor e clima, e o sintoma apareceria longe da causa.
+      const CAMPOS = ['folhagem', 'grama', 'temperatura', 'umidade', 'crescimento', 'duracaoDoDia', 'neve'];
+      const ESTS = ['primavera', 'verao', 'outono', 'inverno'];
+      const limpo: any = {};
+      for (const [est, campos] of Object.entries(perfis ?? {})) {
+        if (!ESTS.includes(est) || !campos || typeof campos !== 'object') return false;
+        const p: any = {};
+        for (const [k, v] of Object.entries(campos)) {
+          if (!CAMPOS.includes(k) || typeof v !== 'number' || !Number.isFinite(v)) return false;
+          p[k] = v;
+        }
+        limpo[est] = p;
+      }
+      definirPerfil(bioma as any, limpo);
+      return true;
+    },
     setWeather: (nome) => {
       if (nome === null) { climaForcado = undefined; return true; }
       if (!(nome in CLIMAS)) return false;
@@ -495,6 +523,7 @@ async function bootstrap() {
     ambiente: () => ({
       bioma: descreverBioma(pesosBioma),
       clima: descreverClima(clima),
+      estacao: descreverEstacao(estacao),
       fase: nomeDaFase(gs.getMoonPhase()),
       noiteEscura: noiteEscura(gs.getMoonPhase()),
     }),
@@ -1050,6 +1079,10 @@ async function bootstrap() {
     if (!wRecord) return;
 
     currentWorld = wRecord;
+    // Perfis sazonais são registrados por mods e valem por mundo. Sem limpar, um mundo com o mod
+    // "inverno eterno" contaminaria o próximo mundo aberto na mesma sessão — e o sintoma
+    // (estações erradas) apareceria longe de qualquer coisa que o jogador tenha feito ali.
+    limparPerfis();
     mcpExecutors.setWorldId(worldId);
     eventSystem.setWorldId(worldId);
     entitySystem.clearAll();
@@ -1575,8 +1608,16 @@ async function bootstrap() {
       });
       // O dia fracionário é o relógio do clima. O bioma dominante traduz: a mesma chuva do mundo
       // cai como neve na tundra e não cai no deserto.
+      // A estação vem antes do clima: é ela que decide se a chuva possível ali cai como neve.
+      estacao = estadoSazonal(worldDay + timeOfDay, pesosBioma);
       const climaAnterior = clima.clima;
-      clima = climaEm(seed, worldDay + timeOfDay, biomaDominante(pesosBioma), climaForcado);
+      clima = climaEm(
+        seed,
+        worldDay + timeOfDay,
+        biomaDominante(pesosBioma),
+        climaForcado,
+        estacao.efeito.neve,
+      );
       if (clima.clima !== climaAnterior) {
         hud.showToast(`🌦️ ${descreverClima(clima)}`);
         modRuntime.dispatch('weatherChange', { weather: clima.clima, previous: climaAnterior });

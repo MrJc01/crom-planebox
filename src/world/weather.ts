@@ -148,6 +148,24 @@ export function climaNoBioma(clima: ClimaId, bioma: BiomeId): ClimaId {
   return clima;
 }
 
+/**
+ * A estação traduz o clima, pelo mesmo padrão do bioma.
+ *
+ * Optei por traduzir depois do sorteio, e não por mexer nos pesos de `climaPorSorteio`: assim a
+ * sequência de blocos do mundo continua sendo função só de (semente, dia), e a estação é uma
+ * lente por cima. Mexer nos pesos faria a mesma semente gerar sequências diferentes conforme os
+ * perfis sazonais que um mod tivesse registrado — e aí o determinismo do P2P dependeria de os
+ * dois lados terem exatamente os mesmos mods carregados.
+ *
+ * `multiplicadorNeve` vem de `PerfilSazonal.neve`: acima de 1 o inverno converte chuva em neve;
+ * abaixo de 1 o verão faz o contrário.
+ */
+export function climaNaEstacao(clima: ClimaId, multiplicadorNeve: number): ClimaId {
+  if (multiplicadorNeve >= 1.5 && (clima === 'chuva' || clima === 'tempestade')) return 'neve';
+  if (multiplicadorNeve <= 0.25 && clima === 'neve') return 'chuva';
+  return clima;
+}
+
 export interface ClimaAtual {
   /** O clima vigente, já traduzido pelo bioma. */
   clima: ClimaId;
@@ -175,7 +193,13 @@ function lerp(a: number, b: number, t: number): number {
  * com o que vem. Fazer no começo daria um pulo no instante da troca — que é justamente o que a
  * transição existe para evitar.
  */
-export function climaEm(semente: number, dia: number, bioma: BiomeId, forcado?: ClimaId): ClimaAtual {
+export function climaEm(
+  semente: number,
+  dia: number,
+  bioma: BiomeId,
+  forcado?: ClimaId,
+  multiplicadorNeve = 1,
+): ClimaAtual {
   if (forcado) {
     const d = CLIMAS[forcado];
     return {
@@ -186,14 +210,19 @@ export function climaEm(semente: number, dia: number, bioma: BiomeId, forcado?: 
   }
 
   const bloco = blocoEm(semente, dia);
-  const atual = climaNoBioma(bloco.clima, bioma);
+  // Ordem: **bioma primeiro, estação depois**. Escrevi ao contrário na primeira versão e o teste
+  // reprovou — a regra "temperado converte neve em chuva" desfazia a conversão do inverno, e a
+  // floresta nunca via neve. Lendo de novo, a ordem certa é óbvia: o bioma diz o que é POSSÍVEL
+  // ali (não neva no deserto, nunca), e a estação escolhe dentro do possível (a chuva de inverno
+  // na floresta cai como neve). Filtrar depois de escolher desfaz a escolha.
+  const atual = climaNaEstacao(climaNoBioma(bloco.clima, bioma), multiplicadorNeve);
 
   const restante = bloco.fim - dia;
   let proximo = atual;
   let t = 1;
   if (restante < TRANSICAO) {
     const seguinte = blocoEm(semente, bloco.fim + 1e-6);
-    proximo = climaNoBioma(seguinte.clima, bioma);
+    proximo = climaNaEstacao(climaNoBioma(seguinte.clima, bioma), multiplicadorNeve);
     t = 1 - restante / TRANSICAO; // 0 no início da transição, 1 ao trocar
   }
 

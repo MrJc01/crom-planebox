@@ -23,7 +23,7 @@ export interface FontesDiagnostico {
   posicao: () => { x: number; y: number; z: number };
   cacheRotas: () => { hits: number; misses: number; hitRate: number };
   /** Mistura de biomas sob o jogador, e a fase da lua — o ambiente é difícil de conferir a olho. */
-  ambiente: () => { bioma: string; clima: string; fase: string; noiteEscura: boolean };
+  ambiente: () => { bioma: string; clima: string; estacao: string; fase: string; noiteEscura: boolean };
 }
 
 export class DebugPanel {
@@ -91,6 +91,7 @@ export class DebugPanel {
     const amb = this.fontes.ambiente();
     linhas.push(`  bioma ${amb.bioma}`);
     linhas.push(`  clima ${amb.clima}`);
+    linhas.push(`  estação ${amb.estacao}`);
     linhas.push(`  lua ${amb.fase}${amb.noiteEscura ? ' (noite escura)' : ''}`);
     linhas.push('');
 

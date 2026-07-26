@@ -2222,24 +2222,24 @@ muda o comportamento do bioma"*. O ponto central é **configuração declarativa
 deve exigir código, e sim uma tabela que o bioma preenche — é o que permite a IA criar um bioma
 com estações próprias sem escrever lógica.
 
-- [ ] 1113 `P0` Calendário do mundo: dias por estação, quatro estações, derivado do `worldDay` que a lua já usa
-- [ ] 1114 `P0` `BiomeSeasonProfile` declarativo por bioma: cor de folhagem, cor de grama, temperatura, umidade, clima provável, taxa de crescimento
-- [ ] 1115 `P0` Interpolação **entre estações**, não degrau: o outono chega ao longo de dias
-- [ ] 1116 `P0` Estação atual no save e sincronizada no P2P, junto com o clima (1099)
+- [~] 1113 `P0` **Calendário de 4 estações × 8 dias, derivado do mesmo `worldDay` da lua**
+- [~] 1114 `P0` **`PerfilSazonal` declarativo — **só números**, nenhum `switch` no motor**
+- [~] 1115 `P0` **Interpolação entre estações, com platô no coração de cada uma**
+- [~] 1116 `P0` **Derivado do `worldDay`, que já é sincronizado pelo `world_time`**
 - [ ] 1117 `P1` Folhagem mudando de cor no outono e caindo, sem regerar o chunk (só a cor do vértice)
 - [ ] 1118 `P1` Inverno cobre de neve e congela a superfície da água — com os fluidos finitos já existentes
 - [ ] 1119 `P1` Primavera acelera o crescimento de plantas; inverno o interrompe
 - [ ] 1120 `P1` Duração do dia varia com a estação — inverno com noite mais longa
-- [~] 1121 `P1` **`sazonal` declarado por bioma; `fatorSazonal` mistura sem degrau**
-- [ ] 1122 `P1` Estação influencia o clima provável (1096), fechando o laço entre os dois sistemas
-- [ ] 1123 `P1` Painel de configuração de estações por bioma na página de mods, sem escrever código
-- [ ] 1124 `P2` `api.season` e `api.biome.defineSeasonProfile` para mods
+- [~] 1121 `P1` **`sazonal` por bioma **e** perfil próprio via `definirPerfil`**
+- [~] 1122 `P1` **A estação traduz o clima: inverno converte chuva em neve onde o bioma permite**
+- [~] 1123 `P1` **`api.season.defineProfile` — declaração sem código; painel na página de mods pendente**
+- [~] 1124 `P2` **`api.season.current/is/growth/defineProfile`**
 - [ ] 1125 `P2` Ferramenta MCP `configure_biome_seasons`, documentada em `ModAPIReference`
 - [ ] 1126 `P2` Estação afeta o surgimento de criaturas e o que os aldeões produzem
 - [ ] 1127 `P2` Evento sazonal raro (aurora no inverno, tempestade de areia no verão do deserto)
-- [ ] 1128 `P2` Teste de que o ciclo de estações fecha e volta ao início, como o teste da lua
-- [ ] 1129 `P2` Teste de que um bioma sem perfil de estação não quebra nada — o padrão precisa existir
-- [ ] 1130 `P2` Teste de que a interpolação entre estações nunca produz cor fora da faixa
+- [~] 1128 `P2` **Teste de que o ciclo de estações fecha e volta ao início**
+- [~] 1129 `P2` **Teste de que um bioma sem perfil não quebra nada**
+- [~] 1130 `P2` **Teste de que a interpolação nunca produz valor fora da faixa**
 
 ### O que já roda
 
@@ -2253,6 +2253,22 @@ Um defeito meu, que o teste pegou: a primeira versão truncava a mistura nos 4 m
 teste de continuidade acusou salto de 0,084 contra mediana de 0,0077 — outlier isolado, que é a
 assinatura de descontinuidade, não de inclinação. Cortar o quinto peso e renormalizar move todos
 de uma vez. Sem truncamento, o salto máximo é 0,0104 e **uniforme**.
+
+#### O que a implementação das estações revelou
+
+**Um defeito de ordem, pego pelo teste.** Eu aplicava a estação antes do bioma, e a regra
+"bioma temperado converte neve em chuva" **desfazia** a conversão do inverno — a floresta nunca
+veria neve. A ordem certa, lendo de novo, é óbvia: o bioma diz o que é *possível* ali (não neva no
+deserto, nunca), e a estação escolhe dentro do possível. Filtrar depois de escolher desfaz a
+escolha.
+
+**A estação não mexe nos pesos do sorteio de clima, e isso é deliberado.** Se mexesse, a mesma
+semente daria sequências diferentes conforme os perfis sazonais que um mod tivesse registrado — e
+o determinismo do P2P passaria a exigir que os dois lados tivessem exatamente os mesmos mods
+carregados. A estação é uma lente sobre a sequência, não parte dela.
+
+**Perfis são limpos ao trocar de mundo.** Um mundo com o mod "inverno eterno" contaminaria o
+próximo aberto na mesma sessão, e o sintoma apareceria longe de qualquer coisa feita ali.
 
 ### Ordem recomendada desta seção
 

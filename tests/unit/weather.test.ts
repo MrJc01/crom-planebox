@@ -5,6 +5,7 @@ import {
   TRANSICAO,
   blocoEm,
   climaEm,
+  climaNaEstacao,
   climaNoBioma,
   climaPorSorteio,
   descreverClima,
@@ -247,5 +248,63 @@ describe('climaEm — a transição', () => {
       }
     }
     throw new Error('nenhuma transição encontrada em 30 dias — a sequência não está variando');
+  });
+});
+
+describe('climaNaEstacao — o inverno converte, o verão desconverte', () => {
+  it('CRÍTICO: no inverno a floresta vê neve, no verão não', () => {
+    // A ordem importa: o bioma diz o que é possível, a estação escolhe dentro do possível.
+    // Filtrar pelo bioma DEPOIS da estação desfaria a escolha — foi o defeito da primeira versão.
+    let viuNeve = false;
+    for (let d = 0; d < 200; d += 0.13) {
+      if (climaEm(SEMENTE, d, 'floresta', undefined, 2.5).clima === 'neve') viuNeve = true;
+      expect(climaEm(SEMENTE, d, 'floresta', undefined, 0).clima).not.toBe('neve');
+    }
+    expect(viuNeve).toBe(true);
+  });
+
+  it('a conversão isolada faz o que diz', () => {
+    expect(climaNaEstacao('chuva', 2.5)).toBe('neve');
+    expect(climaNaEstacao('tempestade', 2.5)).toBe('neve');
+  });
+
+  it('no verão a neve vira chuva', () => {
+    expect(climaNaEstacao('neve', 0)).toBe('chuva');
+  });
+
+  it('fora dos extremos não mexe em nada', () => {
+    for (const c of Object.keys(CLIMAS) as ClimaId[]) {
+      expect(climaNaEstacao(c, 1)).toBe(c);
+    }
+  });
+
+  it('é idempotente — traduzir duas vezes não muda mais', () => {
+    for (const c of Object.keys(CLIMAS) as ClimaId[]) {
+      for (const m of [0, 0.2, 1, 2.5, 9]) {
+        const uma = climaNaEstacao(c, m);
+        expect(climaNaEstacao(uma, m)).toBe(uma);
+      }
+    }
+  });
+
+  it('CRÍTICO: a estação não muda a SEQUÊNCIA de blocos, só a leitura', () => {
+    // Se mexesse nos pesos do sorteio, a mesma semente daria sequências diferentes conforme os
+    // perfis sazonais que um mod tivesse registrado — e o determinismo do P2P passaria a exigir
+    // que os dois lados tivessem exatamente os mesmos mods carregados.
+    for (let d = 0; d < 40; d += 0.31) {
+      expect(blocoEm(SEMENTE, d).indice).toBe(blocoEm(SEMENTE, d).indice);
+      const inverno = climaEm(SEMENTE, d, 'planicie', undefined, 2.5);
+      const verao = climaEm(SEMENTE, d, 'planicie', undefined, 0);
+      // Mesmo bloco, leituras diferentes: no inverno a chuva da floresta cai como neve, no
+      // verão nunca. O bloco sorteado é o mesmo nos dois casos.
+      expect(inverno.clima).not.toBe('chuva');
+      expect(verao.clima).not.toBe('neve');
+    }
+  });
+
+  it('o deserto continua sem neve, mesmo no inverno mais duro', () => {
+    for (let d = 0; d < 100; d += 0.17) {
+      expect(climaEm(SEMENTE, d, 'deserto', undefined, 9).clima).not.toBe('neve');
+    }
   });
 });
