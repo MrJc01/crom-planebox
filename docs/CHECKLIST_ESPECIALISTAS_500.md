@@ -3877,3 +3877,67 @@ dia do Worker, quando cada chamada de API vira ida e volta de verdade. É exatam
 proteção foi construída agora, e não lá.
 
 - [~] 1367 `P1` **Guarda de contexto no `flush`**, com o par simétrico que impede "consertar" parando de gravar
+
+---
+
+## 67 — Item 358: o desenho, medido, e por que ele não foi feito nesta rodada
+
+Com o 1251 pronto, o obstáculo que a seção 51 apontou deixou de existir: a API já pode ser
+assíncrona sem quebrar mod nenhum. O 358 virou executável. Ele **não** foi executado agora, e a razão
+é a mesma que venho aplicando o tempo todo — mover a execução para outro reino é all-or-nothing, e
+um Worker meio ligado seria pior que nenhum: os testes de sandbox continuariam verdes descrevendo um
+isolamento que não está no caminho da execução.
+
+Fica o desenho medido, para a próxima rodada começar escrevendo código em vez de decidindo.
+
+### As duas peças
+
+**`src/mods/modWorker.ts`** — o reino de execução. Roda os corpos de script, guarda os handlers, e
+expõe uma `api` que é um proxy de RPC. É aqui que a fuga pelo construtor deixa de importar:
+`[].constructor.constructor('return this')()` devolve o global **daquele** reino, e ali `fetch`,
+`importScripts`, `indexedDB` e `XMLHttpRequest` foram apagados no primeiro instante de vida.
+
+**`src/mods/PonteDeMods.ts`** — no thread principal. Dona do `Worker`, traduz cada RPC numa chamada
+do `ModHostBridge` que já existe, e empurra os eventos para dentro. É ela que substitui o
+`compilarScriptDeMod` de hoje dentro do `ModRuntime`.
+
+### O que atravessa a fronteira, e o que não precisa
+
+| Membro | Onde vive | Por quê |
+|---|---|---|
+| `api.on` | **worker** | registro de handler é local; não há por que sair |
+| `api.storage` | **worker** | estado por mod, sem leitor do outro lado — cada `get` viraria ida e volta por nada |
+| `api.mod`, `api.B`, `api.Math`, `api.audio.nomes` | **worker**, enviados na carga | são dados constantes; enviar uma vez é mais barato e faz `api.B.STONE` continuar síncrono |
+| `api.world.*`, `api.player.*`, `api.entities.*`, `api.time.*`, `api.weather.*`, `api.season.*`, `api.ui.*`, `api.audio.play`, `api.env.*` | **RPC** | dependem do estado vivo do jogo |
+| `api.console.*` | **RPC**, unidirecional | não espera resposta, e a redação de segredos (seção 52) precisa continuar acontecendo do lado que conhece o cofre |
+
+### As três decisões que já estão tomadas
+
+**Escritas não esperam resposta.** `setBlock` e `fillBox` devolvem valores que quase nenhum mod usa.
+Fazê-las esperar o retorno transformaria uma construção de 20.000 blocos em 20.000 idas e voltas. Elas
+viram mensagens de mão única, e o resultado agregado volta no `flush`.
+
+**Leituras esperam, e é por isso que o 1251 veio antes.** `await api.world.getBlock(...)` já é o
+formato ensinado na referência.
+
+**O orçamento de tempo muda de natureza.** Hoje `TICK_BUDGET_MS` mede tempo síncrono no thread
+principal. Com o script fora dele, o mod não pode mais travar o jogo — mas passa a poder inundar a
+ponte de mensagens. O limite deixa de ser milissegundos de CPU e vira **mensagens por frame**. Isto é
+o item 1364, e ele deixa de ser opcional no dia do Worker.
+
+### O que fica difícil, e é honesto dizer antes
+
+- **Teste.** vitest com jsdom não tem `Worker`. Os testes do reino isolado ou usam um duplo de
+  `postMessage` (prova a ponte, não o isolamento) ou exigem um ambiente de navegador de verdade.
+  Provavelmente os dois: duplo para a lógica, e um teste manual documentado para o isolamento.
+- **`api.env`**, que entrega segredos ao script, passa a mandá-los por `postMessage` para outro
+  reino. Continua tudo no cliente, mas é uma cópia a mais do segredo — e a redação do log precisa
+  continuar acontecendo do lado do host, nunca do worker.
+- **O teste que passa quando a fuga funciona** (`modSandbox.test.ts`) precisa ser **invertido** no
+  mesmo commit, senão ele passa a mentir na direção contrária.
+
+- [ ] 1368 `P0` `modWorker.ts` — reino de execução com globais apagados
+- [ ] 1369 `P0` `PonteDeMods.ts` — RPC, com escritas de mão única
+- [ ] 1370 `P0` Inverter o teste da fuga pelo construtor, no mesmo commit
+- [ ] 1371 `P1` Orçamento por mensagens/frame no lugar do de milissegundos (é o 1364 sob outra forma)
+- [ ] 1372 `P1` Teste manual documentado do isolamento, já que jsdom não tem `Worker`
