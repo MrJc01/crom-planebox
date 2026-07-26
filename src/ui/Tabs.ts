@@ -1,0 +1,227 @@
+// Abas: a peça que faltava, e a razão de as telas empilharem painéis.
+//
+// ## O defeito que isto corrige
+//
+// Cada tela montava a própria navegação, e o padrão era sempre o mesmo: um botão que chama
+// `render()`, e o `render()` decide o que desenhar. Quando dois caminhos podiam pedir telas
+// diferentes — um clique e um atalho, ou dois cliques rápidos — os dois `render()` corriam e o
+// segundo desenhava por cima sem apagar o primeiro. O sintoma é o relato: *clico numa coisa e
+// abre outra*.
+//
+// A correção estrutural é ter **um dono do que está visível**. Aqui, `ativa` é a única fonte, e
+// `aplicar()` percorre TODOS os painéis a cada troca — mostrando um e escondendo o resto. Não é
+// possível dois painéis visíveis, porque não existe caminho que mostre sem esconder.
+//
+// ## Conteúdo preguiçoso, e o motivo
+//
+// Um painel só é construído na primeira vez que é aberto. Abrir a tela de mods não deve montar o
+// editor de código junto — e, mais importante, não deve *rodar* o que aquele painel faz ao
+// montar. Painéis que consultam o banco ou instrumentam o jogo pagariam esse custo sempre.
+
+import { CORES, FONTE } from './theme';
+import { NomeIcone, icone } from './icons';
+
+export interface DefinicaoAba {
+  id: string;
+  titulo: string;
+  icone: NomeIcone;
+  /** Construído na primeira abertura. Recebe o container onde deve desenhar. */
+  montar: (destino: HTMLElement) => void;
+  /** Chamado a cada vez que a aba passa a ser a ativa, inclusive na primeira. */
+  aoAtivar?: (destino: HTMLElement) => void;
+  /** Emblema numérico (ex.: quantidade de mods). Ausente = sem emblema. */
+  emblema?: () => number;
+}
+
+export class Tabs {
+  readonly raiz = document.createElement('div');
+  private barra = document.createElement('div');
+  private corpo = document.createElement('div');
+
+  private abas: DefinicaoAba[] = [];
+  private botoes = new Map<string, HTMLButtonElement>();
+  private paineis = new Map<string, HTMLElement>();
+  private montadas = new Set<string>();
+
+  /** **A única fonte da verdade** sobre o que está visível. */
+  private ativa: string | null = null;
+
+  /** Avisado quando a aba muda, para a tela persistir a escolha. */
+  public onTrocou: (id: string) => void = () => {};
+
+  constructor() {
+    this.raiz.style.cssText = `
+      display: flex; flex-direction: column; min-height: 0; height: 100%;
+      font-family: ${FONTE};
+    `;
+
+    // A barra rola na horizontal em vez de quebrar em duas linhas: com quebra, a altura do
+    // cabeçalho muda conforme a largura, e o corpo pula ao redimensionar.
+    this.barra.setAttribute('role', 'tablist');
+    this.barra.style.cssText = `
+      display: flex; gap: 4px; padding: 0 4px;
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+      border-bottom: 1px solid ${CORES.borda}; flex: 0 0 auto;
+    `;
+
+    this.corpo.style.cssText = 'flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px 4px 4px;';
+
+    this.raiz.append(this.barra, this.corpo);
+    this.ligarTeclado();
+  }
+
+  public adicionar(aba: DefinicaoAba): this {
+    this.abas.push(aba);
+
+    const b = document.createElement('button');
+    b.setAttribute('role', 'tab');
+    b.dataset.aba = aba.id;
+    b.style.cssText = `
+      display: inline-flex; align-items: center; gap: 8px;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: ${CORES.textoFraco}; font-family: ${FONTE}; font-size: 13px; font-weight: 600;
+      padding: 11px 14px; cursor: pointer; white-space: nowrap;
+      transition: color .12s, border-color .12s, background .12s;
+      border-radius: 8px 8px 0 0;
+    `;
+    b.append(icone(aba.icone, 17));
+
+    const rotulo = document.createElement('span');
+    rotulo.textContent = aba.titulo;
+    b.append(rotulo);
+
+    if (aba.emblema) {
+      const em = document.createElement('span');
+      em.dataset.emblema = '1';
+      em.style.cssText = `
+        background: ${CORES.borda}; color: ${CORES.textoFraco};
+        border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 700;
+      `;
+      b.append(em);
+    }
+
+    b.onmouseenter = () => { if (this.ativa !== aba.id) b.style.color = CORES.texto; };
+    b.onmouseleave = () => { if (this.ativa !== aba.id) b.style.color = CORES.textoFraco; };
+    b.onclick = () => this.ir(aba.id);
+
+    const painel = document.createElement('div');
+    painel.setAttribute('role', 'tabpanel');
+    painel.style.cssText = 'display: none; height: 100%; min-height: 0;';
+
+    this.botoes.set(aba.id, b);
+    this.paineis.set(aba.id, painel);
+    this.barra.append(b);
+    this.corpo.append(painel);
+    return this;
+  }
+
+  /**
+   * Troca a aba ativa.
+   *
+   * Id desconhecido cai na primeira aba em vez de deixar a tela em branco: uma preferência
+   * gravada de uma versão anterior — que tinha outras abas — não deve resultar num painel vazio
+   * sem explicação.
+   */
+  public ir(id: string): void {
+    const alvo = this.paineis.has(id) ? id : this.abas[0]?.id;
+    if (!alvo || alvo === this.ativa) {
+      if (alvo && alvo === this.ativa) this.reativar(alvo);
+      return;
+    }
+    this.ativa = alvo;
+    this.aplicar();
+    this.reativar(alvo);
+    this.onTrocou(alvo);
+  }
+
+  private reativar(id: string): void {
+    const aba = this.abas.find((a) => a.id === id);
+    const painel = this.paineis.get(id);
+    if (!aba || !painel) return;
+    if (!this.montadas.has(id)) {
+      this.montadas.add(id);
+      aba.montar(painel);
+    }
+    aba.aoAtivar?.(painel);
+  }
+
+  /**
+   * Aplica o estado visual a **todos** os painéis e botões.
+   *
+   * Percorrer tudo, e não só o que mudou, é o que torna impossível dois painéis visíveis. É mais
+   * trabalho por troca — dezenas de atribuições de estilo — e é irrelevante: uma troca de aba
+   * acontece por gesto humano, não por quadro.
+   */
+  private aplicar(): void {
+    for (const aba of this.abas) {
+      const ativo = aba.id === this.ativa;
+      const b = this.botoes.get(aba.id)!;
+      const p = this.paineis.get(aba.id)!;
+
+      p.style.display = ativo ? 'block' : 'none';
+      b.setAttribute('aria-selected', String(ativo));
+      b.tabIndex = ativo ? 0 : -1;
+      b.style.color = ativo ? CORES.aviso : CORES.textoFraco;
+      b.style.borderBottomColor = ativo ? CORES.aviso : 'transparent';
+      b.style.background = ativo ? 'rgba(251,191,36,0.07)' : 'transparent';
+
+      const em = b.querySelector<HTMLElement>('[data-emblema]');
+      if (em && aba.emblema) {
+        const n = aba.emblema();
+        em.textContent = String(n);
+        em.style.display = n > 0 ? '' : 'none';
+      }
+    }
+    // A aba ativa entra em vista quando a barra está rolada — atalho de teclado pode ativar uma
+    // aba que está fora da área visível.
+    //
+    // Guardado porque `scrollIntoView` é conveniência, não requisito: se ela não existir no
+    // ambiente, a troca de aba precisa acontecer do mesmo jeito. Rolar não pode ser o motivo de
+    // um painel não abrir.
+    const botao = this.ativa ? this.botoes.get(this.ativa) : undefined;
+    botao?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /** Setas navegam entre abas, como manda o padrão de `tablist`. */
+  private ligarTeclado(): void {
+    this.barra.addEventListener('keydown', (e) => {
+      const i = this.abas.findIndex((a) => a.id === this.ativa);
+      if (i < 0) return;
+      let alvo = -1;
+      if (e.key === 'ArrowRight') alvo = (i + 1) % this.abas.length;
+      else if (e.key === 'ArrowLeft') alvo = (i - 1 + this.abas.length) % this.abas.length;
+      else if (e.key === 'Home') alvo = 0;
+      else if (e.key === 'End') alvo = this.abas.length - 1;
+      if (alvo < 0) return;
+      e.preventDefault();
+      this.ir(this.abas[alvo].id);
+      this.botoes.get(this.abas[alvo].id)?.focus();
+    });
+  }
+
+  /** Abre a tela na aba pedida (ou na primeira). Chamado ao abrir a tela, não ao construí-la. */
+  public iniciar(id?: string): void {
+    this.ir(id ?? this.ativa ?? this.abas[0]?.id ?? '');
+  }
+
+  public get ativaId(): string | null {
+    return this.ativa;
+  }
+
+  /** Redesenha os emblemas sem trocar de aba. */
+  public atualizarEmblemas(): void {
+    if (this.ativa) this.aplicar();
+  }
+
+  /** Painel de uma aba, para quem precisar redesenhar o conteúdo por fora. */
+  public painelDe(id: string): HTMLElement | undefined {
+    return this.paineis.get(id);
+  }
+
+  /** Força a remontagem de uma aba na próxima ativação. */
+  public invalidar(id: string): void {
+    this.montadas.delete(id);
+    const p = this.paineis.get(id);
+    if (p) p.innerHTML = '';
+  }
+}

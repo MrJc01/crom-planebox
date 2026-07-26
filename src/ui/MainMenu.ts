@@ -96,13 +96,13 @@ export class MainMenu {
       }));
     }
 
-    list.appendChild(this.button('🗺️ Mundos Salvos', `${worlds.length} mundo(s) salvo(s) neste navegador`, () => this.renderSavedWorlds(worlds)));
-    list.appendChild(this.button('✨ Criar Novo Mundo', 'Abre o assistente de criação (terreno, modo de jogo, online)', () => {
+    list.appendChild(this.button('Mundos Salvos', `${worlds.length} mundo(s) salvo(s) neste navegador`, () => this.renderSavedWorlds(worlds)));
+    list.appendChild(this.button('Criar Novo Mundo', 'Abre o assistente de criação (terreno, modo de jogo, online)', () => {
       this.close();
       this.cb.onOpenWizard();
     }));
-    list.appendChild(this.button('🌐 Mundos Online da Crom', 'Ver salas abertas agora ou colar um link de convite', () => this.renderOnline()));
-    list.appendChild(this.button('⚙️ Configurações Globais', 'Chave de API da IA e modelo padrão', () => this.cb.onOpenGlobalSettings()));
+    list.appendChild(this.button('Mundos Online da Crom', 'Ver salas abertas agora ou colar um link de convite', () => this.renderOnline()));
+    list.appendChild(this.button('Configurações Globais', 'Chave de API da IA e modelo padrão', () => this.cb.onOpenGlobalSettings()));
   }
 
   private renderSavedWorlds(worlds: WorldRecord[]): void {

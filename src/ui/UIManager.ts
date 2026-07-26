@@ -45,6 +45,65 @@ export class UIManager {
     this.floating.set(screen.id, screen);
   }
 
+  // --- Atalhos de teclado -------------------------------------------------------------------
+  //
+  // ## Por que existe um registro central
+  //
+  // Antes, cada tela registrava o próprio `window.addEventListener('keydown')`. O `InventoryModal`
+  // fazia isso para a tecla E, e não consultava o gerenciador: apertar E com a página de mods
+  // aberta abria o inventário POR CIMA dela. Esse é literalmente o relato "clico numa coisa e
+  // abre outra" — só que pelo teclado.
+  //
+  // O problema não é o listener em si, é **quem decide**. Com N donos, cada um só conhece a
+  // própria tela, e ninguém está em posição de dizer "isto substitui aquilo". Um registro só
+  // resolve por construção: todo atalho passa por `openBlocking`, que fecha as demais.
+
+  private atalhos = new Map<string, { id: string; tipo: 'blocking' | 'floating' }>();
+
+  /**
+   * Liga uma tecla a uma tela. `codigo` é o `KeyboardEvent.code` (`KeyE`, `F6`, …).
+   *
+   * A mesma tecla apertada de novo **fecha** a tela — é o comportamento que o jogador espera de
+   * um atalho de painel, e tê-lo aqui evita que cada tela reinvente o alternar.
+   */
+  public registrarAtalho(codigo: string, id: string, tipo: 'blocking' | 'floating' = 'blocking'): void {
+    this.atalhos.set(codigo, { id, tipo });
+  }
+
+  /**
+   * Processa uma tecla. Devolve `true` se ela foi consumida por um atalho de tela.
+   *
+   * Chamado pelo único `keydown` do `main`. Não instala listener próprio de propósito: dois
+   * lugares processando teclado é como se volta ao problema que este registro corrige.
+   */
+  public tratarAtalho(codigo: string): boolean {
+    const alvo = this.atalhos.get(codigo);
+    if (!alvo) return false;
+
+    if (alvo.tipo === 'floating') {
+      const tela = this.floating.get(alvo.id);
+      // Abrir um flutuante solta o ponteiro: o chat tem campo de texto, e com o mouse capturado
+      // o jogador digita mas não consegue clicar em nada.
+      if (tela && !tela.isOpen && document.pointerLockElement) document.exitPointerLock();
+      this.toggleFloating(alvo.id);
+      return true;
+    }
+
+    const tela = this.blocking.get(alvo.id);
+    if (!tela) return false;
+
+    // Já aberta: a mesma tecla fecha. Outra aberta: `openBlocking` fecha aquela e abre esta —
+    // nunca as duas.
+    if (tela.isOpen) this.closeBlocking(alvo.id);
+    else this.openBlocking(alvo.id);
+    return true;
+  }
+
+  /** Todos os atalhos registrados, para a tela de ajuda e para o menu mostrarem a tecla certa. */
+  public listarAtalhos(): { codigo: string; id: string }[] {
+    return Array.from(this.atalhos, ([codigo, v]) => ({ codigo, id: v.id }));
+  }
+
   /**
    * Reconcilia a pilha com o estado real das telas.
    *

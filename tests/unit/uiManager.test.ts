@@ -144,3 +144,107 @@ describe('UIManager — a pilha não pode divergir das telas', () => {
     expect(pedidos).toBe(0);
   });
 });
+
+describe('UIManager — atalhos de tela num registro só', () => {
+  function comTelas(): { ui: UIManager; inv: UIScreen; mods: UIScreen; chat: UIScreen } {
+    const ui = new UIManager();
+    const inv = tela('inventory');
+    const mods = tela('mods-page');
+    const chat = tela('chat');
+    ui.registerBlocking(inv);
+    ui.registerBlocking(mods);
+    ui.registerFloating(chat);
+    ui.registrarAtalho('KeyE', 'inventory');
+    ui.registrarAtalho('F6', 'mods-page');
+    ui.registrarAtalho('KeyT', 'chat', 'floating');
+    return { ui, inv, mods, chat };
+  }
+
+  it('CRÍTICO: o atalho de uma tela FECHA a outra — nunca as duas abertas', () => {
+    // Este é o bug relatado: "clico numa coisa e abre outra". A causa era o InventoryModal ter o
+    // próprio `keydown`, que não consultava o gerenciador — E abria o inventário POR CIMA da
+    // página de mods, e as duas ficavam desenhadas.
+    const { ui, inv, mods } = comTelas();
+
+    ui.tratarAtalho('F6');
+    expect([inv.isOpen, mods.isOpen]).toEqual([false, true]);
+
+    ui.tratarAtalho('KeyE');
+    expect([inv.isOpen, mods.isOpen]).toEqual([true, false]);
+
+    ui.tratarAtalho('F6');
+    expect([inv.isOpen, mods.isOpen]).toEqual([false, true]);
+  });
+
+  it('CRÍTICO: nunca há duas bloqueantes abertas, em nenhuma sequência de atalhos', () => {
+    const { ui, inv, mods } = comTelas();
+    const seq = ['F6', 'KeyE', 'KeyE', 'F6', 'F6', 'KeyE', 'F6', 'KeyE', 'KeyE'];
+    for (const t of seq) {
+      ui.tratarAtalho(t);
+      expect([inv.isOpen, mods.isOpen].filter(Boolean).length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('a mesma tecla de novo fecha a tela', () => {
+    const { ui, inv } = comTelas();
+    ui.tratarAtalho('KeyE');
+    expect(inv.isOpen).toBe(true);
+    ui.tratarAtalho('KeyE');
+    expect(inv.isOpen).toBe(false);
+  });
+
+  it('tecla sem atalho registrado não é consumida', () => {
+    const { ui } = comTelas();
+    expect(ui.tratarAtalho('KeyZ')).toBe(false);
+    expect(ui.tratarAtalho('KeyE')).toBe(true);
+  });
+
+  it('atalho apontando para tela inexistente não quebra nem consome', () => {
+    const ui = new UIManager();
+    ui.registrarAtalho('F9', 'nao-existe');
+    expect(ui.tratarAtalho('F9')).toBe(false);
+  });
+
+  it('flutuante alterna sem fechar a bloqueante — chat convive com o jogo', () => {
+    const { ui, inv, chat } = comTelas();
+    ui.tratarAtalho('KeyE');
+    ui.tratarAtalho('KeyT');
+    expect(chat.isOpen).toBe(true);
+    expect(inv.isOpen).toBe(true); // o chat é flutuante: não expulsa a tela bloqueante
+    ui.tratarAtalho('KeyT');
+    expect(chat.isOpen).toBe(false);
+  });
+
+  it('a tela recusa abrir se ela mesma tiver uma regra — o atalho não força', () => {
+    // O inventário não abre em modos que o proíbem. Antes essa regra vivia dentro do ouvinte da
+    // tecla E; movê-la para a tela é o que impede que um caminho novo a contorne.
+    const ui = new UIManager();
+    const recusa: UIScreen = {
+      id: 'inventory',
+      isOpen: false,
+      open() { /* modo proíbe: não abre */ },
+      close() { this.isOpen = false; },
+    };
+    ui.registerBlocking(recusa);
+    ui.registrarAtalho('KeyE', 'inventory');
+    ui.tratarAtalho('KeyE');
+    expect(recusa.isOpen).toBe(false);
+    expect(ui.isAnyBlockingOpen()).toBe(false);
+  });
+
+  it('lista os atalhos registrados, para o menu mostrar a tecla certa', () => {
+    const { ui } = comTelas();
+    const l = ui.listarAtalhos();
+    expect(l).toContainEqual({ codigo: 'KeyE', id: 'inventory' });
+    expect(l).toContainEqual({ codigo: 'F6', id: 'mods-page' });
+  });
+
+  it('registrar o mesmo código duas vezes substitui, em vez de acumular donos', () => {
+    // Dois donos da mesma tecla é como se volta ao problema que este registro corrige.
+    const { ui, inv, mods } = comTelas();
+    ui.registrarAtalho('KeyE', 'mods-page');
+    ui.tratarAtalho('KeyE');
+    expect(mods.isOpen).toBe(true);
+    expect(inv.isOpen).toBe(false);
+  });
+});

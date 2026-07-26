@@ -55,7 +55,7 @@ export class ModsPage implements UIScreen {
     cabecalho.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px;';
 
     const titulo = document.createElement('h2');
-    titulo.textContent = '🧩 Mods deste mundo';
+    titulo.textContent = 'Mods deste mundo';
     titulo.style.cssText = 'margin:0; font-size:21px; font-weight:700;';
 
     const acoes = document.createElement('div');
@@ -124,7 +124,7 @@ export class ModsPage implements UIScreen {
       nome.style.cssText = 'font-size:13px; font-weight:600;';
 
       const sub = document.createElement('span');
-      const estado = mod.quarantined ? '⚠️ isolado' : mod.enabled ? 'ativo' : 'desligado';
+      const estado = mod.quarantined ? 'isolado' : mod.enabled ? 'ativo' : 'desligado';
       sub.textContent = `${estado} · rev ${mod.revision} · ${(mod.blocks ?? []).length} bloco(s)`;
       sub.style.cssText = `font-size:11px; color:${mod.quarantined ? '#fbbf24' : '#64748b'};`;
 
@@ -153,7 +153,7 @@ export class ModsPage implements UIScreen {
         background:rgba(251,191,36,0.1); border:1px solid #a16207; border-radius:10px;
         padding:12px 14px; margin-bottom:14px; font-size:13px; line-height:1.55;
       `;
-      aviso.innerHTML = `<strong>⚠️ Este mod foi isolado automaticamente.</strong><br>` +
+      aviso.innerHTML = `<strong>Este mod foi isolado automaticamente.</strong><br>` +
         `Ele falhou ao ser aplicado e foi desligado para o mundo poder carregar. Motivo:<br>` +
         `<code style="color:#fbbf24">${escapar(mod.quarantineReason ?? 'desconhecido')}</code>`;
       this.detalhe.appendChild(aviso);
@@ -244,7 +244,7 @@ export class ModsPage implements UIScreen {
 
     if (resolvido.faltando.length > 0) {
       const aviso = document.createElement('div');
-      aviso.textContent = `⚠️ Faltam chaves obrigatórias: ${resolvido.faltando.join(', ')}. O mod não carrega sem elas.`;
+      aviso.textContent = `Faltam chaves obrigatórias: ${resolvido.faltando.join(', ')}. O mod não carrega sem elas.`;
       aviso.style.cssText =
         'background:rgba(180,83,9,0.2); border:1px solid #b45309; color:#fbbf24;' +
         'padding:8px 10px; border-radius:8px; font-size:12px; margin-bottom:10px;';
@@ -254,7 +254,7 @@ export class ModsPage implements UIScreen {
     if (!this.mods.vault.disponivel) {
       const aviso = document.createElement('div');
       aviso.textContent =
-        '🔐 Sem armazenamento persistente neste navegador: as chaves valem só até fechar a aba.';
+        'Sem armazenamento persistente neste navegador: as chaves valem só até fechar a aba.';
       aviso.style.cssText =
         'background:rgba(30,41,59,0.6); border:1px solid #475569; color:#94a3b8;' +
         'padding:8px 10px; border-radius:8px; font-size:12px; margin-bottom:10px;';
@@ -333,7 +333,7 @@ export class ModsPage implements UIScreen {
       'Scripts',
       (mod.scripts ?? []).map((s) => {
         const estado = runtimeInfo?.scripts.find((x) => x.key === s.key);
-        if (estado && !estado.enabled && estado.disabledReason) return `${s.key} — ⚠️ ${estado.disabledReason}`;
+        if (estado && !estado.enabled && estado.disabledReason) return `${s.key} — ${estado.disabledReason}`;
         return `${s.key}${s.enabled ? '' : ' (desligado)'}`;
       }),
     ));

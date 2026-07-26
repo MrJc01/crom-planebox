@@ -207,7 +207,7 @@ export class WorldRepository {
       targetThread = await this.createChatThread(worldId, 'Conversa Recuperada');
     }
 
-    console.log(`🩹 [WorldRepository] Recuperando ${orphans.length} mensagem(ns) de chat sem thread no mundo "${worldId}" → thread "${targetThread.id}"`);
+    console.log(`[WorldRepository] Recuperando ${orphans.length} mensagem(ns) de chat sem thread no mundo "${worldId}" → thread "${targetThread.id}"`);
     await db.transaction('rw', db.chatMessages, async () => {
       for (const m of orphans) {
         if (m.id !== undefined) await db.chatMessages.update(m.id, { threadId: targetThread!.id });

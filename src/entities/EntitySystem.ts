@@ -115,7 +115,7 @@ export class EntitySystem {
       try {
         onUpdateFn = new Function('dt', 'entity', 'Math', 'THREE', config.behaviorScript) as any;
       } catch (err) {
-        console.error(`❌ [EntitySystem] Erro ao compilar script de comportamento da entidade:`, err);
+        console.error(`[EntitySystem] Erro ao compilar script de comportamento da entidade:`, err);
       }
     }
 
@@ -135,7 +135,7 @@ export class EntitySystem {
     };
 
     this.entities.set(id, record);
-    console.log(`🤖 [EntitySystem] Entidade 3D personalizada "${record.name}" gerada com script de comportamento!`);
+    console.log(`[EntitySystem] Entidade 3D personalizada "${record.name}" gerada com script de comportamento!`);
     return record;
   }
 
@@ -248,7 +248,7 @@ export class EntitySystem {
     };
 
     this.entities.set(id, record);
-    console.log(`🤖 [EntitySystem] Entidade 3D '${name}' (${type}) gerada em (${x.toFixed(1)}, ${y}, ${z.toFixed(1)}) ID: ${id}`);
+    console.log(`[EntitySystem] Entidade 3D '${name}' (${type}) gerada em (${x.toFixed(1)}, ${y}, ${z.toFixed(1)}) ID: ${id}`);
     return record;
   }
 
@@ -627,7 +627,7 @@ export class EntitySystem {
 
     if (newRole) entity.role = newRole;
     entity.targetPos = new THREE.Vector3(targetX, entity.pos.y, targetZ);
-    console.log(`🕹️ [EntitySystem] Entidade '${entity.name}' enviada para (${targetX}, ${targetZ})`);
+    console.log(`[EntitySystem] Entidade '${entity.name}' enviada para (${targetX}, ${targetZ})`);
     return true;
   }
 

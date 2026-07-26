@@ -78,7 +78,7 @@ export class CodeEditorPage implements UIScreen {
     topo.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px;';
 
     const titulo = document.createElement('h2');
-    titulo.textContent = '📝 Editor de código';
+    titulo.textContent = 'Editor de código';
     titulo.style.cssText = 'margin:0; font-size:18px; font-weight:700;';
 
     const status = document.createElement('span');
@@ -302,15 +302,15 @@ export class CodeEditorPage implements UIScreen {
     }
 
     const r = await this.mods.setScript(this.modId, { key: this.scriptKey, code: this.getCodigo() });
-    if (!r.ok) { this.statusEl.textContent = `❌ ${r.message}`; return; }
+    if (!r.ok) { this.statusEl.textContent = `${r.message}`; return; }
 
     // Recarrega já: o valor do editor é ver o efeito sem reiniciar o mundo.
     const resultados = this.recarregar(this.modId);
     const falhou = resultados.find((x) => !x.ok);
 
     this.statusEl.textContent = falhou
-      ? `❌ ${this.scriptKey}.js não carregou: ${falhou.error}`
-      : `✅ salvo e recarregado — revisão ${r.details?.revision}`;
+      ? `${this.scriptKey}.js não carregou: ${falhou.error}`
+      : `salvo e recarregado — revisão ${r.details?.revision}`;
 
     this.renderArvore();
     this.renderConsole();

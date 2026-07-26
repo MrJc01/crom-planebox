@@ -8,6 +8,8 @@ import { GameModeManager, GAME_MODE_RULES } from '../game/GameModeManager';
 import { PeerSync } from '../net/PeerSync';
 import { SignalingClient } from '../net/SignalingClient';
 import type { GameMode } from '../storage/Database';
+import { CORES, RAIO } from './theme';
+import { NomeIcone, icone } from './icons';
 import type { KnownPlayer } from '../commands/CommandSystem';
 
 type TabId = 'world' | 'gamemode' | 'multiplayer' | 'player' | 'ai' | 'help';
@@ -60,9 +62,9 @@ export class PauseMenu {
 
     const header = document.createElement('div');
     header.style.cssText = 'padding: 16px 20px; background: rgba(30,41,59,0.7); border-bottom: 1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;';
-    header.innerHTML = `<div style="font-weight:700;">⏸️ Pausa &amp; Configurações</div>`;
+    header.innerHTML = `<div style="font-weight:700;">Pausa e Configurações</div>`;
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕';
+    closeBtn.textContent = '';
     closeBtn.style.cssText = 'background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;';
     closeBtn.onclick = () => this.close();
     header.appendChild(closeBtn);
@@ -87,13 +89,13 @@ export class PauseMenu {
     this.renderBody();
   }
 
-  private tabDefs: { id: TabId; label: string }[] = [
-    { id: 'world', label: '🌍 Mundo' },
-    { id: 'gamemode', label: '🎮 Modo de Jogo' },
-    { id: 'multiplayer', label: '🌐 Multiplayer' },
-    { id: 'player', label: '🧍 Jogador' },
-    { id: 'ai', label: '🤖 IA & MCP' },
-    { id: 'help', label: '⌨️ Atalhos' },
+  private tabDefs: { id: TabId; label: string; icone: NomeIcone }[] = [
+    { id: 'world', label: 'Mundo', icone: 'mundo' },
+    { id: 'gamemode', label: 'Modo de Jogo', icone: 'jogar' },
+    { id: 'multiplayer', label: 'Multiplayer', icone: 'rede' },
+    { id: 'player', label: 'Jogador', icone: 'personagem' },
+    { id: 'ai', label: 'IA & MCP', icone: 'chat' },
+    { id: 'help', label: 'Atalhos', icone: 'engrenagem' },
   ];
 
   private renderTabs(): void {
@@ -101,23 +103,33 @@ export class PauseMenu {
     for (const t of this.tabDefs) {
       const btn = document.createElement('button');
       const active = this.activeTab === t.id;
-      btn.textContent = t.label;
+      btn.append(icone(t.icone, 17));
+      const rotulo = document.createElement('span');
+      rotulo.textContent = t.label;
+      btn.append(rotulo);
       btn.style.cssText = `
-        text-align:left; background:${active ? 'rgba(56,189,248,0.15)' : 'transparent'};
-        border:1px solid ${active ? '#38bdf8' : 'transparent'}; color:${active ? '#38bdf8' : '#cbd5e1'};
-        border-radius:8px; padding:9px 12px; font-size:13px; font-weight:600; cursor:pointer;
+        display:flex; align-items:center; gap:9px; text-align:left;
+        background:${active ? CORES.avisoFraco : 'transparent'};
+        border:1px solid ${active ? CORES.aviso : 'transparent'};
+        color:${active ? CORES.aviso : CORES.texto};
+        border-radius:${RAIO.sm}; padding:9px 12px; font-size:13px; font-weight:600;
+        cursor:pointer; transition: background .12s, color .12s, border-color .12s;
       `;
-      btn.onclick = () => { this.activeTab = t.id; this.renderTabs(); this.renderBody(); };
+      btn.onclick = () => { this.activeTab = t.id; this.renderTabs(); void this.renderBody(); };
       this.tabsEl.appendChild(btn);
     }
   }
 
-  private section(title: string): HTMLDivElement {
+  private section(title: string, ic?: NomeIcone): HTMLDivElement {
     const sec = document.createElement('div');
     sec.style.cssText = 'display:flex; flex-direction:column; gap:12px;';
     const h = document.createElement('h3');
-    h.textContent = title;
-    h.style.cssText = 'margin:0 0 4px; font-size:14px; color:#38bdf8;';
+    h.style.cssText = `margin:0 0 4px; font-size:14px; color:${CORES.aviso};
+      display:flex; align-items:center; gap:9px;`;
+    if (ic) h.append(icone(ic, 18));
+    const t = document.createElement('span');
+    t.textContent = title;
+    h.append(t);
     sec.appendChild(h);
     return sec;
   }
@@ -132,18 +144,50 @@ export class PauseMenu {
     return row;
   }
 
+  /**
+   * Geração do desenho em curso. **É a correção de uma corrida real.**
+   *
+   * `renderBody` limpa o corpo e depois espera (duas abas leem do banco). Dois cliques seguidos
+   * disparavam dois desenhos: o segundo limpava, o primeiro terminava e desenhava por cima. O
+   * resultado é o relato do jogador — *clico numa aba e aparece a outra*, sem erro nenhum no
+   * console, porque as duas rodaram exatamente como escritas.
+   *
+   * O contador resolve sem cancelamento: cada desenho anota a geração em que começou e, ao voltar
+   * do `await`, desiste se outro começou no meio. É a mesma ideia de um token de requisição.
+   */
+  private geracao = 0;
+
   private async renderBody(): Promise<void> {
+    const minha = ++this.geracao;
+    const alvo = this.activeTab;
     this.body.innerHTML = '';
-    if (this.activeTab === 'world') await this.renderWorldTab();
-    else if (this.activeTab === 'gamemode') this.renderGameModeTab();
-    else if (this.activeTab === 'multiplayer') this.renderMultiplayerTab();
-    else if (this.activeTab === 'player') this.renderPlayerTab();
-    else if (this.activeTab === 'ai') await this.renderAiTab();
-    else if (this.activeTab === 'help') this.renderHelpTab();
+
+    // Abas síncronas desenham direto: não há janela para a corrida acontecer.
+    if (alvo === 'gamemode') { this.renderGameModeTab(); return; }
+    if (alvo === 'multiplayer') { this.renderMultiplayerTab(); return; }
+    if (alvo === 'player') { this.renderPlayerTab(); return; }
+    if (alvo === 'help') { this.renderHelpTab(); return; }
+
+    // As assíncronas montam num container solto e só o anexam se ainda forem as vigentes.
+    const anterior = this.body;
+    const rascunho = document.createElement('div');
+    rascunho.style.cssText = anterior.style.cssText;
+    this.body = rascunho;
+    try {
+      if (alvo === 'world') await this.renderWorldTab();
+      else if (alvo === 'ai') await this.renderAiTab();
+    } finally {
+      this.body = anterior;
+    }
+
+    // Outro clique aconteceu enquanto isto carregava: o desenho é descartado inteiro.
+    if (minha !== this.geracao || alvo !== this.activeTab) return;
+    this.body.innerHTML = '';
+    while (rascunho.firstChild) this.body.appendChild(rascunho.firstChild);
   }
 
   private async renderWorldTab(): Promise<void> {
-    const sec = this.section('🌍 Mundo & Persistência');
+    const sec = this.section('Mundo e Persistência', 'mundo');
     const inputStyle = 'width:100%; box-sizing:border-box; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 11px; color:white; font-size:13px;';
 
     const worlds = await WorldRepository.getAllWorlds();
@@ -159,7 +203,7 @@ export class PauseMenu {
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:10px;';
     const exportBtn = document.createElement('button');
-    exportBtn.textContent = '💾 Exportar (JSON)';
+    exportBtn.textContent = 'Exportar (JSON)';
     exportBtn.style.cssText = 'background:rgba(30,41,59,0.8); border:1px solid #38bdf8; color:#38bdf8; padding:10px; border-radius:8px; font-weight:600; cursor:pointer;';
     exportBtn.onclick = async () => {
       const json = await WorldRepository.exportWorldJson(select.value);
@@ -169,7 +213,7 @@ export class PauseMenu {
       URL.revokeObjectURL(url);
     };
     const resetBtn = document.createElement('button');
-    resetBtn.textContent = '⚠️ Resetar Blocos';
+    resetBtn.textContent = 'Resetar Blocos';
     resetBtn.style.cssText = 'background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#ef4444; padding:10px; border-radius:8px; font-weight:600; cursor:pointer;';
     resetBtn.onclick = async () => {
       if (confirm('Resetar todos os blocos deste mundo?')) {
@@ -190,7 +234,7 @@ export class PauseMenu {
   }
 
   private renderGameModeTab(): void {
-    const sec = this.section('🎮 Modo de Jogo');
+    const sec = this.section('Modo de Jogo', 'jogar');
     const select = document.createElement('select');
     select.style.cssText = 'width:100%; box-sizing:border-box; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 11px; color:white; font-size:13px;';
     for (const mode of GameModeManager.allModes()) {
@@ -219,7 +263,7 @@ export class PauseMenu {
   }
 
   private renderMultiplayerTab(): void {
-    const sec = this.section('🌐 Multiplayer & Crom');
+    const sec = this.section('Multiplayer e Crom', 'rede');
     const inputStyle = 'width:100%; box-sizing:border-box; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 11px; color:white; font-size:13px;';
 
     const relayInput = document.createElement('input');
@@ -251,7 +295,7 @@ export class PauseMenu {
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:10px;';
     const connectBtn = document.createElement('button');
-    connectBtn.textContent = '🔌 Conectar à Crom';
+    connectBtn.textContent = 'Conectar à Crom';
     connectBtn.style.cssText = 'background:rgba(16,185,129,0.15); border:1px solid #10b981; color:#10b981; padding:10px; border-radius:8px; font-weight:700; cursor:pointer;';
     connectBtn.onclick = async () => {
       this.lastRelayUrl = relayInput.value.trim();
@@ -261,7 +305,7 @@ export class PauseMenu {
       if (!roomId) alert('Não foi possível conectar. Verifique a URL do relay.');
     };
     const disconnectBtn = document.createElement('button');
-    disconnectBtn.textContent = '🔴 Desconectar';
+    disconnectBtn.textContent = 'Desconectar';
     disconnectBtn.style.cssText = 'background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#ef4444; padding:10px; border-radius:8px; font-weight:700; cursor:pointer;';
     disconnectBtn.onclick = () => { this.deps.peerSync.stop(); this.renderMultiplayerTab(); };
     btnRow.appendChild(connectBtn); btnRow.appendChild(disconnectBtn);
@@ -279,7 +323,7 @@ export class PauseMenu {
       row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px 10px;';
       const label = document.createElement('span');
       label.style.cssText = 'font-size:12px;';
-      label.textContent = `${p.isOp ? '⭐' : '👤'} ${p.name}`;
+      label.textContent = `${p.isOp ? '' : ''} ${p.name}`;
       row.appendChild(label);
 
       const opBtn = document.createElement('button');
@@ -300,7 +344,7 @@ export class PauseMenu {
   }
 
   private renderPlayerTab(): void {
-    const sec = this.section('🧍 Câmera & Personagem');
+    const sec = this.section('Câmera e Personagem', 'personagem');
     const inputStyle = 'width:100%; box-sizing:border-box; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 11px; color:white; font-size:13px;';
 
     const camSelect = document.createElement('select');
@@ -360,7 +404,7 @@ export class PauseMenu {
     sec.appendChild(this.inputRow('Chunks aparecem gradualmente', fadeCheck));
 
     const resetBtn = document.createElement('button');
-    resetBtn.textContent = '🔄 Resetar Personagem (Spawn)';
+    resetBtn.textContent = 'Resetar Personagem (Spawn)';
     resetBtn.style.cssText = 'background:rgba(56,189,248,0.15); border:1px solid #38bdf8; color:#38bdf8; padding:10px; border-radius:8px; font-weight:700; cursor:pointer;';
     resetBtn.onclick = () => {
       this.deps.playerController.pos.set(0, 40, 0);
@@ -372,7 +416,7 @@ export class PauseMenu {
   }
 
   private async renderAiTab(): Promise<void> {
-    const sec = this.section('🤖 Provedor de IA & MCP');
+    const sec = this.section('Provedor de IA e MCP', 'chat');
     const inputStyle = 'width:100%; box-sizing:border-box; background:rgba(30,41,59,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 11px; color:white; font-size:13px;';
     const settings = await WorldRepository.getSettings();
 
@@ -410,7 +454,7 @@ export class PauseMenu {
   }
 
   private renderHelpTab(): void {
-    const sec = this.section('⌨️ Atalhos');
+    const sec = this.section('Atalhos', 'engrenagem');
     const pre = document.createElement('div');
     pre.style.cssText = 'font-size:12px; line-height:2; color:#cbd5e1;';
     pre.innerHTML = `

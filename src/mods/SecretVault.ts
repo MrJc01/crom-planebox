@@ -46,7 +46,7 @@ export class SecretVault {
       // fica vazio — mas o mundo carrega. Derrubar o carregamento porque não há onde guardar
       // chaves seria trocar um problema pequeno por um total.
       this.disponivel = false;
-      console.warn('🔐 [SecretVault] Sem armazenamento persistente; as chaves valem só esta sessão.', err);
+      console.warn('[SecretVault] Sem armazenamento persistente; as chaves valem só esta sessão.', err);
     }
   }
 

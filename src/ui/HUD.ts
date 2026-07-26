@@ -1,4 +1,5 @@
 import { CameraManager, CameraMode } from '../engine/CameraManager';
+import { icone_svg } from './icons';
 
 export class HUD {
   private container: HTMLDivElement;
@@ -102,7 +103,7 @@ export class HUD {
       border-radius: 12px;
       font-size: 12px;
     `;
-    this.networkBadge.textContent = '⚪ Offline (local)';
+    this.networkBadge.textContent = 'Offline (local)';
     topRightPanel.appendChild(this.networkBadge);
 
     this.container.appendChild(topRightPanel);
@@ -163,10 +164,14 @@ export class HUD {
   public updateSurvival(health: number, maxHealth: number, hunger: number, maxHunger: number): void {
     const totalHearts = 10;
     const healthPerHeart = maxHealth / totalHearts;
+    // Ícones em vez de emoji: o coração de emoji muda de desenho por sistema operacional, tem
+    // cor fixa e não aceita o estado "meio cheio" — que aqui é justamente a informação principal.
+    // Com SVG, cheio/meio/vazio são preenchimento e opacidade, não três caracteres diferentes.
     let heartsHtml = '';
     for (let i = 0; i < totalHearts; i++) {
       const remaining = health - i * healthPerHeart;
-      heartsHtml += remaining >= healthPerHeart * 0.999 ? '❤️' : remaining > 0 ? '🧡' : '🖤';
+      const estado = remaining >= healthPerHeart * 0.999 ? 'cheio' : remaining > 0 ? 'meio' : 'vazio';
+      heartsHtml += this.iconeVital('coracao', estado, '#ef4444');
     }
     this.healthEl.innerHTML = heartsHtml;
 
@@ -175,9 +180,27 @@ export class HUD {
     let hungerHtml = '';
     for (let i = 0; i < totalDrumsticks; i++) {
       const remaining = hunger - i * hungerPerIcon;
-      hungerHtml += remaining >= hungerPerIcon * 0.999 ? '🍗' : remaining > 0 ? '🍖' : '⬛';
+      const estado = remaining >= hungerPerIcon * 0.999 ? 'cheio' : remaining > 0 ? 'meio' : 'vazio';
+      hungerHtml += this.iconeVital('gota', estado, '#f59e0b');
     }
     this.hungerEl.innerHTML = hungerHtml;
+  }
+
+  /**
+   * Um ícone de barra vital.
+   *
+   * O estado "meio" é o motivo de isto não ser emoji: com caractere, meio coração exige um
+   * glifo próprio que nem toda fonte tem. Com traçado, é preenchimento parcial e opacidade — a
+   * mesma forma em três estados, sempre alinhada.
+   */
+  private iconeVital(nome: 'coracao' | 'gota', estado: 'cheio' | 'meio' | 'vazio', cor: string): string {
+    const preenchimento = estado === 'cheio' ? cor : estado === 'meio' ? `${cor}80` : 'none';
+    const opacidade = estado === 'vazio' ? 0.28 : 1;
+    return (
+      `<span style="display:inline-flex; color:${cor}; opacity:${opacidade}; margin-right:1px;">` +
+      icone_svg(nome, 16).replace('fill="none"', `fill="${preenchimento}"`) +
+      '</span>'
+    );
   }
 
   public setCameraManager(cameraManager: CameraManager): void {
@@ -199,9 +222,9 @@ export class HUD {
 
   public updateCameraMode(mode: string): void {
     const labels: Record<string, string> = {
-      topdown: '🎥 Visão: Top-Down [Ctrl+1]',
-      fps: '👤 Visão: Primeira Pessoa FPS [Ctrl+2]',
-      ghost: '👻 Visão: Fantasma Fly [Ctrl+3]'
+      topdown: 'Visão: Top-Down [Ctrl+1]',
+      fps: 'Visão: Primeira Pessoa FPS [Ctrl+2]',
+      ghost: 'Visão: Fantasma Fly [Ctrl+3]'
     };
     this.cameraBadge.textContent = labels[mode] || mode;
   }
@@ -213,13 +236,13 @@ export class HUD {
   /** Indicador persistente de rede (Host/Peer/Offline) — pedido explícito, antes só existia em toasts pontuais. */
   public updateNetworkStatus(role: 'offline' | 'host' | 'guest', peerCount: number): void {
     if (role === 'host') {
-      this.networkBadge.textContent = `🟢 Anfitrião · ${peerCount} jogador(es)`;
+      this.networkBadge.textContent = `Anfitrião · ${peerCount} jogador(es)`;
       this.networkBadge.style.color = '#4ade80';
     } else if (role === 'guest') {
-      this.networkBadge.textContent = '🟡 Conectado como visitante';
+      this.networkBadge.textContent = 'Conectado como visitante';
       this.networkBadge.style.color = '#facc15';
     } else {
-      this.networkBadge.textContent = '⚪ Offline (local)';
+      this.networkBadge.textContent = 'Offline (local)';
       this.networkBadge.style.color = '#94a3b8';
     }
   }

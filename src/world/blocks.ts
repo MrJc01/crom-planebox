@@ -260,7 +260,7 @@ export function nextFreeCustomBlockId(): number {
 export function registerCustomBlock(spec: CustomBlockSpec): number {
   const blockId = nextFreeCustomBlockId();
   registerCustomBlockAt(blockId, spec);
-  console.log(`🧱 [blocks.ts] Bloco customizado "${spec.name}" registrado no id ${blockId}.`);
+  console.log(`[blocks.ts] Bloco customizado "${spec.name}" registrado no id ${blockId}.`);
   return blockId;
 }
 

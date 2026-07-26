@@ -18,7 +18,7 @@ export class EventSystem {
   }
 
   public async triggerEvent(type: EventType, cx: number, cz: number): Promise<string> {
-    console.log(`⚡ [EventSystem] Evento '${type}' desencadeado nas coordenadas (${cx}, ${cz})`);
+    console.log(`[EventSystem] Evento '${type}' desencadeado nas coordenadas (${cx}, ${cz})`);
     const mods: { x: number; y: number; z: number; blockType: number }[] = [];
 
     // Find surface Y at center

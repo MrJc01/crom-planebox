@@ -93,7 +93,7 @@ export class CameraManager {
   }
 
   public setMode(mode: CameraMode): void {
-    console.log(`🎥 [CameraManager] Alternando modo de câmera para: "${mode.toUpperCase()}"`);
+    console.log(`[CameraManager] Alternando modo de câmera para: "${mode.toUpperCase()}"`);
     this.mode = mode;
     if (document.pointerLockElement) {
       document.exitPointerLock();
@@ -179,7 +179,7 @@ export class CameraManager {
   }
 
   public setFOV(degrees: number): void {
-    console.log(`📐 [CameraManager] Atualizando FOV para ${degrees}°`);
+    console.log(`[CameraManager] Atualizando FOV para ${degrees}°`);
     this.fov = degrees;
     this.topDownCam.fov = degrees;
     this.fpsCam.fov = degrees;
@@ -195,7 +195,7 @@ export class CameraManager {
   public onRenderDistanceChanged: (chunks: number) => void = () => {};
 
   public setRenderDistance(distanceInChunks: number): void {
-    console.log(`🏔️ [CameraManager] Distância de Renderização alterada para ${distanceInChunks} chunks`);
+    console.log(`[CameraManager] Distância de Renderização alterada para ${distanceInChunks} chunks`);
     this.renderDistance = distanceInChunks;
     this.onRenderDistanceChanged(distanceInChunks);
   }

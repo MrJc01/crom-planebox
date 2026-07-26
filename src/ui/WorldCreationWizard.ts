@@ -29,7 +29,7 @@ export class WorldCreationWizard {
       border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 16px;
     `;
 
-    panel.innerHTML = `<h2 style="margin:0; font-size:18px;">✨ Criar Novo Mundo</h2>`;
+    panel.innerHTML = `<h2 style="margin:0; font-size:18px;">Criar Novo Mundo</h2>`;
 
     const field = (labelText: string, inputHtml: string) => {
       const wrap = document.createElement('div');
@@ -46,7 +46,7 @@ export class WorldCreationWizard {
     const seedField = field('Seed', `<input id="wiz-seed" type="number" style="${inputStyle}" value="${Math.floor(Math.random() * 1000000)}" />`);
     seedField.style.flex = '1';
     const diceBtn = document.createElement('button');
-    diceBtn.textContent = '🎲';
+    diceBtn.textContent = '';
     diceBtn.style.cssText = 'background:rgba(56,189,248,0.15); border:1px solid #38bdf8; color:#38bdf8; border-radius:8px; padding:9px 12px; cursor:pointer;';
     diceBtn.onclick = () => { (this.overlay.querySelector('#wiz-seed') as HTMLInputElement).value = String(Math.floor(Math.random() * 1000000)); };
     seedRow.appendChild(seedField);

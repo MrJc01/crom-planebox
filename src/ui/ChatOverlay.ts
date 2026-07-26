@@ -90,15 +90,15 @@ export class ChatOverlay {
     this.headerTitleSpan = document.createElement('span');
     this.headerTitleSpan.textContent = 'Assistente Voxel IA';
     
-    titleArea.innerHTML = `<span style="font-size: 16px;">🤖</span>`;
+    titleArea.innerHTML = `<span style="font-size: 16px;"></span>`;
     titleArea.appendChild(this.headerTitleSpan);
 
     const actionsArea = document.createElement('div');
     actionsArea.style.cssText = 'display: flex; align-items: center; gap: 6px;';
 
-    const threadsListBtn = this.createHeaderBtn('📜 Todos os Chats', '#38bdf8', () => this.toggleThreadsList());
-    const newChatBtn = this.createHeaderBtn('✨ Novo Chat', '#10b981', () => this.handleNewChat());
-    const clearChatBtn = this.createHeaderBtn('🗑️ Resetar', '#ef4444', () => this.handleClearChat());
+    const threadsListBtn = this.createHeaderBtn('Todos os Chats', '#38bdf8', () => this.toggleThreadsList());
+    const newChatBtn = this.createHeaderBtn('Novo Chat', '#10b981', () => this.handleNewChat());
+    const clearChatBtn = this.createHeaderBtn('Resetar', '#ef4444', () => this.handleClearChat());
 
     actionsArea.appendChild(threadsListBtn);
     actionsArea.appendChild(newChatBtn);
@@ -249,8 +249,8 @@ export class ChatOverlay {
   private renderMainTabs(): void {
     this.tabsRow.innerHTML = '';
     const defs: { id: MainTab; label: string }[] = [
-      { id: 'ai', label: '🤖 Assistente IA' },
-      { id: 'world', label: '💬 Chat do Mundo' },
+      { id: 'ai', label: 'Assistente IA' },
+      { id: 'world', label: 'Chat do Mundo' },
     ];
     for (const d of defs) {
       const btn = document.createElement('button');
@@ -321,13 +321,13 @@ export class ChatOverlay {
     const row = document.createElement('div');
     row.style.cssText = 'font-size: 13px; color: #f8fafc; line-height: 1.5; white-space: pre-line;';
     if (isSystem) {
-      row.innerHTML = `<span style="color:#facc15;">⚙ ${text}</span>`;
+      row.innerHTML = `<span style="color:#facc15;">${text}</span>`;
     } else {
       row.innerHTML = `<strong style="color:#38bdf8;">${name}:</strong> ${text}`;
     }
     this.worldChatList.appendChild(row);
     this.worldChatList.scrollTop = this.worldChatList.scrollHeight;
-    this.addFloatingEntry(isSystem ? `⚙ ${text}` : `${name}: ${text}`, isSystem ? '#facc15' : '#f8fafc');
+    this.addFloatingEntry(isSystem ? `${text}` : `${name}: ${text}`, isSystem ? '#facc15' : '#f8fafc');
   }
 
   private async handleWorldChatSend(): Promise<void> {
@@ -377,7 +377,7 @@ export class ChatOverlay {
   }
 
   public async setWorldId(worldId: string): Promise<void> {
-    console.log(`🌐 [ChatOverlay] Alternando para o mundo ID: "${worldId}"`);
+    console.log(`[ChatOverlay] Alternando para o mundo ID: "${worldId}"`);
     this.currentWorldId = worldId;
     await WorldRepository.repairOrphanedChatMessages(worldId);
     const threads = await WorldRepository.getChatThreads(this.currentWorldId);
@@ -394,14 +394,14 @@ export class ChatOverlay {
   private async toggleThreadsList(): Promise<void> {
     this.isShowingThreadsList = !this.isShowingThreadsList;
     if (this.isShowingThreadsList) {
-      console.log(`📜 [ChatOverlay] Abrindo lista com todos os chats do mundo "${this.currentWorldId}"`);
+      console.log(`[ChatOverlay] Abrindo lista com todos os chats do mundo "${this.currentWorldId}"`);
       this.headerTitleSpan.textContent = 'Lista de Chats do Mundo';
       this.messageList.style.display = 'none';
       this.inputArea.style.display = 'none';
       this.threadsListArea.style.display = 'flex';
       await this.refreshThreadsList();
     } else {
-      console.log(`💬 [ChatOverlay] Voltando para a janela de conversação ativa`);
+      console.log(`[ChatOverlay] Voltando para a janela de conversação ativa`);
       this.headerTitleSpan.textContent = 'Assistente Voxel IA';
       this.threadsListArea.style.display = 'none';
       this.messageList.style.display = 'flex';
@@ -414,7 +414,7 @@ export class ChatOverlay {
     this.threadsListArea.innerHTML = '';
     const threads = await WorldRepository.getChatThreads(this.currentWorldId);
 
-    console.log(`📜 [ChatOverlay] Encontradas ${threads.length} conversas salvas.`);
+    console.log(`[ChatOverlay] Encontradas ${threads.length} conversas salvas.`);
 
     if (threads.length === 0) {
       const empty = document.createElement('div');
@@ -451,18 +451,18 @@ export class ChatOverlay {
       openBtn.textContent = '▶ Abrir';
       openBtn.style.cssText = 'background: #0284c7; color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;';
       openBtn.onclick = async () => {
-        console.log(`💬 [ChatOverlay] Abrindo conversa ID: "${t.id}"${t.modId ? ` (mod "${t.modId}")` : ' (livre)'}`);
+        console.log(`[ChatOverlay] Abrindo conversa ID: "${t.id}"${t.modId ? ` (mod "${t.modId}")` : ' (livre)'}`);
         this.currentThreadId = t.id;
         this.onSessionChanged(t.id, t.modId);
         await this.toggleThreadsList();
       };
 
       const delBtn = document.createElement('button');
-      delBtn.textContent = '🗑️';
+      delBtn.textContent = '';
       delBtn.style.cssText = 'background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid #ef4444; padding: 4px 8px; border-radius: 6px; font-size: 11px; cursor: pointer;';
       delBtn.onclick = async () => {
         if (confirm(`Deseja excluir a conversa '${t.title}'?`)) {
-          console.log(`🗑️ [ChatOverlay] Excluindo conversa ID: "${t.id}"`);
+          console.log(`[ChatOverlay] Excluindo conversa ID: "${t.id}"`);
           await WorldRepository.deleteChatThread(this.currentWorldId, t.id);
           await this.refreshThreadsList();
         }
@@ -490,12 +490,12 @@ export class ChatOverlay {
         line-height: 1.6;
       `;
       welcome.innerHTML = `
-        ✨ <strong>Nova Conversa Ativa</strong><br/>
+        <strong>Nova Conversa Ativa</strong><br/>
         Tente me pedir para criar construções, casas, torres ou tirar fotos!
       `;
       this.messageList.appendChild(welcome);
     } else {
-      console.log(`💬 [ChatOverlay] ${history.length} mensagens carregadas.`);
+      console.log(`[ChatOverlay] ${history.length} mensagens carregadas.`);
       for (const msg of history) {
         this.renderMessageBubble(msg);
       }
@@ -536,7 +536,7 @@ export class ChatOverlay {
     item.appendChild(textSpan);
 
     const copyBtn = document.createElement('button');
-    copyBtn.innerHTML = '📋 Copiar';
+    copyBtn.innerHTML = 'Copiar';
     copyBtn.style.cssText = `
       margin-top: 6px;
       display: inline-flex;
@@ -554,9 +554,9 @@ export class ChatOverlay {
     copyBtn.onclick = (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(msg.content);
-      console.log('📋 [ChatOverlay] Texto da mensagem copiado:', msg.content);
-      copyBtn.innerHTML = '✅ Copiado!';
-      setTimeout(() => copyBtn.innerHTML = '📋 Copiar', 2000);
+      console.log('[ChatOverlay] Texto da mensagem copiado:', msg.content);
+      copyBtn.innerHTML = 'Copiado!';
+      setTimeout(() => copyBtn.innerHTML = 'Copiar', 2000);
     };
     item.appendChild(document.createElement('br'));
     item.appendChild(copyBtn);
@@ -626,7 +626,7 @@ export class ChatOverlay {
     }
 
     const thread = await WorldRepository.createChatThread(this.currentWorldId, titulo, modId);
-    console.log(`✨ [ChatOverlay] Nova sessão "${thread.id}"${modId ? ` vinculada ao mod "${modId}"` : ' (livre)'}`);
+    console.log(`[ChatOverlay] Nova sessão "${thread.id}"${modId ? ` vinculada ao mod "${modId}"` : ' (livre)'}`);
     this.currentThreadId = thread.id;
     this.onSessionChanged(thread.id, modId);
     this.inputField.value = '';
@@ -639,10 +639,10 @@ export class ChatOverlay {
 
   private async handleClearChat(): Promise<void> {
     if (confirm('Tem certeza que deseja resetar todo o histórico de chat deste mundo?')) {
-      console.log(`🗑️ [ChatOverlay] Limpando histórico no IndexedDB para o mundo "${this.currentWorldId}"...`);
+      console.log(`[ChatOverlay] Limpando histórico no IndexedDB para o mundo "${this.currentWorldId}"...`);
       await WorldRepository.clearChatMessages(this.currentWorldId);
       this.currentThreadId = null;
-      console.log(`✅ [ChatOverlay] Histórico limpo com sucesso!`);
+      console.log(`[ChatOverlay] Histórico limpo com sucesso!`);
       await this.refreshMessages();
     }
   }
@@ -659,7 +659,7 @@ export class ChatOverlay {
       this.onSessionChanged(newThread.id, undefined);
     }
 
-    console.log(`💬 [ChatOverlay] Prompt enviado na conversa [${this.currentThreadId}]: "${text}"`);
+    console.log(`[ChatOverlay] Prompt enviado na conversa [${this.currentThreadId}]: "${text}"`);
     this.inputField.value = '';
 
     this.renderMessageBubble({
@@ -698,7 +698,7 @@ export class ChatOverlay {
       this.currentThreadId || undefined
     );
 
-    console.log(`🤖 [ChatOverlay] Resposta recebida:`, response);
+    console.log(`[ChatOverlay] Resposta recebida:`, response);
     await this.refreshMessages();
     this.container.style.display = 'flex';
     this.container.style.opacity = '1';
@@ -706,7 +706,7 @@ export class ChatOverlay {
   }
 
   public focus(): void {
-    console.log(`💬 [ChatOverlay] Overlay de chat focado`);
+    console.log(`[ChatOverlay] Overlay de chat focado`);
     this.isOpen = true;
     this.container.style.display = 'flex';
     this.container.style.opacity = '1';
@@ -722,14 +722,14 @@ export class ChatOverlay {
   }
 
   public blur(): void {
-    console.log(`💬 [ChatOverlay] Foco do campo desativado (mantendo janela visível)`);
+    console.log(`[ChatOverlay] Foco do campo desativado (mantendo janela visível)`);
     this.container.style.display = 'flex';
     this.container.style.opacity = '0.88';
     this.container.style.pointerEvents = 'auto';
   }
 
   public hide(): void {
-    console.log(`💬 [ChatOverlay] Janela de chat oculta`);
+    console.log(`[ChatOverlay] Janela de chat oculta`);
     this.isOpen = false;
     this.container.style.opacity = '0';
     this.container.style.pointerEvents = 'none';

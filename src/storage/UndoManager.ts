@@ -33,7 +33,7 @@ export class UndoManager {
   public undo(): boolean {
     const batch = this.undoStack.pop();
     if (!batch || batch.length === 0) {
-      this.onToast('⚠️ Nada para desfazer (Ctrl+Z)');
+      this.onToast('Nada para desfazer (Ctrl+Z)');
       return false;
     }
 
@@ -55,7 +55,7 @@ export class UndoManager {
   public redo(): boolean {
     const batch = this.redoStack.pop();
     if (!batch || batch.length === 0) {
-      this.onToast('⚠️ Nada para refazer (Ctrl+Y)');
+      this.onToast('Nada para refazer (Ctrl+Y)');
       return false;
     }
 

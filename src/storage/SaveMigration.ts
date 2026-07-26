@@ -159,9 +159,9 @@ export async function migrateWorld(worldId: string): Promise<MigrationReport | n
   await db.worlds.put(world);
 
   console.log(
-    `💾 [SaveMigration] Mundo "${worldId}" migrado de v${report.from} para v${report.to}:\n  ` +
+    `[SaveMigration] Mundo "${worldId}" migrado de v${report.from} para v${report.to}:\n  ` +
       report.steps.join('\n  ') +
-      (report.failures.length > 0 ? `\n  ⚠️ falhas: ${report.failures.join('; ')}` : ''),
+      (report.failures.length > 0 ? `\n  falhas: ${report.failures.join('; ')}` : ''),
   );
   return report;
 }
@@ -187,14 +187,14 @@ export async function backupBeforeMigration(worldId: string): Promise<boolean> {
 
     // Backup grande não vale o risco de estourar a cota e derrubar o carregamento.
     if (payload.length > 2_000_000) {
-      console.warn(`💾 [SaveMigration] Backup de "${worldId}" grande demais (${payload.length} bytes) — pulado.`);
+      console.warn(`[SaveMigration] Backup de "${worldId}" grande demais (${payload.length} bytes) — pulado.`);
       return false;
     }
 
     localStorage.setItem(`crom:backup:${worldId}`, payload);
     return true;
   } catch (err) {
-    console.warn('💾 [SaveMigration] Não foi possível gravar o backup:', err);
+    console.warn('[SaveMigration] Não foi possível gravar o backup:', err);
     return false;
   }
 }

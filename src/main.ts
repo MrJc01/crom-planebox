@@ -67,7 +67,7 @@ const LAST_WORLD_KEY = 'crom:lastWorldId';
 let seed = (Math.random() * 0xffffffff) >>> 0;
 
 async function bootstrap() {
-  console.log('🎮 Inicializando Crom Planebox 3D Engine (Base Crom Quadrado)...');
+  console.log('Inicializando Crom Planebox 3D Engine (Base Crom Quadrado)...');
 
   const app = document.getElementById('app') || document.body;
   const menuEl = document.getElementById('menu');
@@ -558,7 +558,7 @@ async function bootstrap() {
     if (peerSync.role === 'host') enfileirarBlocos(changes);
   };
   modRuntime.onScriptDisabled = (modId, scriptKey, reason) => {
-    hud.showToast(`⚠️ Script "${scriptKey}" do mod "${modId}" foi desligado: ${reason}`);
+    hud.showToast(`Script "${scriptKey}" do mod "${modId}" foi desligado: ${reason}`);
   };
   mcpExecutors.modRuntime = modRuntime;
 
@@ -606,32 +606,32 @@ async function bootstrap() {
   const gameMenu = new GameMenu(audio);
   gameMenu.onRetomar = () => uiManager.closeBlocking('game-menu');
   gameMenu.registrar({
-    id: 'personagem', icone: '🧍', titulo: 'Personagem', atalho: 'F4',
+    id: 'personagem', icone: 'personagem', titulo: 'Personagem', atalho: 'F4',
     descricao: 'Aparência, cores e porte. É o visual que os outros veem online.',
     acao: () => uiManager.openBlocking('character-creator'),
   });
   gameMenu.registrar({
-    id: 'mods', icone: '🧩', titulo: 'Mods', atalho: 'F6',
+    id: 'mods', icone: 'mods', titulo: 'Mods', atalho: 'F6',
     descricao: 'O que cada modificação adicionou, histórico de versões e exportar.',
     acao: () => uiManager.openBlocking('mods-page'),
   });
   gameMenu.registrar({
-    id: 'editor', icone: '📝', titulo: 'Editor de código', atalho: 'F7',
+    id: 'editor', icone: 'codigo', titulo: 'Editor de código', atalho: 'F7',
     descricao: 'Editar o comportamento dos mods com o mundo aberto.',
     acao: () => uiManager.openBlocking('code-editor'),
   });
   gameMenu.registrar({
-    id: 'inventario', icone: '🎒', titulo: 'Inventário', atalho: 'E',
+    id: 'inventario', icone: 'inventario', titulo: 'Inventário', atalho: 'E',
     descricao: 'Blocos, ferramentas e bancada de criação.',
     acao: () => uiManager.openBlocking('inventory'),
   });
   gameMenu.registrar({
-    id: 'mundo', icone: '⚙️', titulo: 'Mundo e rede', atalho: '',
+    id: 'mundo', icone: 'engrenagem', titulo: 'Mundo e rede', atalho: '',
     descricao: 'Câmera, modo de jogo, multiplayer e jogadores conectados.',
     acao: () => uiManager.openBlocking('pause'),
   });
   gameMenu.registrar({
-    id: 'ia', icone: '💬', titulo: 'Conversar com a IA', atalho: 'T',
+    id: 'ia', icone: 'chat', titulo: 'Conversar com a IA', atalho: 'T',
     descricao: 'Criar mods, construir e modificar o jogo pela conversa.',
     acao: () => { uiManager.closeBlocking('game-menu'); uiManager.openFloating('chat'); },
   });
@@ -648,7 +648,7 @@ async function bootstrap() {
     mcpExecutors.modService.setActiveSession(threadId ?? undefined, modId);
   };
   mcpExecutors.modService.onModQuarantined = (mod, reason) => {
-    hud.showToast(`⚠️ Mod "${mod.name}" foi isolado: ${reason}`);
+    hud.showToast(`Mod "${mod.name}" foi isolado: ${reason}`);
   };
   hud.setVisible(false);
   inventoryModal.setHotbarVisible(false);
@@ -761,7 +761,7 @@ async function bootstrap() {
         };
         if (msg.mods?.length) {
           mcpExecutors.modService.applyRemoteMods(msg.mods).then((n) => {
-            if (n > 0) hud.showToast(`🧩 ${n} mod(s) recebidos do anfitrião`);
+            if (n > 0) hud.showToast(`${n} mod(s) recebidos do anfitrião`);
             applyBlocks();
           });
         } else {
@@ -786,7 +786,7 @@ async function bootstrap() {
       case 'mod_sync':
         // Mod criado pela IA do anfitrião durante a partida.
         mcpExecutors.modService.applyRemoteMods([msg.mod]).then((n) => {
-          if (n > 0) hud.showToast(`🧩 Mod "${msg.mod.name}" recebido do anfitrião`);
+          if (n > 0) hud.showToast(`Mod "${msg.mod.name}" recebido do anfitrião`);
         });
         if (peerSync.role === 'host') peerSync.broadcast(msg, fromPeerId);
         break;
@@ -991,7 +991,7 @@ async function bootstrap() {
   };
 
   inter.onToolWear = (slot, broke) => {
-    if (broke) { hud.showToast('⛏️ Sua ferramenta quebrou!'); audio.play(SOUNDS.ferramentaQuebrou); }
+    if (broke) { hud.showToast('Sua ferramenta quebrou!'); audio.play(SOUNDS.ferramentaQuebrou); }
     else if (slot.durability !== undefined && slot.durability <= 5) {
       hud.showToast(`Ferramenta quase quebrando (${slot.durability} usos)`);
     }
@@ -1056,7 +1056,7 @@ async function bootstrap() {
   inventoryModal.onBlockedByMode = () => hud.showToast('Inventário criativo indisponível neste modo de jogo.');
 
   survivalSystem.onDeath = () => {
-    hud.showToast('💀 Você morreu! Renascendo no spawn...');
+    hud.showToast('Você morreu! Renascendo no spawn...');
     player.pos.copy(findSpawn());
     player.vel.set(0, 0, 0);
     survivalSystem.reset();
@@ -1148,14 +1148,14 @@ async function bootstrap() {
   }
 
   const loadWorldById = async (worldId: string) => {
-    console.log(`🌍 [main.ts] Carregando e inicializando mundo ID: "${worldId}"`);
+    console.log(`[main.ts] Carregando e inicializando mundo ID: "${worldId}"`);
     // Migração antes de qualquer leitura: os passos normalizam mods e campos do mundo, e o
     // resto do carregamento assume esse formato. Rodar depois seria ler dados meio migrados.
     const migracao = await prepareWorld(worldId);
     if (migracao) {
-      hud.showToast(`💾 Mundo atualizado (v${migracao.from} → v${migracao.to})`);
+      hud.showToast(`Mundo atualizado (v${migracao.from} → v${migracao.to})`);
       if (migracao.failures.length > 0) {
-        hud.showToast(`⚠️ Migração incompleta: ${migracao.failures[0]}`);
+        hud.showToast(`Migração incompleta: ${migracao.failures[0]}`);
       }
     }
 
@@ -1199,11 +1199,11 @@ async function bootstrap() {
       if (mod.enabled && !mod.quarantined && (mod.scripts?.length ?? 0) > 0) modRuntime.loadMod(mod);
     }
     if (modSummary.mods > 0) {
-      hud.showToast(`🧩 ${modSummary.mods} mod(s) carregados: ${modSummary.blocks} bloco(s), ${modSummary.entities} entidade(s)`);
+      hud.showToast(`${modSummary.mods} mod(s) carregados: ${modSummary.blocks} bloco(s), ${modSummary.entities} entidade(s)`);
     }
 
     const mods = await WorldRepository.getBlockModsForWorld(worldId);
-    console.log(`🧱 [main.ts] Carregadas ${mods.size} modificações de blocos salvas para "${wRecord.name}"`);
+    console.log(`[main.ts] Carregadas ${mods.size} modificações de blocos salvas para "${wRecord.name}"`);
     for (const [key, blockType] of mods.entries()) {
       const [x, y, z] = key.split(',').map(Number);
       world.setBlock(x, y, z, blockType);
@@ -1242,7 +1242,7 @@ async function bootstrap() {
 
     localStorage.setItem(LAST_WORLD_KEY, worldId);
 
-    console.log(`✅ [main.ts] Mundo "${wRecord.name}" carregado do zero com sucesso!`);
+    console.log(`[main.ts] Mundo "${wRecord.name}" carregado do zero com sucesso!`);
   };
 
   // --- Gerenciador central de UI (Pause / Inventário bloqueantes; Chat flutuante) ---
@@ -1297,6 +1297,14 @@ async function bootstrap() {
   uiManager.onPointerLockPendente = (pendente) => {
     dicaClique.style.display = pendente && gameStarted ? 'block' : 'none';
   };
+  // Registro único de atalhos de tela. Antes cada tela instalava o próprio `keydown`, e o do
+  // inventário nem consultava o gerenciador — daí abrir por cima de qualquer outra.
+  uiManager.registrarAtalho('KeyE', 'inventory');
+  uiManager.registrarAtalho('F4', 'character-creator');
+  uiManager.registrarAtalho('F6', 'mods-page');
+  uiManager.registrarAtalho('F7', 'code-editor');
+  uiManager.registrarAtalho('KeyT', 'chat', 'floating');
+
   uiManager.registerBlocking(inventoryModal);
   uiManager.registerBlocking(characterCreator);
   uiManager.registerBlocking(modsPage);
@@ -1460,12 +1468,7 @@ async function bootstrap() {
     const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
 
     if (!isTyping) {
-      if (e.code === 'KeyT') {
-        e.preventDefault();
-        if (document.pointerLockElement) document.exitPointerLock();
-        uiManager.toggleFloating('chat');
-        return;
-      }
+
       if (e.code === 'Escape') {
         e.preventDefault();
         if (document.pointerLockElement) document.exitPointerLock();
@@ -1522,19 +1525,11 @@ async function bootstrap() {
         }
         return;
       }
-      if (e.code === 'F6') {
+      // Atalhos de tela: um caminho só, pelo registro do `UIManager`. Cada `if` aqui era um dono
+      // a mais do teclado, e donos independentes é como se chega a "apertei F6 e abriu o
+      // inventário" — cada um só conhece a própria tela e nenhum fecha a do outro.
+      if (uiManager.tratarAtalho(e.code)) {
         e.preventDefault();
-        uiManager.openBlocking('mods-page');
-        return;
-      }
-      if (e.code === 'F7') {
-        e.preventDefault();
-        uiManager.openBlocking('code-editor');
-        return;
-      }
-      if (e.code === 'F4') {
-        e.preventDefault();
-        uiManager.openBlocking('character-creator');
         return;
       }
       if (e.ctrlKey && e.code === 'Digit2') { e.preventDefault(); cameraManager.setMode('fps'); return; }
@@ -1655,7 +1650,7 @@ async function bootstrap() {
     if (timeOfDay < anterior) {
       worldDay++;
       gs.setMoonPhase(faseDoDia(worldDay));
-      hud.showToast(`🌙 Noite de lua ${nomeDaFase(worldDay)}`);
+      hud.showToast(`Noite de lua ${nomeDaFase(worldDay)}`);
     }
     gs.setTimeOfDay(timeOfDay);
     const faseAtual = fasesDoDia(timeOfDay);
@@ -1724,7 +1719,7 @@ async function bootstrap() {
         estacao.efeito.neve,
       );
       if (clima.clima !== climaAnterior) {
-        hud.showToast(`🌦️ ${descreverClima(clima)}`);
+        hud.showToast(`${descreverClima(clima)}`);
         modRuntime.dispatch('weatherChange', { weather: clima.clima, previous: climaAnterior });
       }
       gs.setWeather(clima.luz, clima.alcanceNeblina);
@@ -1851,7 +1846,7 @@ async function bootstrap() {
     profiler.endFrame();
   }
 
-  console.log('✅ Crom Planebox (Base Crom Quadrado) pronto — aguardando seleção no Menu Principal.');
+  console.log('Crom Planebox (Base Crom Quadrado) pronto — aguardando seleção no Menu Principal.');
 }
 
 window.addEventListener('DOMContentLoaded', () => {

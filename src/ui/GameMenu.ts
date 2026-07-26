@@ -9,12 +9,14 @@
 // volume por canal, mas nada expunha), lista de atalhos e o retorno ao menu inicial.
 
 import { CAMADA, CORES, FONTE, botao, cartao, deslizante, montarTela, rotulo } from './theme';
+import { NomeIcone, icone } from './icons';
 import { UIScreen } from './UIManager';
 import { AudioChannel, AudioSystem } from '../audio/AudioSystem';
 
 export interface DestinoMenu {
   id: string;
-  icone: string;
+  /** Ícone do conjunto de `icons.ts`. Não é emoji: ver o cabeçalho daquele arquivo. */
+  icone: NomeIcone;
   titulo: string;
   descricao: string;
   atalho?: string;
@@ -35,7 +37,7 @@ export class GameMenu implements UIScreen {
   public onSairParaMenuInicial: () => void = () => {};
 
   constructor(private audio: AudioSystem) {
-    const tela = montarTela('game-menu', '⏸ Menu', CAMADA.hub);
+    const tela = montarTela('game-menu', 'Menu', CAMADA.hub);
     this.raiz = tela.raiz;
     this.corpo = tela.corpo;
 
@@ -69,15 +71,28 @@ export class GameMenu implements UIScreen {
         display: flex; flex-direction: column; gap: 4px; font-family: ${FONTE};
         transition: border-color .12s, background .12s;
       `;
-      item.addEventListener('mouseenter', () => { item.style.borderColor = CORES.primariaClara; });
-      item.addEventListener('mouseleave', () => { item.style.borderColor = CORES.borda; });
+      // Âmbar no hover, não azul: azul é a cor de ação (botão que executa), âmbar é a de estado
+      // (o que está em foco). Misturar os dois papéis é o que deixa a tela ilegível de longe.
+      item.addEventListener('mouseenter', () => {
+        item.style.borderColor = CORES.aviso;
+        item.style.background = CORES.avisoFraco;
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.borderColor = CORES.borda;
+        item.style.background = CORES.fundoElevado;
+      });
 
       const topo = document.createElement('div');
       topo.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px;';
 
       const nome = document.createElement('span');
-      nome.textContent = `${d.icone}  ${d.titulo}`;
-      nome.style.cssText = 'font-size:14px; font-weight:600;';
+      nome.style.cssText = 'display:flex; align-items:center; gap:10px; font-size:14px; font-weight:600;';
+      // O ícone herda a cor do texto (`currentColor`), então o realce do item no hover acerta os
+      // dois de uma vez, sem regra extra.
+      nome.append(icone(d.icone, 19));
+      const t = document.createElement('span');
+      t.textContent = d.titulo;
+      nome.append(t);
       topo.appendChild(nome);
 
       // O atalho aparece ao lado do destino: é assim que ele deixa de ser conhecimento oculto.

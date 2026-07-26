@@ -29,7 +29,7 @@ export class OpenRouterClient {
 
     if (!apiKey) {
       return {
-        content: `⚠️ Chave de API do ${providerName} não configurada. Por favor, pressione ESC e insira sua chave nas Configurações.`,
+        content: `Chave de API do ${providerName} não configurada. Por favor, pressione ESC e insira sua chave nas Configurações.`,
         error: 'API Key missing'
       };
     }
@@ -99,7 +99,7 @@ export class OpenRouterClient {
         loopCount++;
 
         const targetModel = settings.model || (isGoogle ? 'gemini-2.5-flash' : 'anthropic/claude-3.5-sonnet');
-        console.log(`🚀 [OpenRouterClient] (${providerName} - Loop ${loopCount}/${maxLoops}) Enviando requisição para ${endpointUrl} (Modelo: ${targetModel}, ${apiMessages.length} mensagens no histórico)`);
+        console.log(`[OpenRouterClient] (${providerName} - Loop ${loopCount}/${maxLoops}) Enviando requisição para ${endpointUrl} (Modelo: ${targetModel}, ${apiMessages.length} mensagens no histórico)`);
 
         const response = await fetch(endpointUrl, {
           method: 'POST',
@@ -115,12 +115,12 @@ export class OpenRouterClient {
 
         if (!response.ok) {
           const errText = await response.text();
-          console.error(`❌ [OpenRouterClient] Erro HTTP ${response.status} de ${providerName}:`, errText);
+          console.error(`[OpenRouterClient] Erro HTTP ${response.status} de ${providerName}:`, errText);
           throw new Error(`${providerName} HTTP ${response.status}: ${errText}`);
         }
 
         const data = await response.json();
-        console.log(`📥 [OpenRouterClient] Resposta recebida de ${providerName}:`, data);
+        console.log(`[OpenRouterClient] Resposta recebida de ${providerName}:`, data);
         const choice = data.choices?.[0];
 
         if (!choice) {
@@ -168,7 +168,7 @@ export class OpenRouterClient {
                   { type: 'image_url', image_url: { url: snapshotImage } }
                 ]
               });
-              console.log(`📸 [OpenRouterClient] Foto da construção injetada nas mensagens para validação da IA!`);
+              console.log(`[OpenRouterClient] Foto da construção injetada nas mensagens para validação da IA!`);
             }
 
             const resultContent = typeof result === 'string' ? result : JSON.stringify(result);
@@ -197,7 +197,7 @@ export class OpenRouterClient {
           // Se a IA respondeu apenas com texto perguntando algo durante um comando de criação e ainda está nos primeiros loops, força a continuar
           const asksToContinue = /próxima ideia|o que você quer|vamos começar|me diga|qual estilo/i.test(message.content || '');
           if (asksToContinue && loopCount < 5) {
-            console.log(`🔄 [OpenRouterClient] IA tentou parar com pergunta no Loop ${loopCount}. Re-solicitando execução de ferramentas de construção...`);
+            console.log(`[OpenRouterClient] IA tentou parar com pergunta no Loop ${loopCount}. Re-solicitando execução de ferramentas de construção...`);
             apiMessages.push({ role: 'assistant', content: message.content });
             apiMessages.push({
               role: 'user',
@@ -226,7 +226,7 @@ export class OpenRouterClient {
 
     } catch (err: any) {
       console.error(`${providerName} Client Error:`, err);
-      const errorMessage = `❌ Erro ao comunicar com ${providerName}: ${err.message || err}`;
+      const errorMessage = `Erro ao comunicar com ${providerName}: ${err.message || err}`;
       await WorldRepository.addChatMessage({
         worldId,
         threadId,

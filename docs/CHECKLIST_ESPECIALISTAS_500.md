@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1130 itens)
+# Checklist Mestre — Painel de Especialistas (1160 itens)
 
-> **Estado em 26/07/2026** — 471 de 1130 itens tratados (41%), com **659 testes** passando,
+> **Estado em 26/07/2026** — 487 de 1160 itens tratados (41%), com **696 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 81 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 390 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 659 | Pendente. |
+> | `[~]` | 406 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 673 | Pendente. |
 >
 > **Como este documento foi produzido.** Simulamos uma banca de especialistas, cada um auditando o
 > Crom Planebox sob a sua própria lente. Todos os itens foram escritos **depois** de ler o código
@@ -2550,3 +2550,63 @@ por último, porque consomem tudo o que veio antes.
 alguém o chamar. `setViewRange`, `applyCurvature` e `recordBatch` foram escritos, comentados e
 nunca executados. Antes de marcar qualquer item aqui, a pergunta é "quem chama isto, e num teste
 que falharia se ninguém chamasse?".
+
+
+---
+
+## 43. Especialista em Interface: abas, ícones e responsividade (itens 1131–1180)
+
+Relato do usuário: *"foque nos menus, com tabs, bonito, responsivo e interativo dinâmico, pois está
+muito bugado, clico em uma coisa abre outra"*. E, em seguida: *"não use emoticons, use ícones"*.
+
+### As DUAS causas de "clico numa coisa e abre outra"
+
+Não era um bug, eram dois — com o mesmo sintoma, um pelo teclado e outro pelo mouse.
+
+**1. Cada tela era dona do próprio teclado.** O `InventoryModal` registrava
+`window.addEventListener('keydown')` para a tecla E e **não consultava o `UIManager`**. Apertar E
+com a página de mods aberta abria o inventário por cima dela. O problema não era o ouvinte, era
+*quem decide*: com N donos, cada um só conhece a própria tela e ninguém está em posição de dizer
+"isto substitui aquilo".
+
+**2. Corrida no desenho assíncrono.** `PauseMenu.renderBody` limpa o corpo e depois espera (duas
+abas leem do banco). Dois cliques seguidos disparavam dois desenhos: o segundo limpava, o primeiro
+voltava do `await` e **anexava por cima**. O teste mostrou que é pior do que parecia — o conteúdo
+das **duas** abas fica no DOM ao mesmo tempo (`atalhosmundo`). Nenhum erro no console: as duas
+rodaram exatamente como escritas.
+
+### Entregue
+
+- [~] 1131 `P0` **Registro único de atalhos no `UIManager`** — nenhuma tela instala `keydown` próprio
+- [~] 1132 `P0` **`InventoryModal` perdeu o ouvinte rebelde**, a causa nº 1 do relato
+- [~] 1133 `P0` **A regra "o modo permite abrir?" mudou-se para `open()`**, onde pertence — mover o atalho sem mover a regra a contornaria
+- [~] 1134 `P0` **Guarda de geração no desenho assíncrono**, a causa nº 2
+- [~] 1135 `P0` **Componente `Tabs`**: um dono do que está visível, impossível dois painéis
+- [~] 1136 `P0` **Montagem preguiçosa** — abrir mods não monta o editor junto
+- [~] 1137 `P1` **Conjunto de ícones SVG** (25 traçados), sem emoji e sem asset externo
+- [~] 1138 `P1` **Zero emoji em `src/`**, com teste que impede a volta
+- [~] 1139 `P1` **Corações e comida do HUD em SVG** — emoji não tem "meio cheio"
+- [~] 1140 `P1` **Âmbar para estado, azul para ação** — antes as duas cores disputavam o papel
+- [~] 1141 `P1` **Navegação por setas nas abas**, com `role=tablist` e `aria-selected`
+- [~] 1142 `P1` **`painel`, `grade`, `linha`, `faixa`, `vazio` no tema** — cada tela repetia o próprio `cssText`
+- [~] 1143 `P1` **Grade responsiva sem media query** (`auto-fit` + `minmax`)
+- [~] 1144 `P1` **`scrollIntoView` guardado** — API ausente não pode impedir a troca de aba
+- [~] 1145 `P1` **Emblema numérico nas abas**, escondido quando é zero
+- [~] 1146 `P1` **Testes**: 16 de `Tabs`, 9 de atalhos, 7 de ícones, 5 da corrida
+
+### Pendente
+
+- [ ] 1147 `P0` Migrar `InventoryModal` para o componente `Tabs` (ainda tem navegação própria)
+- [ ] 1148 `P0` Migrar `PauseMenu` para o componente `Tabs` (hoje só ganhou ícones e a guarda)
+- [ ] 1149 `P0` Migrar `ModsPage` para abas: lista, `mod.env`, versões e scripts
+- [ ] 1150 `P1` Layout do inventário em duas colunas como a referência: grade + personagem/stats
+- [ ] 1151 `P1` Barra de vida e fome com número dentro, além dos ícones
+- [ ] 1152 `P1` Foco preso dentro da tela aberta (armadilha de foco), por acessibilidade
+- [ ] 1153 `P1` Animação de entrada e saída das telas, respeitando `prefers-reduced-motion`
+- [ ] 1154 `P1` Estado vazio em toda lista (`vazio()` existe e ainda não é usado em todas)
+- [ ] 1155 `P1` A tela lembra a última aba aberta, por tela
+- [ ] 1156 `P2` Tema claro, já que as cores estão centralizadas
+- [ ] 1157 `P2` Teste de que nenhuma tela escreve `cssText` com cor literal fora do tema
+- [ ] 1158 `P2` Arrastar item entre grade e hotbar
+- [ ] 1159 `P2` Busca dentro do inventário e do crafting
+- [ ] 1160 `P2` Teste de integração abrindo cada tela e conferindo que só uma fica visível

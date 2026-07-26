@@ -92,10 +92,10 @@ export class InventoryModal {
       padding-bottom: 12px;
     `;
     header.innerHTML = `
-      <h2 style="margin:0; font-size:18px; font-weight:700; color:#38bdf8;">🎒 Inventário Criativo & Crafting</h2>
+      <h2 style="margin:0; font-size:18px; font-weight:700; color:#38bdf8;">Inventário Criativo & Crafting</h2>
     `;
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕ Fechar [E]';
+    closeBtn.textContent = 'Fechar [E]';
     closeBtn.style.cssText = 'background:transparent; border:1px solid rgba(255,255,255,0.15); color:#94a3b8; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer;';
     closeBtn.onclick = () => this.close();
     header.appendChild(closeBtn);
@@ -121,7 +121,7 @@ export class InventoryModal {
 
     const craftCol = document.createElement('div');
     craftCol.style.cssText = 'display: flex; flex-direction: column; gap: 10px; width: 300px; flex-shrink: 0;';
-    craftCol.innerHTML = `<h3 style="margin:0; font-size:13px; color:#94a3b8;">🔨 Mesa de Crafting (6×6)</h3>`;
+    craftCol.innerHTML = `<h3 style="margin:0; font-size:13px; color:#94a3b8;">Mesa de Crafting (6×6)</h3>`;
 
     const craftGridEl = document.createElement('div');
     craftGridEl.id = 'craft-grid';
@@ -147,7 +147,7 @@ export class InventoryModal {
     `;
     outputRow.appendChild(outputSlot);
     const clearBtn = document.createElement('button');
-    clearBtn.textContent = '🗑️ Limpar Grade';
+    clearBtn.textContent = 'Limpar Grade';
     clearBtn.style.cssText = 'background: rgba(239,68,68,0.15); border: 1px solid #ef4444; color:#ef4444; border-radius:8px; padding:6px 10px; font-size:11px; cursor:pointer;';
     clearBtn.onclick = () => { this.craftGrid = CraftingSystem.emptyGrid(6); this.renderCraftGrid(); };
     outputRow.appendChild(clearBtn);
@@ -188,19 +188,10 @@ export class InventoryModal {
     });
 
     // Listen for 'E' key toggle
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'e' || e.key === 'E') {
-        const activeEl = document.activeElement;
-        const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
-        if (!isTyping && !this.blockOpen()) {
-          if (!this.isOpen && !this.gateOpen()) {
-            this.onBlockedByMode();
-            return;
-          }
-          this.toggle();
-        }
-      }
-    });
+    // O `keydown` da tecla E ficava AQUI, e era a causa do "clico numa coisa e abre outra":
+    // este ouvinte não consultava o `UIManager`, então apertar E com a página de mods aberta
+    // abria o inventário por cima dela. O atalho agora é registrado no `UIManager`, que fecha
+    // qualquer outra tela antes de abrir esta. Ver `registrarAtalho`.
 
     this.interaction.onChanged = () => this.renderHotbar();
     this.renderHotbar();
@@ -245,12 +236,12 @@ export class InventoryModal {
 
     if (slot.structureId !== undefined) {
       const icon = document.createElement('div');
-      icon.textContent = '🏗️';
+      icon.textContent = '';
       icon.style.cssText = 'font-size: 20px;';
       slotEl.appendChild(icon);
     } else if (slot.toolTier !== undefined) {
       const icon = document.createElement('div');
-      icon.textContent = '⛏️';
+      icon.textContent = '';
       icon.style.cssText = 'font-size: 20px;';
       slotEl.appendChild(icon);
 
@@ -324,9 +315,9 @@ export class InventoryModal {
     if (!tabs) return;
     tabs.innerHTML = '';
     const defs: { id: PaletteTab; label: string }[] = [
-      { id: 'blocks', label: '🧱 Blocos' },
-      { id: 'interactive', label: '✨ Blocos Interativos' },
-      { id: 'items', label: '⛏️ Itens' },
+      { id: 'blocks', label: 'Blocos' },
+      { id: 'interactive', label: 'Blocos Interativos' },
+      { id: 'items', label: 'Itens' },
     ];
     for (const d of defs) {
       const btn = document.createElement('button');
@@ -395,7 +386,7 @@ export class InventoryModal {
           this.renderHotbar();
         });
         const icon = card.querySelector('div') as HTMLDivElement;
-        icon.textContent = '⛏️';
+        icon.textContent = '';
         grid.appendChild(card);
       }
 
@@ -414,7 +405,7 @@ export class InventoryModal {
           this.renderHotbar();
         });
         const icon = card.querySelector('div') as HTMLDivElement;
-        icon.textContent = '🏗️';
+        icon.textContent = '';
         grid.appendChild(card);
       }
       return;
@@ -470,7 +461,7 @@ export class InventoryModal {
     if (match) {
       const icon = document.createElement('div');
       if (match.outputTool) {
-        icon.textContent = '⛏️';
+        icon.textContent = '';
       } else if (match.outputBlock !== undefined && BLOCKS[match.outputBlock]) {
         const c = BLOCKS[match.outputBlock].colors[0];
         icon.style.cssText = `width: 28px; height: 28px; border-radius: 4px; background: rgb(${Math.round(c[0]*255)}, ${Math.round(c[1]*255)}, ${Math.round(c[2]*255)});`;
@@ -511,7 +502,18 @@ export class InventoryModal {
     this.renderCraftGrid();
   }
 
+  /**
+   * Abre o inventário — se o modo de jogo permitir.
+   *
+   * A checagem mora aqui, e não em quem chama, porque é uma regra DA TELA. Antes ela vivia dentro
+   * do ouvinte da tecla E: mover o atalho para o `UIManager` sem mover a regra junto abriria o
+   * inventário em modos que o proíbem, por um caminho que ninguém pensou em conferir.
+   */
   public open(): void {
+    if (!this.gateOpen()) {
+      this.onBlockedByMode();
+      return;
+    }
     this.isOpen = true;
     this.renderHotbar();
     this.renderTabs();

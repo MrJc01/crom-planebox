@@ -174,7 +174,7 @@ export class ModService {
     }
 
     console.log(
-      `🧩 [ModService] Mundo "${worldId}": ${modsApplied} mod(s) aplicados, ` +
+      `[ModService] Mundo "${worldId}": ${modsApplied} mod(s) aplicados, ` +
         `${blocksApplied} bloco(s) customizados registrados, ${entitiesRestored} entidade(s) restaurada(s).`,
     );
     return { mods: modsApplied, blocks: blocksApplied, entities: entitiesRestored };
@@ -231,7 +231,7 @@ export class ModService {
     mod.enabled = false;
     mod.quarantined = true;
     mod.quarantineReason = reason;
-    console.warn(`🧩 [ModService] Mod "${mod.id}" isolado ao carregar: ${reason}`);
+    console.warn(`[ModService] Mod "${mod.id}" isolado ao carregar: ${reason}`);
     // Grava o estado de quarentena, mas sem `persist` — não é uma edição do usuário e não deve
     // gerar revisão nem eco para a rede.
     WorldRepository.saveMod(this.worldId, mod).catch(() => {});
@@ -286,14 +286,14 @@ export class ModService {
       const pkg: ModPackage = JSON.parse(JSON.stringify(raw));
       const errors = validateModPackage(pkg);
       if (errors.length > 0) {
-        console.warn(`🧩 [ModService] Mod "${pkg?.id}" recebido do anfitrião foi recusado: ${errors.join(' ')}`);
+        console.warn(`[ModService] Mod "${pkg?.id}" recebido do anfitrião foi recusado: ${errors.join(' ')}`);
         continue;
       }
 
       try {
         if (pkg.enabled) applyModBlocks(pkg);
       } catch (err: any) {
-        console.warn(`🧩 [ModService] Falha ao aplicar mod remoto "${pkg.id}": ${err?.message || err}`);
+        console.warn(`[ModService] Falha ao aplicar mod remoto "${pkg.id}": ${err?.message || err}`);
         continue;
       }
 
@@ -306,7 +306,7 @@ export class ModService {
     }
 
     if (applied > 0) {
-      console.log(`🧩 [ModService] ${applied} mod(s) sincronizados do anfitrião com os ids originais.`);
+      console.log(`[ModService] ${applied} mod(s) sincronizados do anfitrião com os ids originais.`);
     }
     return applied;
   }
@@ -418,7 +418,7 @@ export class ModService {
     const updated: ModPackage = { ...mod, enabled: false, quarantined: true, quarantineReason: reason };
     revokeModBlocks(updated);
     await this.persist(updated);
-    console.warn(`🧩 [ModService] Mod "${modId}" posto em quarentena: ${reason}`);
+    console.warn(`[ModService] Mod "${modId}" posto em quarentena: ${reason}`);
   }
 
   /**
@@ -619,7 +619,7 @@ export class ModService {
     await WorldRepository.saveBlockModBatch(this.worldId, applied);
     this.onBlocksChanged(applied);
 
-    const warn = unresolved.length > 0 ? ` ⚠️ Blocos não resolvidos e pulados: ${unresolved.join(', ')}.` : '';
+    const warn = unresolved.length > 0 ? ` Blocos não resolvidos e pulados: ${unresolved.join(', ')}.` : '';
     return {
       ok: true,
       message: `Estrutura "${structure.name}" carimbada em (${x}, ${y}, ${z}) com ${applied.length} blocos, salvos no mundo.${warn}`,
@@ -771,7 +771,7 @@ export class ModService {
     }
     const updated: ModPackage = { ...existing, blocks: [...(existing.blocks || []), ...orphans] };
     await this.persist(updated);
-    console.log(`🧩 [ModService] ${orphans.length} bloco(s) criados via script foram adotados no mod "${id}" e salvos.`);
+    console.log(`[ModService] ${orphans.length} bloco(s) criados via script foram adotados no mod "${id}" e salvos.`);
     return orphans.length;
   }
 }

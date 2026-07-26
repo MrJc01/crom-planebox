@@ -180,7 +180,7 @@ export class MCPExecutors {
   }
 
   public async executeTool(name: string, args: any): Promise<{ result: any; snapshotImage?: string }> {
-    console.log(`🛠️ [MCPExecutors] Executando ferramenta "${name}" com os argumentos:`, args);
+    console.log(`[MCPExecutors] Executando ferramenta "${name}" com os argumentos:`, args);
 
     if (UIExecutors.isUITool(name)) {
       const uiResult = await this.uiExecutors.execute(name, args);
@@ -424,7 +424,7 @@ export class MCPExecutors {
 
       case 'execute_voxel_script': {
         const rawCode = args.code || '';
-        console.log(`📜 [MCPExecutors] Executando script em código JavaScript gerado pela IA:\n`, rawCode);
+        console.log(`[MCPExecutors] Executando script em código JavaScript gerado pela IA:\n`, rawCode);
 
         const mods: { x: number; y: number; z: number; blockType: number }[] = [];
         const undoChanges: BlockChange[] = [];
@@ -547,7 +547,7 @@ export class MCPExecutors {
               subFunc(setBlock, breakBlock, fillBox, clearArea, flattenArea, getBlock, getGroundY, createEntity, registerCustomBlock, BLOCK_ENUM, Math, console, executeVoxelScript);
             } catch (e: any) {
               const msg = e?.message || String(e);
-              console.error(`❌ [MCPExecutors] Erro ao executar subCode em executeVoxelScript:`, e);
+              console.error(`[MCPExecutors] Erro ao executar subCode em executeVoxelScript:`, e);
               subScriptErrors.push(`Sub-script: ${msg}`);
               this.logScriptError(subCode, msg);
             }
@@ -584,10 +584,10 @@ export class MCPExecutors {
           }
 
           const errorSuffix = subScriptErrors.length > 0
-            ? `\n⚠️ Erros durante a execução (verifique e corrija): ${subScriptErrors.join(' | ')}`
+            ? `\nErros durante a execução (verifique e corrija): ${subScriptErrors.join(' | ')}`
             : '';
           const modSuffix = adopted > 0
-            ? `\n🧩 ${adopted} bloco(s) customizados criados no script foram salvos no mod "mod-avulsos" e continuarão existindo depois de recarregar o mundo.`
+            ? `\n${adopted} bloco(s) customizados criados no script foram salvos no mod "mod-avulsos" e continuarão existindo depois de recarregar o mundo.`
             : '';
 
           return {
@@ -596,7 +596,7 @@ export class MCPExecutors {
           };
         } catch (err: any) {
           const msg = err?.message || String(err);
-          console.error(`❌ [MCPExecutors] Erro na execução do script de código da IA:`, err);
+          console.error(`[MCPExecutors] Erro na execução do script de código da IA:`, err);
           this.logScriptError(rawCode, msg);
           return { result: `Erro ao executar script de código da IA: ${msg}\nUse a ferramenta 'list_recent_errors' se precisar consultar novamente este e outros erros recentes.` };
         }
@@ -709,12 +709,12 @@ export class MCPExecutors {
         const cargas = this.modRuntime?.loadMod(mod) ?? [];
         const falhou = cargas.find((c) => !c.ok);
         if (falhou) {
-          return { result: `${res.message}\n❌ O script não carregou: ${falhou.error}\nCorrija e chame define_mod_script de novo.` };
+          return { result: `${res.message}\nO script não carregou: ${falhou.error}\nCorrija e chame define_mod_script de novo.` };
         }
 
         const logs = this.modRuntime?.getLogs(alvo.modId, 10) ?? [];
         const resumo = logs.length > 0 ? `\nLog: ${logs.map((l) => `[${l.level}] ${l.message}`).join(' | ')}` : '';
-        return { result: `${res.message}\n✅ Script carregado e ativo.${resumo}` };
+        return { result: `${res.message}\nScript carregado e ativo.${resumo}` };
       }
 
       case 'set_mod_script_enabled': {
