@@ -189,6 +189,35 @@ export class ModRuntime {
     if (changes.length > 0) this.onBlocksChanged(ctx.mod.id, changes);
   }
 
+  /**
+   * Desfaz os blocos que um mod colocou nesta sessão — item 705.
+   *
+   * ## A guarda que faz isto ser seguro
+   *
+   * Só restaura onde o bloco **ainda é o que o mod pôs**. Se o jogador quebrou aquele bloco
+   * depois, ou construiu por cima, a posição é deixada em paz: reverter sobre uma edição do
+   * jogador destruiria trabalho dele para desfazer o de outro. É a diferença entre "desfazer o
+   * mod" e "voltar o mundo no tempo".
+   *
+   * Devolve as posições revertidas, para o chamador propagar aos convidados e salvar.
+   */
+  public reverterBlocosDoMod(modId: string): { x: number; y: number; z: number; blockType: number }[] {
+    const ctx = this.contexts.get(modId);
+    if (!ctx) return [];
+
+    const revertidos: { x: number; y: number; z: number; blockType: number }[] = [];
+    for (const [chave, { antes, depois }] of ctx.placedBlocks) {
+      const [x, y, z] = chave.split(',').map(Number);
+      if (this.host.getBlock(x, y, z) !== depois) continue; // o jogador mexeu aqui: não tocar
+      if (!this.host.setBlock(x, y, z, antes)) continue;
+      revertidos.push({ x, y, z, blockType: antes });
+    }
+
+    ctx.placedBlocks.clear();
+    if (revertidos.length > 0) this.onBlocksChanged(modId, revertidos);
+    return revertidos;
+  }
+
   /** Diagnóstico para a UI e para o agente: estado de cada mod carregado. */
   public describe(): {
     modId: string;

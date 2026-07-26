@@ -1,0 +1,97 @@
+// Desfazer os blocos de um mod — item 705, e o décimo caso de código dormente.
+//
+// `ModContext.placedBlocks` existia, era preenchido a cada `setBlock` do mod, e trazia o
+// comentário "para reverter com precisão". **Nada revertia** — nem existia função de reverter.
+// O único uso era `blocksPlaced: ctx.placedBlocks.size`, num relatório de diagnóstico.
+//
+// E havia um defeito dentro do defeito: o mapa guardava o bloco **colocado**, não o anterior.
+// Com esse dado a reversão precisa é impossível — dá para saber o que apagar, não o que restaurar
+// no lugar. O mod que trocou terra por pedra deixaria um buraco de ar.
+
+import { describe, it, expect } from 'vitest';
+import { ModHostBridge } from '../../src/mods/ModAPI';
+import { ModRuntime } from '../../src/mods/ModRuntime';
+
+/** Mundo de mentira com blocos numa grade esparsa. Padrão 1 = terra. */
+function hostFalso(): ModHostBridge & { blocos: Map<string, number> } {
+  const blocos = new Map<string, number>();
+  const k = (x: number, y: number, z: number) => `${x},${y},${z}`;
+  return {
+    blocos,
+    getBlock: (x, y, z) => blocos.get(k(x, y, z)) ?? 1,
+    setBlock: (x, y, z, t) => { blocos.set(k(x, y, z), t); return true; },
+    getGroundY: () => 10,
+    spawnEntity: () => 'e1',
+    listEntities: () => [],
+    damageEntity: () => true,
+    playerPosition: () => ({ x: 0, y: 10, z: 0 }),
+    teleportPlayer: () => {},
+    playerHealth: () => 100,
+    giveItem: () => {},
+    toast: () => {},
+    timeOfDay: () => 0.5,
+    modEnv: () => ({ valores: {}, faltando: [] }),
+  } as any;
+}
+
+function comMod(codigo: string) {
+  const host = hostFalso();
+  const rt = new ModRuntime(host);
+  rt.loadMod({
+    id: 'm1', name: 'Mod', revision: 1, enabled: true,
+    scripts: [{ key: 's', code: codigo, enabled: true }],
+  } as any);
+  return { host, rt };
+}
+
+describe('reverterBlocosDoMod', () => {
+  it('CRÍTICO: restaura o bloco ANTERIOR, não deixa um buraco', () => {
+    // O defeito que o mapa antigo garantiria: guardando só o colocado, o melhor que dá para
+    // fazer é apagar — e o mod que trocou terra por pedra deixaria ar no lugar.
+    const { host, rt } = comMod('api.world.setBlock(5, 10, 5, 3);');
+    expect(host.getBlock(5, 10, 5)).toBe(3);
+
+    const revertidos = rt.reverterBlocosDoMod('m1');
+    expect(revertidos).toHaveLength(1);
+    expect(host.getBlock(5, 10, 5)).toBe(1); // terra de volta, não ar
+  });
+
+  it('CRÍTICO: NÃO toca onde o jogador mexeu depois', () => {
+    // A guarda que separa "desfazer o mod" de "voltar o mundo no tempo". Reverter sobre uma
+    // edição do jogador destruiria trabalho dele para desfazer o de outro.
+    const { host, rt } = comMod('api.world.setBlock(1, 10, 1, 3); api.world.setBlock(2, 10, 2, 3);');
+    host.setBlock(1, 10, 1, 7); // o jogador construiu por cima
+
+    const revertidos = rt.reverterBlocosDoMod('m1');
+    expect(host.getBlock(1, 10, 1)).toBe(7);  // preservado
+    expect(host.getBlock(2, 10, 2)).toBe(1);  // revertido
+    expect(revertidos).toHaveLength(1);
+  });
+
+  it('CRÍTICO: escrita dupla na mesma posição guarda o `antes` da PRIMEIRA', () => {
+    // O estado que interessa é o do mundo antes de o mod tocar ali. Guardar o da última escrita
+    // restauraria um valor que o próprio mod pôs.
+    const { host, rt } = comMod('api.world.setBlock(0, 10, 0, 3); api.world.setBlock(0, 10, 0, 4);');
+    expect(host.getBlock(0, 10, 0)).toBe(4);
+    rt.reverterBlocosDoMod('m1');
+    expect(host.getBlock(0, 10, 0)).toBe(1);
+  });
+
+  it('reverter duas vezes não desfaz nada a mais', () => {
+    const { host, rt } = comMod('api.world.setBlock(3, 10, 3, 3);');
+    rt.reverterBlocosDoMod('m1');
+    host.setBlock(3, 10, 3, 9); // o jogador construiu depois da reversão
+    expect(rt.reverterBlocosDoMod('m1')).toEqual([]);
+    expect(host.getBlock(3, 10, 3)).toBe(9);
+  });
+
+  it('mod desconhecido devolve lista vazia, sem estourar', () => {
+    const { rt } = comMod('');
+    expect(rt.reverterBlocosDoMod('nao-existe')).toEqual([]);
+  });
+
+  it('mod que não colocou nada não reverte nada', () => {
+    const { rt } = comMod('api.log("oi");');
+    expect(rt.reverterBlocosDoMod('m1')).toEqual([]);
+  });
+});

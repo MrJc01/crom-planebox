@@ -90,8 +90,14 @@ export class ModContext {
   public readonly logs: ModLogEntry[] = [];
   /** Scripts desligados por falharem demais, com o motivo. */
   public readonly disabledScripts = new Map<string, string>();
-  /** Blocos que este mod alterou nesta sessão, para reverter com precisão. */
-  public readonly placedBlocks = new Map<string, number>();
+  /**
+   * Blocos que este mod alterou nesta sessão, para reverter com precisão.
+   *
+   * Guarda **os dois** valores: o que estava antes e o que o mod pôs. Guardar só o colocado —
+   * como era — torna a reversão precisa impossível: dá para saber o que apagar, não o que
+   * restaurar no lugar. O `antes` é o que devolve o terreno original em vez de deixar um buraco.
+   */
+  public readonly placedBlocks = new Map<string, { antes: number; depois: number }>();
   private errorCount = new Map<string, number>();
 
   constructor(public readonly mod: ModPackage) {}
@@ -177,9 +183,15 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
     const fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z);
     if (!Number.isFinite(fx) || !Number.isFinite(fy) || !Number.isFinite(fz)) return false;
     const t = resolveBlock(ref);
+    // Lido ANTES de escrever: depois já é tarde, e é justamente este valor que a reversão
+    // precisa para restaurar o terreno em vez de abrir um buraco.
+    const antes = host.getBlock(fx, fy, fz);
     if (!host.setBlock(fx, fy, fz, t)) return false;
     pending.push({ x: fx, y: fy, z: fz, blockType: t });
-    ctx.placedBlocks.set(`${fx},${fy},${fz}`, t);
+    // Se o mod escrever duas vezes na mesma posição, o `antes` que interessa é o da PRIMEIRA:
+    // é o estado do mundo antes de o mod tocar ali.
+    const ja = ctx.placedBlocks.get(`${fx},${fy},${fz}`);
+    ctx.placedBlocks.set(`${fx},${fy},${fz}`, { antes: ja ? ja.antes : antes, depois: t });
     return true;
   };
 

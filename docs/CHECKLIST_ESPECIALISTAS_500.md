@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1254 itens)
+# Checklist Mestre — Painel de Especialistas (1259 itens)
 
-> **Estado em 26/07/2026** — 578 de 1254 itens tratados (46%), com **829 testes** passando,
+> **Estado em 26/07/2026** — 586 de 1259 itens tratados (46%), com **835 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 495 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 676 | Pendente. |
+> | `[x]` | 86 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 500 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 673 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -608,7 +608,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 427 `P1` Inventário criativo com abas
 - [x] 428 `P1` Chat com threads e histórico por mundo
 - [x] 429 `P1` Gerenciador central de UI com lock de ponteiro
-- [ ] 430 `P0` Painel de mods (listar, ativar, remover, exportar) na UI
+- [x] 430 `P0` ~~Painel de mods na UI~~ — **auditado, já existe** em `ModsPage`: listar, ativar, remover, exportar
 - [ ] 431 `P1` Feedback visual quando a IA está construindo (progresso, não só spinner)
 - [ ] 432 `P1` Remapeamento de teclas
 - [ ] 433 `P1` Suporte a gamepad
@@ -992,7 +992,7 @@ anterior no contexto. Resolvido com 1 mod → N sessões.*
 - [~] 639 `P0` **`export_mod` entrega a ESTRUTURA, sem conversa, quarentena ou ids locais**
 - [~] 640 `P1` **Database v6 com a tabela `modRevisions`**
 - [~] 641 `P1` **Cobertura de testes de sessão, versionamento e isolamento** (15 testes)
-- [ ] 642 `P0` Painel de mods na UI: listar, ativar, versões, rollback, exportar
+- [x] 642 `P0` ~~Painel de mods com versões e rollback~~ — **auditado, já existe**: aba Versões e `rollbackMod`
 - [ ] 643 `P1` Aba de sessões mostrando a qual mod cada uma pertence
 - [ ] 644 `P1` Diff legível entre duas revisões ("+2 blocos, −1 estrutura")
 - [ ] 645 `P1` Limite de revisões por mod, com poda das mais antigas
@@ -1131,7 +1131,7 @@ malfeito. Falta fechar o cerco nas ferramentas que ainda escrevem fora do escopo
 - [~] 702 `P0` **Leitura ampla continua liberada** (`list_mods`, `query_world_area`, snapshots)
 - [~] 703 `P1` **Mensagem única e acionável ao tentar escrever numa sessão livre**
 - [ ] 704 `P0` `set_block`/`fill_box`/`execute_voxel_script` também atribuídos ao mod da sessão
-- [ ] 705 `P0` Registrar no mod quais blocos do mundo ele colocou, para reverter com precisão
+- [~] 705 `P0` **Reversão precisa dos blocos de um mod** — o registro existia e nada revertia; e ele guardava o bloco errado
 - [ ] 706 `P1` `read_mod` para inspecionar outro mod sem poder alterá-lo
 - [ ] 707 `P1` Ferramenta de leitura do projeto (arquivos/estrutura) para o agente se situar
 - [ ] 708 `P1` Orçamento de alterações por sessão, com aviso ao estourar
@@ -3088,3 +3088,36 @@ mesmo problema, e o agente que lê isso tende a tratar como cinco correções se
 - [~] 1268 `P1` **Limiar calibrado em 0,055** — alto demais proibiria variações legítimas, e o agente passaria a inventar cores berrantes para passar na validação: pior que o problema original
 - [~] 1269 `P1` **11 testes**, incluindo o que prova a ponderação perceptual (par verde vs par azul de mesma distância RGB)
 - [~] 1270 `P2` **Testes do `ModService` ganharam cores reais** — usavam `topColor: 0` como valor descartável, e o validador (corretamente) passou a recusar
+
+## 55. O décimo caso — e um defeito dentro do defeito
+
+Auditei três `P0` antes de escrever código, porque este repositório tem histórico. Dois estavam
+**feitos**: o painel de mods (430, 642) já lista, ativa, remove, exporta, mostra versões e faz
+rollback. Marcados como verificados, sem retrabalho.
+
+O terceiro, 705, era o **décimo caso de código dormente** — e o mais irônico até agora.
+
+`ModContext.placedBlocks` existia, era preenchido a cada `setBlock` do mod, e trazia o comentário
+*"para reverter com precisão"*. **Nada revertia.** Não existia nem função de reverter. O único uso
+era `blocksPlaced: ctx.placedBlocks.size`, num relatório de diagnóstico.
+
+### O defeito dentro do defeito
+
+O mapa guardava o bloco **colocado**, não o anterior. Com esse dado a reversão precisa é
+**impossível**: dá para saber o que apagar, não o que restaurar no lugar. Um mod que trocou terra
+por pedra deixaria um buraco de ar.
+
+Ou seja: mesmo que alguém tivesse escrito a função de reverter, ela não teria como funcionar
+direito — e o comentário prometendo precisão estaria mentindo desde sempre.
+
+### A guarda que separa desfazer de voltar no tempo
+
+A reversão só restaura onde o bloco **ainda é o que o mod pôs**. Se o jogador quebrou aquilo
+depois, ou construiu por cima, a posição fica em paz. Reverter sobre uma edição do jogador
+destruiria trabalho dele para desfazer o de outro.
+
+- [~] 1271 `P0` **`placedBlocks` passou a guardar `{ antes, depois }`** — o `antes` é o que devolve o terreno em vez de abrir um buraco
+- [~] 1272 `P0` **`reverterBlocosDoMod`**, com a guarda "só onde ainda é o que o mod pôs"
+- [~] 1273 `P1` **Escrita dupla na mesma posição guarda o `antes` da primeira** — o estado que interessa é o do mundo antes de o mod tocar ali, não o que o próprio mod pôs no passo anterior
+- [~] 1274 `P1` **6 testes**, incluindo o caso do jogador que construiu por cima
+- [x] 430, 642 **Auditados** — o painel de mods já fazia tudo o que os itens pediam
