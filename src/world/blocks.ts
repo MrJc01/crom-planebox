@@ -295,6 +295,25 @@ export function isSolid(t: number): boolean { return BLOCKS[t]?.solid ?? false; 
 export function isOpaque(t: number): boolean { return BLOCKS[t]?.opaque ?? false; }
 export function isDecor(t: number): boolean { return BLOCKS[t]?.decor ?? false; }
 export function isLeaves(t: number): boolean { return t === B.LEAVES || t === B.PINE_LEAVES; }
+
+/**
+ * Canal de tingimento sazonal de um bloco: 0 = nenhum, 1 = folhagem, 2 = grama.
+ *
+ * Isto viaja como **um byte por vértice** até o shader, e é o que permite o outono pintar o mundo
+ * sem regerar chunk nenhum: mudar a cor da folhagem é trocar um uniform, não remontar geometria.
+ *
+ * Blocos de mod entram sozinhos, pelas propriedades: um bloco `decor` não sólido é folhagem, do
+ * mesmo jeito que já herda o som de folhagem em `materialOf`. Um mod que cria "samambaia" ganha
+ * outono de graça, sem declarar nada.
+ */
+export function seasonTintOf(t: number): 0 | 1 | 2 {
+  if (isLeaves(t)) return 1;
+  const def = BLOCKS[t];
+  if (!def || def.reserved) return 0;
+  if (t === B.GRASS) return 2;
+  if (def.decor && !def.solid) return 1;
+  return 0;
+}
 export function isLog(t: number): boolean { return t === B.LOG || t === B.PINE_LOG; }
 /** Bloco que serve de apoio para estruturas (terreno natural). */
 export function isSupport(t: number): boolean {

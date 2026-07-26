@@ -204,6 +204,35 @@ export function estadoSazonal(dia: number, pesos: PesoBioma[]): EstadoSazonal {
   return { estacao: de, proxima: para, travessia: t, forca, efeito: atenuar(acc, forca) };
 }
 
+/**
+ * Cor multiplicativa da folhagem para um estado sazonal.
+ *
+ * `folhagem` do perfil vai de -1 (frio, verde-azulado da primavera) a 1 (quente, laranja do
+ * outono). Multiplicativa, e não absoluta, por dois motivos: preserva a luz e a oclusão já
+ * assadas na cor do vértice, e faz a folha de pinheiro escurecer sem virar laranja — o outono
+ * atua sobre a cor que o bloco já tinha, como na realidade.
+ *
+ * Devolve [1,1,1] no neutro, que é o "sem efeito" exato.
+ */
+export function corDaFolhagem(e: EstadoSazonal): [number, number, number] {
+  const f = Math.max(-1, Math.min(1, e.efeito.folhagem));
+  if (f >= 0) {
+    // Para o quente: vermelho sobe, verde cai um pouco, azul cai bastante.
+    return [1 + f * 0.55, 1 - f * 0.18, 1 - f * 0.62];
+  }
+  // Para o frio: azul sobe, vermelho cai — o verde da primavera é mais claro e mais frio.
+  const g = -f;
+  return [1 - g * 0.18, 1 + g * 0.08, 1 + g * 0.22];
+}
+
+/** Mesma ideia para a grama, com metade da amplitude — grama não fica laranja como folha. */
+export function corDaGrama(e: EstadoSazonal): [number, number, number] {
+  const f = Math.max(-1, Math.min(1, e.efeito.grama));
+  if (f >= 0) return [1 + f * 0.38, 1 - f * 0.10, 1 - f * 0.45];
+  const g = -f;
+  return [1 - g * 0.10, 1 + g * 0.05, 1 + g * 0.15];
+}
+
 /** Nome legível, mostrando a travessia quando há uma. */
 export function descreverEstacao(e: EstadoSazonal): string {
   const base = NOMES_ESTACAO[e.estacao];

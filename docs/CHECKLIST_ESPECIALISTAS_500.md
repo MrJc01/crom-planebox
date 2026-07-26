@@ -2151,7 +2151,7 @@ azuladas, luz quente. Sem gradação, mini-blocos e AO entregam só metade do re
 - [ ] 1077 `P0` Mapeamento de tom (ACES ou Reinhard) — sem ele o céu estoura em branco
 - [ ] 1078 `P1` Sombras puxadas para o azul e luzes para o âmbar, que é a assinatura da referência
 - [ ] 1079 `P1` Saturação por bioma: deserto lavado, selva saturada, tundra quase cinza
-- [ ] 1080 `P1` Interpolação da gradação entre biomas, pelos mesmos pesos do item 1063
+- [~] 1080 `P1` **Interpolação do tingimento entre biomas, pelos mesmos pesos do 1063**
 - [ ] 1081 `P1` Vinheta sutil e aberração cromática mínima nas bordas — desligáveis
 - [ ] 1082 `P1` Predefinições de gradação selecionáveis nas opções ("natural", "cinema", "vívido", "nenhuma")
 - [ ] 1083 `P2` LUT carregável por mod, para um mod poder dar identidade visual própria
@@ -2184,7 +2184,7 @@ de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite 
 - [~] 1101 `P1` **Chuva para no primeiro sólido abaixo — "não chove dentro de casa" sai de graça**
 - [~] 1102 `P1` **Som de chuva e trovão pelo sintetizador, sem arquivo de áudio**
 - [~] 1103 `P1` **Clarão do relâmpago e trovão atrasado pela distância**
-- [ ] 1104 `P1` Chuva escurece e satura a cor do terreno enquanto molha
+- [~] 1104 `P1` **Chuva escurece a cor do terreno enquanto molha, pelo mesmo canal**
 - [~] 1105 `P1` **Neve cai com queda e deriva próprias (acúmulo como bloco fino ainda pendente)**
 - [~] 1106 `P1` **Clima modula a névoa e a luz do céu, como multiplicadores**
 - [ ] 1107 `P2` Chuva enche recipientes e alimenta os fluidos finitos existentes
@@ -2226,7 +2226,7 @@ com estações próprias sem escrever lógica.
 - [~] 1114 `P0` **`PerfilSazonal` declarativo — **só números**, nenhum `switch` no motor**
 - [~] 1115 `P0` **Interpolação entre estações, com platô no coração de cada uma**
 - [~] 1116 `P0` **Derivado do `worldDay`, que já é sincronizado pelo `world_time`**
-- [ ] 1117 `P1` Folhagem mudando de cor no outono e caindo, sem regerar o chunk (só a cor do vértice)
+- [~] 1117 `P1` **Folhagem muda de cor na estação **sem regerar o chunk** — canal `aTint` + uniform**
 - [ ] 1118 `P1` Inverno cobre de neve e congela a superfície da água — com os fluidos finitos já existentes
 - [ ] 1119 `P1` Primavera acelera o crescimento de plantas; inverno o interrompe
 - [ ] 1120 `P1` Duração do dia varia com a estação — inverno com noite mais longa
@@ -2293,6 +2293,31 @@ Um teste existente reprovou o trovão por ser mais longo que o som de morte. O i
 legítimo, mas sobre **resposta a ação**: nenhum retorno de ato do jogador pode se arrastar mais
 que a própria morte. Trovão é atmosférico. O teste foi **escopado**, não afrouxado — encurtar o
 trovão para caber nele seria deixar o teste ditar o jogo.
+
+#### O outono sem remontar chunk
+
+Ao terminar as estações percebi que **elas não eram visíveis**: mudavam o clima e o painel F3, e
+nada mais. Um sistema inteiro que o jogador não enxerga.
+
+O obstáculo é que a luz e a oclusão estão **assadas na cor dos vértices** — mudar a cor da
+folhagem exigiria remontar o chunk, inaceitável para algo que muda todo dia de calendário.
+
+A saída é um canal novo no mesher: **um byte por vértice** dizendo se aquele vértice responde
+(0 = não, 1 = folhagem, 2 = grama). A *cor* não vai por vértice; ela vive num uniform. O outono
+chega ao mundo inteiro trocando três números.
+
+Três detalhes que decidem se funciona:
+
+- **Multiplicativo, não substitutivo.** Preserva a luz e a oclusão que já estão na cor. Somar ou
+  substituir apagaria o relevo, e a folha de pinheiro viraria laranja em vez de escurecer.
+- **Só o topo da grama.** A lateral de um bloco de grama é terra; pintá-la de laranja deixaria o
+  corte do terreno com cara de bolo.
+- **Um `onBeforeCompile` só.** O three.js guarda **um** por material — uma segunda atribuição
+  apagaria a curvatura em silêncio, e o sintoma seria "a curvatura parou quando o outono chegou".
+
+Blocos de mod entram sozinhos, pelas propriedades: um bloco `decor` não sólido é folhagem, do
+mesmo jeito que já herda o som de folhagem em `materialOf`. Um mod que cria "samambaia" ganha
+outono sem declarar nada — e sem isso, todo bioma criado pela IA ficaria congelado no verão.
 
 ### Ordem recomendada desta seção
 

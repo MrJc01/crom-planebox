@@ -25,13 +25,57 @@ export const curvature = {
 /** Quanto o horizonte afunda, em voxels, no limite da distância de render. */
 export const CURVATURA_QUEDA_PADRAO = 26;
 
-/** Injeta a curvatura no vertex shader de um material three.js. */
+/**
+ * Tingimento sazonal e de chuva, compartilhado pelos materiais dos chunks.
+ *
+ * A luz e a oclusão estão assadas na cor dos vértices, então mudar a cor da folhagem exigiria
+ * remontar o chunk — inaceitável para algo que muda todo dia de calendário. A saída é o canal
+ * `aTint` do mesher: um byte por vértice dizendo *se* aquele vértice responde, e a cor vive
+ * aqui, num uniform. O outono chega ao mundo inteiro trocando três números.
+ *
+ * A operação é **multiplicativa**: preserva o sombreamento e a luz que já estão na cor, em vez
+ * de substituí-los por uma cor chapada.
+ */
+export const tinturas = {
+  /** Cor multiplicada na folhagem. Branco = sem efeito. */
+  folhagem: { value: new THREE.Color(1, 1, 1) },
+  /** Cor multiplicada na grama (só no topo). */
+  grama: { value: new THREE.Color(1, 1, 1) },
+  /** Escurecimento por chuva, aplicado a tudo. 0 = seco. */
+  molhado: { value: 0 },
+};
+
+/**
+ * Injeta curvatura e tingimento no shader de um material de chunk.
+ *
+ * Os dois moram no mesmo `onBeforeCompile` porque o three.js só guarda **um** por material — a
+ * segunda atribuição apagaria a primeira em silêncio, e o sintoma seria "a curvatura parou de
+ * funcionar quando o outono chegou", sem nada apontando para a causa.
+ */
 export function applyCurvature(mat: THREE.Material): void {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uCurvStart = curvature.start;
     shader.uniforms.uCurvInvR = curvature.invR;
+    shader.uniforms.uTintFolhagem = tinturas.folhagem;
+    shader.uniforms.uTintGrama = tinturas.grama;
+    shader.uniforms.uMolhado = tinturas.molhado;
+
+    // O tingimento entra depois de `color_vertex`, onde `vColor` já recebeu a cor do vértice com
+    // luz e oclusão dentro. Multiplicar preserva as duas; somar ou substituir apagaria o relevo.
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <color_vertex>',
+      `#include <color_vertex>
+       #ifdef USE_COLOR
+         if (aTint > 1.5) vColor.rgb *= uTintGrama;
+         else if (aTint > 0.5) vColor.rgb *= uTintFolhagem;
+         vColor.rgb *= 1.0 - uMolhado * 0.28;
+       #endif`,
+    );
+
     shader.vertexShader =
       'uniform float uCurvStart;\nuniform float uCurvInvR;\n' +
+      'uniform vec3 uTintFolhagem;\nuniform vec3 uTintGrama;\nuniform float uMolhado;\n' +
+      'attribute float aTint;\n' +
       shader.vertexShader.replace(
         '#include <project_vertex>',
         `vec4 cqWorld = modelMatrix * vec4(transformed, 1.0);
@@ -42,7 +86,7 @@ export function applyCurvature(mat: THREE.Material): void {
          gl_Position = projectionMatrix * mvPosition;`,
       );
   };
-  mat.customProgramCacheKey = () => 'cq-curvature';
+  mat.customProgramCacheKey = () => 'cq-curvature-tint';
 }
 
 export interface GameScene {
@@ -68,6 +112,11 @@ export interface GameScene {
    * `luz` escurece o céu; `alcance` fecha a névoa.
    */
   setWeather(luz: number, alcance: number): void;
+  /**
+   * Cor multiplicativa da folhagem e da grama, e o quanto o chão está molhado.
+   * Não remonta chunk: só troca uniforms lidos pelo canal `aTint` do mesher.
+   */
+  setSeasonTint(folhagem: [number, number, number], grama: [number, number, number], molhado: number): void;
   /** Clarão do relâmpago, 0..1. Ilumina a cena sem marcar chunk como sujo. */
   setLightningFlash(v: number): void;
   /** Fase lunar (0 = nova, 4 = cheia). Governa a claridade da noite e o desenho da lua. */
@@ -308,6 +357,19 @@ export function createScene(container: HTMLElement): GameScene {
     }
   }
 
+  /**
+   * Tingimento sazonal e de chuva. Barato de propósito: três uniforms, nenhuma geometria tocada.
+   */
+  function setSeasonTint(
+    folhagem: [number, number, number],
+    grama: [number, number, number],
+    molhado: number,
+  ): void {
+    tinturas.folhagem.value.setRGB(folhagem[0], folhagem[1], folhagem[2]);
+    tinturas.grama.value.setRGB(grama[0], grama[1], grama[2]);
+    tinturas.molhado.value = Math.max(0, Math.min(1, molhado));
+  }
+
   function setWeather(luz: number, alcance: number): void {
     const mudouAlcance = Math.abs(alcance - alcanceClima) > 1e-4;
     luzClima = luz;
@@ -329,5 +391,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

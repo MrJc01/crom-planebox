@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { pesosDeBioma } from '../../src/world/biomes';
 import {
   DIAS_POR_ANO,
+  corDaFolhagem,
+  corDaGrama,
   DIAS_POR_ESTACAO,
   ESTACOES,
   EstacaoId,
@@ -209,5 +211,67 @@ describe('estadoSazonal — as invariantes de quem consome', () => {
   it('a descrição mostra a travessia só quando há uma', () => {
     expect(descreverEstacao(estadoSazonal(1, FLORESTA()))).not.toContain('→');
     expect(descreverEstacao(estadoSazonal(DIAS_POR_ESTACAO - 0.2, FLORESTA()))).toContain('→');
+  });
+});
+
+describe('cores do tingimento — o que o jogador vê', () => {
+  it('CRÍTICO: no neutro a cor é [1,1,1] — sem efeito é sem efeito', () => {
+    // Multiplicar por 1 preserva exatamente a luz e a oclusão já assadas no vértice. Qualquer
+    // desvio aqui tingiria o mundo inteiro de leve o ano todo, em todo bioma não sazonal.
+    const neutro = estadoSazonal(0, []);
+    expect(corDaFolhagem(neutro)).toEqual([1, 1, 1]);
+    expect(corDaGrama(neutro)).toEqual([1, 1, 1]);
+  });
+
+  it('CRÍTICO: o outono puxa a folhagem para o quente', () => {
+    const outono = estadoSazonal(DIAS_POR_ESTACAO * 2 + 1, FLORESTA());
+    const [r, , b] = corDaFolhagem(outono);
+    expect(r).toBeGreaterThan(1);
+    expect(b).toBeLessThan(1);
+  });
+
+  it('a primavera puxa para o frio, no sentido oposto ao outono', () => {
+    const primavera = estadoSazonal(1, FLORESTA());
+    const [r, , b] = corDaFolhagem(primavera);
+    expect(r).toBeLessThanOrEqual(1);
+    expect(b).toBeGreaterThanOrEqual(1);
+  });
+
+  it('o bioma que ignora estações fica perto do neutro o ano todo', () => {
+    for (let d = 0; d < DIAS_POR_ANO; d += 0.5) {
+      for (const c of corDaFolhagem(estadoSazonal(d, DESERTO()))) {
+        expect(Math.abs(c - 1)).toBeLessThan(0.2);
+      }
+    }
+  });
+
+  it('a grama tinge menos que a folhagem — grama não fica laranja como folha', () => {
+    const outono = estadoSazonal(DIAS_POR_ESTACAO * 2 + 1, FLORESTA());
+    const desvio = (c: [number, number, number]): number =>
+      Math.max(...c.map((v) => Math.abs(v - 1)));
+    expect(desvio(corDaGrama(outono))).toBeLessThan(desvio(corDaFolhagem(outono)));
+  });
+
+  it('CRÍTICO: nenhum canal fica negativo, em nenhum dia', () => {
+    // Um canal negativo vira preto no shader e não avisa: o sintoma seria uma árvore preta.
+    for (let d = -50; d < DIAS_POR_ANO * 3; d += 0.19) {
+      for (const pesos of [FLORESTA(), TUNDRA(), DESERTO(), []]) {
+        for (const c of [...corDaFolhagem(estadoSazonal(d, pesos)), ...corDaGrama(estadoSazonal(d, pesos))]) {
+          expect(c).toBeGreaterThan(0);
+          expect(c).toBeLessThan(2);
+        }
+      }
+    }
+  });
+
+  it('a cor varia continuamente ao longo do ano — o outono não chega de um dia para o outro', () => {
+    let ant = corDaFolhagem(estadoSazonal(0, FLORESTA()));
+    let maior = 0;
+    for (let d = 0; d < DIAS_POR_ANO * 2; d += 0.01) {
+      const c = corDaFolhagem(estadoSazonal(d, FLORESTA()));
+      for (let i = 0; i < 3; i++) maior = Math.max(maior, Math.abs(c[i] - ant[i]));
+      ant = c;
+    }
+    expect(maior).toBeLessThan(0.01);
   });
 });

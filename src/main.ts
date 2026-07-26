@@ -5,7 +5,7 @@ import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
 import { WorldGen, WATER_LEVEL } from './world/worldgen';
 import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
-import { EstadoSazonal, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
+import { EstadoSazonal, corDaFolhagem, corDaGrama, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
 import { Precipitation, Relampago } from './render/precipitation';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
@@ -1628,6 +1628,9 @@ async function bootstrap() {
         modRuntime.dispatch('weatherChange', { weather: clima.clima, previous: climaAnterior });
       }
       gs.setWeather(clima.luz, clima.alcanceNeblina);
+      // O outono pinta o mundo trocando três números num uniform. Nenhum chunk é remontado —
+      // o canal `aTint` do mesher já disse quais vértices respondem.
+      gs.setSeasonTint(corDaFolhagem(estacao), corDaGrama(estacao), clima.molha);
     }
     gs.setBiomeAmbience(
       misturarCor(pesosBioma, 'neblina'),

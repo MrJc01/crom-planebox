@@ -10,7 +10,7 @@
 //  - água em geometria separada (transparente)
 //  - decoração (capim/flores/junco) como caixinhas menores
 
-import { B, getBlockDef, isOpaque, isDecor, isFluid } from './blocks';
+import { B, getBlockDef, isOpaque, isDecor, isFluid, seasonTintOf } from './blocks';
 import { buildLightTable } from './lighting';
 import { CX, CY, CZ } from './chunk';
 import { hash3 } from '../core/rng';
@@ -54,6 +54,14 @@ class GeoBuffer {
   pos: number[] = [];
   col: number[] = [];
   idx: number[] = [];
+  /**
+   * Canal de tingimento sazonal, um byte por vértice (ver `seasonTintOf`).
+   *
+   * Um byte, e não uma cor: a cor do outono é a mesma para o mundo inteiro e vive num uniform.
+   * O que varia por vértice é só *se* aquele vértice responde. Guardar a cor aqui multiplicaria
+   * o custo por doze e exigiria remontar o chunk a cada dia do calendário.
+   */
+  tint: number[] = [];
   vcount = 0;
 
   quad(
@@ -63,6 +71,7 @@ class GeoBuffer {
     ao: [number, number, number, number],
     scale: [number, number, number] = [1, 1, 1],
     offset: [number, number, number] = [0, 0, 0],
+    tint = 0,
   ): void {
     const { v } = face;
     for (let i = 0; i < 4; i++) {
@@ -73,6 +82,7 @@ class GeoBuffer {
       );
       const a = ao[i];
       this.col.push(r * a, g * a, b * a);
+      this.tint.push(tint);
     }
     const s = this.vcount;
     // flip do quad para AO consistente (evita o artefato de anisotropia)
@@ -96,6 +106,7 @@ class GeoBuffer {
       pos: new Float32Array(this.pos),
       col: new Float32Array(this.col),
       idx: new Uint32Array(this.idx),
+      tint: new Uint8Array(this.tint),
     };
   }
 }
@@ -113,6 +124,8 @@ export interface RawGeometry {
   pos: Float32Array;
   col: Float32Array;
   idx: Uint32Array;
+  /** Um byte por vértice: 0 = sem tingimento, 1 = folhagem, 2 = grama. */
+  tint: Uint8Array;
 }
 
 export interface ChunkGeometryRaw {
@@ -126,7 +139,12 @@ export function transferablesOf(g: ChunkGeometryRaw): Transferable[] {
   const out: Transferable[] = [];
   for (const parte of [g.solid, g.water, g.glass]) {
     if (!parte) continue;
-    out.push(parte.pos.buffer as ArrayBuffer, parte.col.buffer as ArrayBuffer, parte.idx.buffer as ArrayBuffer);
+    out.push(
+      parte.pos.buffer as ArrayBuffer,
+      parte.col.buffer as ArrayBuffer,
+      parte.idx.buffer as ArrayBuffer,
+      parte.tint.buffer as ArrayBuffer,
+    );
   }
   return out;
 }
@@ -190,6 +208,7 @@ function meshChunkBuffers(padded: Uint8Array, cx: number, cz: number, light?: Ui
         }
 
         const def = getBlockDef(t);
+        const tintDoBloco = seasonTintOf(t);
         const j = (hash3(wx, y, wz, 4242) * 2 - 1) * 0.045;
 
         for (let f = 0; f < FACES.length; f++) {
@@ -230,7 +249,9 @@ function meshChunkBuffers(padded: Uint8Array, cx: number, cz: number, light?: Ui
           }
 
           const targetBuf = (t === B.GLASS) ? glass : solid;
-          targetBuf.quad(x, y, z, face, r, g, b, ao);
+          // Só o topo da grama é tingido: a lateral de um bloco de grama é terra, e pintá-la de
+          // laranja no outono deixaria o corte do terreno com cara de bolo.
+          targetBuf.quad(x, y, z, face, r, g, b, ao, [1, 1, 1], [0, 0, 0], tintDoBloco === 2 && f !== 0 ? 0 : tintDoBloco);
         }
       }
     }
@@ -277,6 +298,7 @@ function addDecor(buf: GeoBuffer, t: number, x: number, y: number, z: number, wx
       col[0] * sh, col[1] * sh, col[2] * sh,
       [1, 1, 1, 1],
       [sx, sy, sz], [px, 0, pz],
+      seasonTintOf(t),
     );
   }
 }

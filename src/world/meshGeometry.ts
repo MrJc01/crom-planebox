@@ -18,6 +18,9 @@ export function geometryFromRaw(bruto: RawGeometry): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(bruto.pos, 3));
   g.setAttribute('color', new THREE.BufferAttribute(bruto.col, 3));
+  // Canal sazonal: um byte por vértice dizendo se ele responde ao outono (ver `seasonTintOf`).
+  // `normalized: false` de propósito — o shader compara com 1 e 2, não com uma fração.
+  g.setAttribute('aTint', new THREE.BufferAttribute(bruto.tint, 1));
   g.setIndex(new THREE.BufferAttribute(bruto.idx, 1));
   g.computeVertexNormals();
   return g;

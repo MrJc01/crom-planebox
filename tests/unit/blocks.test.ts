@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { B, BLOCKS, isSolid, isOpaque, isReplaceable, isSupport, isDecor } from '../../src/world/blocks';
+import { B, BLOCKS, CUSTOM_BLOCK_ID_BASE, isSolid, isOpaque, isReplaceable, isSupport, isDecor, registerCustomBlockAt, resetCustomBlocks, seasonTintOf } from '../../src/world/blocks';
 
 describe('blocks.ts', () => {
   it('AIR não é sólido, não é opaco e é substituível', () => {
@@ -52,6 +52,43 @@ describe('blocks.ts', () => {
     for (const decor of [B.TALL_GRASS, B.FLOWER_RED, B.FLOWER_YELLOW]) {
       expect(isDecor(decor)).toBe(true);
       expect(isSolid(decor)).toBe(false);
+    }
+  });
+});
+
+describe('seasonTintOf — quem responde ao outono', () => {
+  it('CRÍTICO: folhas são folhagem, grama é grama, pedra não responde', () => {
+    expect(seasonTintOf(B.LEAVES)).toBe(1);
+    expect(seasonTintOf(B.PINE_LEAVES)).toBe(1);
+    expect(seasonTintOf(B.GRASS)).toBe(2);
+    expect(seasonTintOf(B.STONE)).toBe(0);
+    expect(seasonTintOf(B.SAND)).toBe(0);
+    expect(seasonTintOf(B.WATER)).toBe(0);
+  });
+
+  it('CRÍTICO: bloco de mod herda o tingimento das propriedades, sem declarar nada', () => {
+    // Mesmo princípio de `materialOf` no áudio: um mod que cria "samambaia" ganha outono de
+    // graça. Sem isto, todo bioma criado pela IA ficaria congelado no verão.
+    resetCustomBlocks();
+    const samambaia = registerCustomBlockAt(CUSTOM_BLOCK_ID_BASE, {
+      name: 'samambaia', topColor: 0x2f8f3a, decor: true, solid: false, opaque: false,
+    });
+    const cristal = registerCustomBlockAt(CUSTOM_BLOCK_ID_BASE + 1, {
+      name: 'cristal', topColor: 0x38bdf8, solid: true, opaque: false,
+    });
+    expect(seasonTintOf(samambaia)).toBe(1);
+    expect(seasonTintOf(cristal)).toBe(0);
+    resetCustomBlocks();
+  });
+
+  it('id órfão ou reservado não responde, em vez de quebrar', () => {
+    expect(seasonTintOf(9999)).toBe(0);
+    expect(seasonTintOf(0)).toBe(0);
+  });
+
+  it('devolve só 0, 1 ou 2 — o shader compara com esses valores', () => {
+    for (let id = 0; id < 120; id++) {
+      expect([0, 1, 2]).toContain(seasonTintOf(id));
     }
   });
 });
