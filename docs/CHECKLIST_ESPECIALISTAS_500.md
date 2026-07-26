@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1195 itens)
+# Checklist Mestre — Painel de Especialistas (1194 itens)
 
-> **Estado em 26/07/2026** — 519 de 1195 itens tratados (43%), com **706 testes** passando,
+> **Estado em 26/07/2026** — 513 de 1194 itens tratados (42%), com **728 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 81 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 438 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 676 | Pendente. |
+> | `[x]` | 84 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 429 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 681 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -2636,3 +2636,57 @@ Um detalhe que só aparece medindo: a luminância usa os c### Entregue nesta rod
 - [ ] 1194 `P2` **Persistência da Última Aba Aberta**: O Hub lembra a última aba consultada durante a sessão de jogo
 - [ ] 1195 `P2` **Testes Automatizados de Navegação por Abas**: Validação da troca de abas via Q/E e isolamento de conteúdo em `tabsNavigation.test.ts`
 
+---
+
+## 45. Segunda rodada do relato — 26/07/2026 (o padrão se repetiu duas vezes)
+
+> Esta rodada encontrou **mais dois casos do mesmo defeito estrutural** que a seção 44 já
+> documentava, elevando a contagem de cinco para sete. Vale registrar porque o padrão agora é
+> inegável: neste repositório, o modo dominante de falha **não é código errado — é código certo
+> que ninguém invoca**.
+
+| # | O que estava escrito, correto e testado | O que faltava |
+|---|---|---|
+| 6 | O shader da onda da água, com as duas senoides e o uniform de tempo | `createScene` chamava `applyCurvature(waterMaterial)` **sem o segundo argumento**, então o ramo `ehAgua` era sempre falso. A água nunca ondulou. |
+| 7 | A tabela `CAMADA` em `theme.ts`, com o comentário *"concentradas aqui para não haver disputa de z-index entre telas"* | **Sete das nove telas a ignoravam** e escreviam `z-index` literal. |
+
+### A causa de "às vezes os menus ficam sobrepostos"
+
+A palavra que resolve o relato é **"às vezes"**. Quando dois elementos empatam no `z-index`, o
+desempate é a ordem no DOM — que depende de qual tela foi construída primeiro. **Um bug que muda
+de comportamento sem o código mudar é quase sempre um empate em algum lugar.**
+
+Duas causas, e a segunda é a grave:
+
+1. **Empate.** HUD (aviso), `InventoryModal` e `ChatOverlay` estavam os três em `z-index: 100`.
+2. **Ordem invertida.** As telas **bloqueantes** estavam em 60–63 e o chat, que é **flutuante**,
+   em 90–100. O chat desenhava por cima da página de mods — a tela que deveria estar bloqueando
+   tudo era a que ficava por baixo.
+
+### Entregue
+
+- [~] 1179 `P0` **Onda da água ligada** — `applyCurvature(waterMaterial, true)`, e também na água em aparição, senão o lago pararia de ondular durante os 0,6 s do surgimento do chunk
+- [~] 1180 `P0` **Três testes de fiação da onda**, que leem o código fonte de `scene.ts`. Textuais, com a fragilidade que isso implica, e ainda assim válidos: falham exatamente no acidente ocorrido. O ideal seria instanciar `createScene`, mas ela constrói um `WebGLRenderer` e jsdom não tem GPU.
+- [~] 1181 `P0` **Todo `z-index` passou a sair de `CAMADA`** — nenhum literal em `src/`
+- [~] 1182 `P0` **Regra codificada: bloqueante sempre acima de flutuante**
+- [~] 1183 `P1` **Teste que varre `src/ui/` e `main.ts` e reprova `z-index` literal** — a tabela existir nunca impediu ninguém de ignorá-la (item 1157, antecipado)
+- [~] 1184 `P1` **Camadas para toast e para a dica de retomada**, que antes eram números soltos
+- [~] 1185 `P1` **Uma branch só.** `main` recebeu os 39 commits de `feat/mods-fluidos-personagem`; a branch de trabalho e a `claude/game-system-ai-mods-3f30f7` (worktree órfã) foram removidas local e remotamente, depois de conferido que nenhuma tinha commit exclusivo.
+
+### O que já veio pronto do seu lado
+
+Ao retomar, encontrei no `SignalingClient` e no `PeerSync` o que a seção 44 listava como pendente
+em multijogador: **`BroadcastChannel`** para abas do mesmo navegador (o caminho 100% cliente),
+sinalização **manual por token** e o seletor de modo no `PauseMenu`. Isso cobre 1170, 1172 e 1173.
+
+- [x] 1170 Multijogador local sem servidor, via `BroadcastChannel`
+- [x] 1172 Mensagem de erro do online dizendo o que fazer (`lastError`)
+- [x] 1173 Sinalização manual por copiar/colar
+
+### Pendente
+
+- [ ] 1186 `P0` Migrar `InventoryModal` e `ModsPage` para `Tabs` (1147/1149 seguem abertos)
+- [ ] 1187 `P1` Layout do inventário em duas colunas, como a referência (1150)
+- [ ] 1188 `P1` `npm run relay` e URL padrão preenchida (1171 segue aberto)
+- [ ] 1189 `P1` Sombra das nuvens no chão
+- [ ] 1190 `P2` Teste que compile o GLSL de verdade, com WebGL headless — hoje nada compila os shaders, e o sintoma de um erro é o terreno sumir
