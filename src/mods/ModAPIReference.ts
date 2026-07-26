@@ -11,7 +11,11 @@ export const MOD_API_REFERENCE = {
   resumo:
     'Scripts de mod dão COMPORTAMENTO ao mod (que sozinho é só dados). O script recebe um objeto ' +
     '`api` no escopo e registra handlers com api.on(evento, fn). A superfície abaixo é FECHADA: ' +
-    'não existe window, fetch, document, setTimeout nem import. O que não está aqui, o script não alcança.',
+    'não existe window, fetch, document, setTimeout nem import. O que não está aqui, o script não alcança. ' +
+    'O corpo do script e os handlers podem ser `async`, e as LEITURAS do mundo devem ser escritas ' +
+    'com `await` (ex.: `const b = await api.world.getBlock(x, y, z)`) — hoje elas respondem na hora, ' +
+    'mas vão passar a responder por mensagem quando o script mudar de reino de execução, e um mod ' +
+    'escrito com `await` desde já continuará funcionando sem uma linha alterada.',
 
   comoUsar: [
     '1. get_session_context — descubra qual mod esta sessão edita.',
@@ -101,8 +105,10 @@ export const MOD_API_REFERENCE = {
 
   exemplos: {
     tochaAutomatica: `// Acende uma tocha onde o jogador quebrar um bloco no escuro
-api.on('blockBroken', ({ x, y, z }) => {
-  if (!api.time.isNight()) return;
+// Handler \`async\` e leituras com \`await\`: é o formato que continua valendo quando o
+// script passar a rodar em outro reino de execução e as leituras virarem mensagens.
+api.on('blockBroken', async ({ x, y, z }) => {
+  if (!await api.time.isNight()) return;
   api.world.setBlock(x, y + 1, z, api.B.TORCH);
   api.console.log('tocha em', x, y + 1, z);
 });`,
@@ -123,10 +129,10 @@ api.on('tick', ({ dt }) => {
 });`,
 
     estruturaNoAnoitecer: `// Constrói um abrigo quando anoitece
-api.on('dayPhase', ({ phase }) => {
+api.on('dayPhase', async ({ phase }) => {
   if (phase !== 'anoitecer') return;
-  const p = api.player.position();
-  const y = api.world.getGroundY(Math.floor(p.x), Math.floor(p.z));
+  const p = await api.player.position();
+  const y = await api.world.getGroundY(Math.floor(p.x), Math.floor(p.z));
   api.world.fillBox(p.x - 3, y + 1, p.z - 3, p.x + 3, y + 4, p.z + 3, 'pedra', true);
   api.ui.toast('Abrigo levantado!');
 });`,

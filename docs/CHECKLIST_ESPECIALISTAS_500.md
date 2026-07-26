@@ -2987,8 +2987,8 @@ virar `await`, e isso reescreve o modelo de programação de todo mod já criado
 Não é trabalho de uma passada, e fingir que é seria pior que deixar pendente. O que fica
 registrado, para quem for fazer:
 
-- [ ] 1251 `P0` Tornar a API de mods assíncrona (`await api.world.getBlock(...)`) — **pré-requisito do 358**
-- [ ] 1252 `P0` Migrar os mods existentes, ou manter um modo compatível para os que já existem
+- [~] 1251 `P0` **Corpo e handlers de mod agora são `async`** — o `await` já é válido hoje, com a API síncrona, e continua valendo quando a leitura virar mensagem. Ver a seção 66
+- [~] 1252 `P0` **Não há o que migrar** — os dois formatos são válidos ao mesmo tempo, e a referência que o agente lê passou a ensinar o formato novo, com exemplo
 - [ ] 1253 `P1` Só então mover a execução para o Worker, com os globais do Worker apagados (`fetch`, `importScripts`, `indexedDB`) — no Worker isso funciona de verdade, porque a fuga pelo construtor devolve o global **daquele** reino, que está vazio
 
 ## 52. O caminho de saída de um segredo não é a rede — é o texto
@@ -3782,3 +3782,76 @@ todo o resto do sistema de mods está construído sobre uma fronteira que o pró
 furada.
 
 - [x] 1356 `P1` **Auditoria dos 26 `P0`** — dois corrigidos, cinco frentes identificadas
+
+---
+
+## 66 — A base do sandbox: mods assíncronos sem um dia de ruptura (itens 1251, 1252)
+
+A frente que destrava as outras. O item 358 — rodar o script num Web Worker — é a única coisa que
+fecha a saída por `[].constructor.constructor('return this')()`, hoje documentada num teste que
+**passa quando a fuga funciona**. E a seção 51 já tinha medido o obstáculo: não é o Worker, é a API.
+
+Um Worker só conversa por `postMessage`. Toda leitura do mundo — `api.world.getBlock(x, y, z)` —
+vira ida e volta assíncrona no dia em que o script sair deste reino de execução. Trocar o tipo de
+retorno naquele dia quebraria **todo mod já escrito**, de uma vez, sem aviso.
+
+### A migração que não tem dia de ruptura
+
+O corpo do script virou uma função `async`. Custa nada hoje — `await` sobre um valor que não é
+promessa devolve o próprio valor — e faz os dois formatos serem válidos **ao mesmo tempo**:
+
+```js
+const bloco = await api.world.getBlock(1, 10, 1);   // funciona agora, e continuará funcionando
+```
+
+Um mod escrito assim roda hoje com a API síncrona e continua rodando depois com a do Worker, sem uma
+linha alterada. É por isso que o item 1252 (migrar os mods existentes) não tem o que migrar: não há
+um momento em que os dois mundos deixem de coexistir.
+
+E a referência que o agente lê passou a pedir `await`, **com exemplo** — texto explicando é menos
+eficaz que exemplo demonstrando, porque o agente copia o exemplo. Sem isso, todo mod novo nasceria
+no formato antigo e a migração evitada aqui voltaria a ser necessária, com mais mods para reescrever.
+
+### Três coisas que o corpo `async` quebra, e ninguém veria
+
+**Erro depois de um `await` some.** O `try/catch` do despacho só pega o que estoura antes do primeiro
+`await`; o resto vira promessa rejeitada. Sem tratamento, seria uma rejeição não tratada no console
+— o script continuaria ligado, errando para sempre, e o contador que o desliga nunca subiria.
+
+**A carga reportaria sucesso mentindo.** Sem `await` na compilação, um script que falha depois do
+primeiro `await` seria dado como carregado, e o agente diria ao jogador que está tudo certo.
+
+**Bloco escrito depois do `await` ficaria preso.** A drenagem acontecia uma vez, logo após o
+handler. O que ele escrevesse depois ficaria no buffer — bloco colocado no jogo, ausente do save.
+
+### E uma que o corpo `async` cria
+
+**Reentrância de `tick`.** Um `tick` assíncrono mais lento que um frame seria reentrado 60 vezes por
+segundo, e cada entrada empilharia mais uma. Em segundos há centenas de execuções do mesmo handler
+disputando o mesmo `api.storage` — e o sintoma não é lentidão, é **o estado do mod embaralhado por
+si mesmo**.
+
+Só o `tick` é pulado enquanto está em voo: ele é periódico, e perder uma volta é o que o orçamento de
+tempo já faz. Os outros eventos vêm de uma ação do jogador, e perder um seria perder o fato.
+
+O registro é um `WeakSet` sobre a própria função do handler — um `Set` comum seguraria a função e,
+por ela, o escopo inteiro do script, para sempre.
+
+### O que o despacho continua NÃO fazendo
+
+Ele não espera o mod terminar. Quem chama é o laço de renderização, e esperar entregaria a cada mod o
+poder de congelar o jogo — um handler que nunca resolve travaria a aba inteira. Há teste para isso.
+
+- [~] 1357 `P0` **Corpo do script `async`** em `sandbox.ts`, com o modo estrito preservado
+- [~] 1358 `P0` **Carga aguarda o corpo** antes de reportar sucesso
+- [~] 1359 `P0` **Rejeição de handler contabilizada e capaz de desligar o script**
+- [~] 1360 `P1` **Drenagem de blocos também depois do `await`**
+- [~] 1361 `P1` **Reentrância de `tick` bloqueada**, com teste de que o handler volta a ser chamado depois
+- [~] 1362 `P1` **`ehPromessa` por forma (`.then`), não por `instanceof`** — a promessa vinda do Worker não é `instanceof` a Promise desta janela
+- [~] 1363 `P1` **10 testes novos**, e os 15 existentes migrados para `await`
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1364 `P1` **O orçamento de 4 ms por frame só mede tempo síncrono** — um handler assíncrono escapa dele por completo, e hoje nada limita quanto tempo de relógio um mod pode ocupar entre `await`s
+- [ ] 1365 `P2` **Nada avisa o autor do mod de que ele esqueceu um `await`** — uma leitura sem `await` funciona hoje e vai quebrar no Worker. Um aviso no log ao detectar `getBlock` usado como valor bruto pouparia a descoberta tardia
+- [ ] 1366 `P2` **`unloadMod` não cancela handlers em voo** — o mod é descarregado, mas uma promessa pendente ainda pode chamar `flush` sobre um contexto morto

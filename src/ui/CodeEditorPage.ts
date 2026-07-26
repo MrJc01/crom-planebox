@@ -309,7 +309,7 @@ export class CodeEditorPage implements UIScreen {
     if (!r.ok) { this.statusEl.textContent = `${r.message}`; return; }
 
     // Recarrega já: o valor do editor é ver o efeito sem reiniciar o mundo.
-    const resultados = this.recarregar(this.modId);
+    const resultados = await this.recarregar(this.modId);
     const falhou = resultados.find((x) => !x.ok);
 
     this.statusEl.textContent = falhou
@@ -321,7 +321,7 @@ export class CodeEditorPage implements UIScreen {
     this.onChanged();
   }
 
-  private recarregar(modId: string): { scriptKey: string; ok: boolean; error?: string }[] {
+  private async recarregar(modId: string): Promise<{ scriptKey: string; ok: boolean; error?: string }[]> {
     const mod = this.mods.getMod(modId);
     if (!mod) return [];
     return this.runtime.loadMod(mod as ModPackage);

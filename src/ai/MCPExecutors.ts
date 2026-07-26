@@ -723,7 +723,7 @@ export class MCPExecutors {
         // Recarrega na hora: o agente precisa do resultado (ou do erro) na mesma volta, senão
         // ele reporta sucesso sem saber se o código sequer compila.
         const mod = this.modService.getMod(alvo.modId)!;
-        const cargas = this.modRuntime?.loadMod(mod) ?? [];
+        const cargas = (await this.modRuntime?.loadMod(mod)) ?? [];
         const falhou = cargas.find((c) => !c.ok);
         if (falhou) {
           return { result: `${res.message}\nO script não carregou: ${falhou.error}\nCorrija e chame define_mod_script de novo.` };
@@ -739,7 +739,7 @@ export class MCPExecutors {
         if ('erro' in alvo) return { result: alvo.erro };
         const res = await this.modService.setScriptEnabled(alvo.modId, String(args.key || ''), !!args.enabled);
         const mod = this.modService.getMod(alvo.modId);
-        if (res.ok && mod) this.modRuntime?.loadMod(mod);
+        if (res.ok && mod) await this.modRuntime?.loadMod(mod);
         return { result: res.message };
       }
 

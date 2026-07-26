@@ -14,6 +14,17 @@ import { ModContext, ModEvent, ModHostBridge, buildModAPI } from './ModAPI';
 /** Teto de tempo por frame para o conjunto de todos os `tick`, em milissegundos. */
 export const TICK_BUDGET_MS = 4;
 
+/**
+ * É uma promessa (ou qualquer coisa com `.then`)?
+ *
+ * O teste é por `.then` e não por `instanceof Promise`: um mod pode devolver a promessa de outro
+ * reino de execução — do Worker do item 358, por exemplo — e ela não seria `instanceof` a Promise
+ * desta janela. Verificar a forma em vez da linhagem é o que faz isto continuar valendo depois.
+ */
+function ehPromessa(v: unknown): v is Promise<unknown> {
+  return !!v && typeof (v as { then?: unknown }).then === 'function';
+}
+
 export interface ScriptLoadResult {
   scriptKey: string;
   ok: boolean;
@@ -22,6 +33,14 @@ export interface ScriptLoadResult {
 
 export class ModRuntime {
   private contexts = new Map<string, ModContext>();
+  /**
+   * Handlers assíncronos que ainda não terminaram.
+   *
+   * `WeakSet` e não `Set`: a chave é a própria função do mod, e quando o mod é descarregado ela
+   * deve poder ser coletada sem ninguém precisar lembrar de removê-la daqui. Um `Set` comum
+   * seguraria a função — e, por ela, o escopo inteiro do script — para sempre.
+   */
+  private emVoo = new WeakSet<Function>();
   /**
    * Uma instância de `api` por script, reaproveitada em toda chamada dele.
    *
@@ -56,7 +75,7 @@ export class ModRuntime {
    * limpar o que criou. Sem isso, editar um script no editor acumularia handlers duplicados a
    * cada salvamento.
    */
-  public loadMod(pkg: ModPackage): ScriptLoadResult[] {
+  public async loadMod(pkg: ModPackage): Promise<ScriptLoadResult[]> {
     if (this.contexts.has(pkg.id)) this.unloadMod(pkg.id);
 
     const ctx = new ModContext(pkg);
@@ -66,9 +85,13 @@ export class ModRuntime {
     this.contexts.set(pkg.id, ctx);
 
     const resultados: ScriptLoadResult[] = [];
+    // Em série, e não em paralelo com `Promise.all`: os scripts de um mod se veem pelo mesmo
+    // contexto, e a ordem em que registram handlers é observável. Carregar em paralelo tornaria
+    // essa ordem dependente de quando cada `await` interno resolve — não determinística, e
+    // diferente a cada execução.
     for (const script of pkg.scripts ?? []) {
       if (!script.enabled) continue;
-      resultados.push(this.compile(ctx, script));
+      resultados.push(await this.compile(ctx, script));
     }
 
     this.dispatchTo(ctx, 'load', {});
@@ -86,7 +109,7 @@ export class ModRuntime {
     return api;
   }
 
-  private compile(ctx: ModContext, script: ModScript): ScriptLoadResult {
+  private async compile(ctx: ModContext, script: ModScript): Promise<ScriptLoadResult> {
     // Descarta a instância anterior: recarregar precisa reiniciar o orçamento e o buffer.
     this.apis.delete(`${ctx.mod.id}:${script.key}`);
     const api = this.apiFor(ctx, script.key);
@@ -98,7 +121,11 @@ export class ModRuntime {
       // quem cria, e o corpo continua avaliado no escopo global, com `fetch`, `document`,
       // `localStorage` e `indexedDB` ao alcance. Num projeto onde estes scripts são escritos por
       // uma IA e rodam na mesma origem do cofre de chaves, isso não era um detalhe.
-      compilarScriptDeMod(script.code)(api);
+      // O `await` não é decorativo: com o corpo `async`, um erro **síncrono** do script vira uma
+      // promessa rejeitada. Sem esperá-la aqui, o `catch` abaixo nunca dispararia, o script seria
+      // reportado como carregado com sucesso, e o erro sairia como rejeição não tratada no console
+      // — longe do mod que a causou e sem desligar script nenhum.
+      await compilarScriptDeMod(script.code)(api);
       this.flush(ctx, api);
       return { scriptKey: script.key, ok: true };
     } catch (err: any) {
@@ -112,7 +139,7 @@ export class ModRuntime {
   }
 
   /** Recarrega um script só, sem tocar nos demais do mesmo mod. */
-  public reloadScript(modId: string, scriptKey: string): ScriptLoadResult | null {
+  public async reloadScript(modId: string, scriptKey: string): Promise<ScriptLoadResult | null> {
     const ctx = this.contexts.get(modId);
     if (!ctx) return null;
     const script = (ctx.mod.scripts ?? []).find((s) => s.key === scriptKey);
@@ -170,16 +197,51 @@ export class ModRuntime {
     for (const { scriptKey, fn } of [...list]) {
       if (ctx.disabledScripts.has(scriptKey)) continue;
 
+      // Um `tick` assíncrono que demora mais que um frame seria reentrado 60 vezes por segundo, e
+      // cada entrada empilharia mais uma. Em segundos há centenas de execuções do mesmo handler
+      // disputando o mesmo `api.storage` — e o sintoma não é lentidão, é o estado do mod embaralhado
+      // por si mesmo.
+      //
+      // Só o `tick` é pulado: ele é periódico, e perder uma volta é o mesmo que o orçamento de tempo
+      // já faz. Os outros eventos vêm de uma ação do jogador e perder um seria perder o fato.
+      if (event === 'tick' && this.emVoo.has(fn)) continue;
+
       const api = this.apiFor(ctx, scriptKey);
       try {
-        fn.call(undefined, payload);
-      } catch (err) {
-        const desligou = ctx.recordError(scriptKey, err);
-        if (desligou) {
-          this.onScriptDisabled(ctx.mod.id, scriptKey, ctx.disabledScripts.get(scriptKey) ?? 'erro');
+        const resultado = fn.call(undefined, payload) as unknown;
+
+        // Handler assíncrono (item 1251). O `try/catch` só pega o que estoura ANTES do primeiro
+        // `await`; o que estourar depois vira uma promessa rejeitada, e sem este tratamento seria
+        // uma rejeição não tratada no console — o script continuaria ligado, errando para sempre,
+        // e o contador de erros que desliga o script nunca subiria.
+        //
+        // O despacho **não** espera: quem chama é o laço de renderização, e travá-lo até um mod
+        // terminar entregaria a cada mod o poder de congelar o jogo.
+        if (ehPromessa(resultado)) {
+          this.emVoo.add(fn);
+          resultado.then(
+            () => { this.emVoo.delete(fn); this.flush(ctx, api); },
+            (err) => {
+              this.emVoo.delete(fn);
+              this.registrarFalha(ctx, scriptKey, err);
+              // Descarrega o que o handler chegou a escrever antes de falhar: metade de uma
+              // construção no mundo e nada no save é pior que a construção inteira.
+              this.flush(ctx, api);
+            },
+          );
         }
+      } catch (err) {
+        this.registrarFalha(ctx, scriptKey, err);
       }
       this.flush(ctx, api);
+    }
+  }
+
+  /** Contabiliza um erro de handler e desliga o script se ele passou do limite. */
+  private registrarFalha(ctx: ModContext, scriptKey: string, err: unknown): void {
+    const desligou = ctx.recordError(scriptKey, err);
+    if (desligou) {
+      this.onScriptDisabled(ctx.mod.id, scriptKey, ctx.disabledScripts.get(scriptKey) ?? 'erro');
     }
   }
 

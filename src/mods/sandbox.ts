@@ -97,10 +97,10 @@ export const INTRINSECOS_PERMITIDOS: readonly string[] = [
  * Lança se o código não for sintaticamente válido — quem chama trata e desliga o script,
  * registrando o motivo.
  */
-export function compilarScriptDeMod(codigo: string): (api: unknown) => void {
+export function compilarScriptDeMod(codigo: string): (api: unknown) => Promise<void> {
   const permitidos = new Set(INTRINSECOS_PERMITIDOS);
 
-  return (api: unknown) => {
+  return async (api: unknown) => {
     /**
      * O escopo do script.
      *
@@ -136,11 +136,24 @@ export function compilarScriptDeMod(codigo: string): (api: unknown) => void {
     // script dentro dele PODE ser estrito, e precisa ser: em modo permissivo,
     // `(function(){ return this })()` devolve o objeto global — a rota de fuga mais curta que
     // existe. Com `"use strict"` no corpo, esse `this` é `undefined`.
+    // ## Por que o corpo é `async` — item 1251
+    //
+    // O sandbox de verdade (item 358) é um Web Worker, e um Worker só conversa por `postMessage`.
+    // Toda leitura do mundo — `api.world.getBlock(x, y, z)` — vira ida e volta assíncrona no dia em
+    // que o script sair deste reino de execução.
+    //
+    // Trocar o tipo de retorno naquele dia quebraria **todo mod já escrito**, de uma vez, sem aviso.
+    // Tornar o corpo `async` desde já resolve isso sem custo nenhum hoje: `await` sobre um valor que
+    // não é promessa devolve o próprio valor. Um mod escrito com `await api.world.getBlock(...)`
+    // funciona **agora**, com a API síncrona, e continua funcionando depois, com a API do Worker.
+    //
+    // É a única forma de migração que não tem um dia de ruptura: os dois mundos são válidos ao
+    // mesmo tempo, e a mudança de verdade acontece embaixo, sem ninguém reescrever nada.
     const fn = new Function(
       '__escopo__',
-      'with (__escopo__) { return (function () { "use strict";\n' + codigo + '\n}); }',
+      'with (__escopo__) { return (async function () { "use strict";\n' + codigo + '\n}); }',
     );
 
-    fn(escopo)();
+    await fn(escopo)();
   };
 }
