@@ -4,6 +4,7 @@ import {
   NOITE_MAIS_CLARA,
   NOITE_MAIS_ESCURA,
   claridadeNoturna,
+  diferencaCircular,
   faseDoDia,
   iluminacaoDaFase,
   noiteEscura,
@@ -117,5 +118,39 @@ describe('noiteEscura — o atalho para mods e interface', () => {
     for (let f = 0; f < FASES_LUNARES; f++) if (noiteEscura(f)) escuras++;
     expect(escuras).toBeGreaterThan(1);
     expect(escuras).toBeLessThan(FASES_LUNARES - 1);
+  });
+});
+
+describe('diferencaCircular — o relógio do mundo dá a volta', () => {
+  it('CRÍTICO: a volta em 1 é o caminho curto', () => {
+    // Sem isto, um convidado sincronizando com o anfitrião atravessaria o dia inteiro ao
+    // contrário para alcançar uma hora que estava logo ali.
+    expect(diferencaCircular(0.01, 0.99)).toBeCloseTo(0.02, 9);
+    expect(diferencaCircular(0.99, 0.01)).toBeCloseTo(-0.02, 9);
+  });
+
+  it('nunca devolve mais de meio dia, em nenhum sentido', () => {
+    for (let a = 0; a < 1; a += 0.017) {
+      for (let b = 0; b < 1; b += 0.023) {
+        expect(Math.abs(diferencaCircular(a, b))).toBeLessThanOrEqual(0.5 + 1e-9);
+      }
+    }
+  });
+
+  it('é antissimétrica e zera consigo mesma', () => {
+    for (let a = 0; a < 1; a += 0.05) {
+      expect(diferencaCircular(a, a)).toBeCloseTo(0, 9);
+      const b = (a + 0.3) % 1;
+      expect(diferencaCircular(a, b)).toBeCloseTo(-diferencaCircular(b, a), 9);
+    }
+  });
+
+  it('somar a diferença leva ao alvo, dando a volta quando precisa', () => {
+    for (let a = 0; a < 1; a += 0.031) {
+      for (let b = 0; b < 1; b += 0.041) {
+        const chegou = ((b + diferencaCircular(a, b)) % 1 + 1) % 1;
+        expect(Math.min(Math.abs(chegou - a), 1 - Math.abs(chegou - a))).toBeLessThan(1e-9);
+      }
+    }
   });
 });

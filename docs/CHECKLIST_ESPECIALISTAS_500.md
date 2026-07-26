@@ -1976,7 +1976,7 @@ depender da fase. A tocha continua com o mesmo valor, que é exatamente o que se
 - [~] 1021 `P1` **Piso de luminosidade que nunca chega ao preto absoluto**
 - [~] 1022 `P1` **`api.time.moonPhase` e `api.time.isDarkNight` expostos aos mods**
 - [~] 1023 `P1` **Bioma e fase da lua no painel F3**
-- [ ] 1024 `P2` Spawn de hostis mais intenso em noite escura — liga a fase à mecânica (ver item 255)
+- [~] 1024 `P2` **Lua nova gera hostis a ~1,8× o ritmo da cheia — `intervaloDeSpawn`**
 - [ ] 1025 `P2` Céu com gradiente noturno próprio, não só o diurno escurecido
 - [ ] 1026 `P2` Via láctea ou faixa de estrelas mais densa, para o céu não ser uniforme
 - [ ] 1027 `P2` Nuvens escurecidas à noite, recortando o céu estrelado
@@ -2176,23 +2176,44 @@ de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite 
 
 ### 42.4 Clima — chuva, neve, tempestade
 
-- [ ] 1096 `P0` Máquina de estados de clima por mundo (limpo, nublado, chuva, tempestade, neve, névoa)
-- [ ] 1097 `P0` Transição gradual entre estados, com duração sorteada e determinística pela semente
-- [ ] 1098 `P0` Clima válido por bioma: não neva no deserto, não chove na tundra (vira neve)
-- [ ] 1099 `P0` Estado do clima salvo, e **sincronizado no P2P a partir do anfitrião** — o clima precisa ser o mesmo para todos
+- [~] 1096 `P0` **Máquina de estados de clima — `src/world/weather.ts` (6 estados)**
+- [~] 1097 `P0` **Transição gradual, com duração sorteada e **determinística pela semente****
+- [~] 1098 `P0` **Clima traduzido pelo bioma dominante: não neva no deserto, chuva vira neve na tundra**
+- [~] 1099 `P0` **Relógio do mundo sincronizado do anfitrião (`world_time`); o clima é derivado dele**
 - [ ] 1100 `P1` Partículas de chuva e neve, presas à câmera como as estrelas, com orçamento fixo
 - [ ] 1101 `P1` Chuva não cai dentro de construção — teste de céu aberto por coluna
 - [ ] 1102 `P1` Som de chuva e trovão pelo sintetizador (ruído filtrado), sem arquivo de áudio
 - [ ] 1103 `P1` Raio: clarão que altera a luz global por alguns quadros, e trovão atrasado pela distância
 - [ ] 1104 `P1` Chuva escurece e satura a cor do terreno enquanto molha
 - [ ] 1105 `P1` Neve acumulando como bloco fino, e derretendo quando o clima muda
-- [ ] 1106 `P1` Clima influencia a névoa (1087) e a gradação (1075) — é o que faz "parecer" chuva
+- [~] 1106 `P1` **Clima modula a névoa e a luz do céu, como multiplicadores**
 - [ ] 1107 `P2` Chuva enche recipientes e alimenta os fluidos finitos existentes
 - [ ] 1108 `P2` Raio incendeia e pode converter areia em vidro, com chance baixa
 - [ ] 1109 `P2` Clima afeta o surgimento de criaturas e a agressividade
-- [ ] 1110 `P2` `api.weather` para mods: ler, forçar, registrar clima novo
+- [~] 1110 `P2` **`api.weather.current/isRaining/isStorm/set` e o evento `weatherChange`**
 - [ ] 1111 `P2` Ferramenta MCP `set_weather` / `get_weather`
-- [ ] 1112 `P2` Teste de que a máquina de estados nunca fica presa e sempre termina numa transição válida
+- [~] 1112 `P2` **Teste de que a máquina nunca fica presa e sempre termina numa transição válida**
+
+#### O que a implementação do clima revelou
+
+**Uma lacuna pré-existente, encontrada ao tentar cumprir o item 1099:** `timeOfDay` e `worldDay`
+**nunca foram sincronizados no P2P**. Cada par contava o próprio tempo desde que entrou — dois
+jogadores no mesmo mundo viam horas do dia e fases da lua diferentes. O clima só tornou isso
+visível, porque é derivado do dia. Corrigido com a mensagem `world_time`, que o anfitrião manda na
+entrada do convidado e a cada 10 s.
+
+O convidado **alcança correndo** (ritmo ±30%) em vez de saltar. Saltar faria o sol pular no céu e,
+pior, faria `sunScale` cruzar o limiar de re-mesh de uma vez — o mundo inteiro remontado num
+quadro, a cada mensagem de relógio.
+
+**O clima é derivado, não sorteado.** A sequência é função de (semente, dia), o que resolve duas
+coisas de graça: não precisa ser gravado no save, e não precisa trafegar no P2P — os dois lados
+derivam do mesmo relógio. Só o clima **imposto** (por mod ou pelo anfitrião) viaja.
+
+**A fase da lua não afetava o spawn, e não era óbvio.** O `sunScale` já vinha da fase, mas o
+limiar de spawn é 6 e a luz de céu efetiva à noite vai de 0,5 (nova) a 2,9 (cheia): as duas passam
+com folga. A fase mudava o quanto se enxerga e nada mais. O que precisava mudar era o **ritmo** —
+`intervaloDeSpawn`.
 
 ### 42.5 Estações do ano — configuráveis por bioma
 

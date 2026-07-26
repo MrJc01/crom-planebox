@@ -29,6 +29,16 @@ export const MAX_HOSTILES = 18;
 /** Segundos entre tentativas de spawn. */
 export const SPAWN_INTERVAL = 4;
 
+/**
+ * Quanto o intervalo encolhe na noite mais escura. 0,55 = a lua nova gera quase o dobro.
+ *
+ * Sem isto, a fase da lua **não teria efeito nenhum** no surgimento, e é fácil ver por quê: o
+ * limiar de luz é 6, e a luz de céu efetiva à noite vai de 0,5 (lua nova) a 2,9 (lua cheia) —
+ * as duas passam com folga. A fase muda o quanto se enxerga, mas não muda o que é spawnável.
+ * O que a fase precisa mudar é o RITMO.
+ */
+export const INTERVALO_LUA_NOVA = 0.55;
+
 export interface SpawnPoint {
   x: number;
   y: number;
@@ -36,11 +46,28 @@ export interface SpawnPoint {
   kind: MobKind;
 }
 
+/**
+ * Intervalo entre tentativas de spawn, em segundos, conforme a lua.
+ *
+ * `iluminacao` é a fração iluminada do disco (0 = nova, 1 = cheia). A interpolação é linear
+ * porque aqui não há percepção envolvida — é ritmo de jogo, e o jogador deve sentir a diferença
+ * proporcional à fase que vê no céu.
+ */
+export function intervaloDeSpawn(iluminacao: number): number {
+  const i = Math.max(0, Math.min(1, iluminacao));
+  return SPAWN_INTERVAL * (INTERVALO_LUA_NOVA + (1 - INTERVALO_LUA_NOVA) * i);
+}
+
 export interface SpawnContext {
   /** Fração do dia (0 = meia-noite, 0.5 = meio-dia). */
   timeOfDay: number;
   /** Intensidade solar atual, 0..1 — a mesma que o mesher usa. */
   sunScale: number;
+  /**
+   * Fração iluminada da lua (0 = nova, 1 = cheia). Ausente = 1, que preserva o ritmo original —
+   * necessário porque este módulo é usado por testes e por chamadores que não conhecem a lua.
+   */
+  moonIllumination?: number;
   hostileCount: number;
   maxY: number;
 }
@@ -126,7 +153,7 @@ export class MobSpawner {
     if (!this.enabled) return null;
 
     this.timer += dt;
-    if (this.timer < SPAWN_INTERVAL) return null;
+    if (this.timer < intervaloDeSpawn(ctx.moonIllumination ?? 1)) return null;
     this.timer = 0;
 
     return findSpawnPoint(world, player, ctx, rng);

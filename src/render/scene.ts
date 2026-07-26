@@ -63,6 +63,11 @@ export interface GameScene {
    * `dt` é usado para interpolar no tempo — chamar todo quadro é o uso previsto.
    */
   setBiomeAmbience(cor: [number, number, number], alcance: number, dt: number): void;
+  /**
+   * Efeitos do clima, como MULTIPLICADORES do que o bioma e a hora já definiram.
+   * `luz` escurece o céu; `alcance` fecha a névoa.
+   */
+  setWeather(luz: number, alcance: number): void;
   /** Fase lunar (0 = nova, 4 = cheia). Governa a claridade da noite e o desenho da lua. */
   setMoonPhase(fase: number): void;
   getMoonPhase(): number;
@@ -175,7 +180,9 @@ export function createScene(container: HTMLElement): GameScene {
     // uma noite realmente escura e a cheia uma noite navegável — e, como o motor separa luz de
     // céu de luz de bloco, a tocha mantém o mesmo valor nas duas.
     const pisoNoturno = claridadeNoturna(fasaLunar);
-    sunScale = Math.max(pisoNoturno, Math.min(1, elevation * 1.5 + 0.35));
+    // O clima multiplica DEPOIS do piso noturno: uma tempestade escurece a noite de lua cheia,
+    // mas o piso continua sendo um piso — o mundo nunca chega ao preto absoluto.
+    sunScale = Math.max(pisoNoturno * luzClima, Math.min(1, elevation * 1.5 + 0.35) * luzClima);
 
     // Céu: azul de dia, laranja rasante no nascer/pôr, azul-escuro à noite.
     const duskAmount = Math.max(0, 1 - Math.abs(elevation) * 3.2);
@@ -248,7 +255,7 @@ export function createScene(container: HTMLElement): GameScene {
     // Começa na metade e fecha um pouco antes do limite: se `far` coincidisse com a última
     // coluna carregada, o recorte reapareceria exatamente no ponto que a névoa deveria cobrir.
     // O bioma multiplica: pântano fecha o horizonte, deserto abre.
-    const v = alcanceBaseVoxels * alcanceBiomaAtual;
+    const v = alcanceBaseVoxels * alcanceBiomaAtual * alcanceClima;
     f.near = v * 0.45;
     f.far = Math.min(v * 0.92, alcanceBaseVoxels * 1.02);
   }
@@ -269,6 +276,21 @@ export function createScene(container: HTMLElement): GameScene {
   let alcanceBiomaAtual = 1;
   let alcanceBiomaAlvo = 1;
 
+  // --- Clima ---
+  //
+  // Multiplicadores, não valores absolutos: o clima modula o que o bioma e a hora já
+  // estabeleceram. Uma tempestade escurece o meio-dia e a meia-noite na mesma proporção, que é o
+  // comportamento certo — e evita que o clima precise conhecer a hora ou o bioma.
+  let luzClima = 1;
+  let alcanceClima = 1;
+
+  function setWeather(luz: number, alcance: number): void {
+    const mudouAlcance = Math.abs(alcance - alcanceClima) > 1e-4;
+    luzClima = luz;
+    alcanceClima = alcance;
+    if (mudouAlcance) aplicarAlcance();
+  }
+
   function setBiomeAmbience(cor: [number, number, number], alcance: number, dt: number): void {
     corBiomaAlvo.setRGB(cor[0], cor[1], cor[2]);
     alcanceBiomaAlvo = alcance;
@@ -283,5 +305,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

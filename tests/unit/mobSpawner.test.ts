@@ -10,6 +10,7 @@ import {
   SPAWN_LIGHT_THRESHOLD,
   SpawnWorld,
   effectiveLight,
+  intervaloDeSpawn,
   findSpawnPoint,
   isSpawnable,
 } from '../../src/entities/MobSpawner';
@@ -188,5 +189,42 @@ describe('MobSpawner — ritmo', () => {
     s.update(SPAWN_INTERVAL - 0.2, world(), PLAYER, CTX, Math.random);
     s.reset();
     expect(s.update(0.3, world(), PLAYER, CTX, Math.random)).toBeNull();
+  });
+});
+
+describe('intervaloDeSpawn — a fase da lua muda o ritmo', () => {
+  it('CRÍTICO: lua nova gera mais rápido que lua cheia', () => {
+    // Esta é a única coisa que faz a fase importar para a mecânica. O nível de luz NÃO basta:
+    // o limiar é 6, e a luz de céu efetiva à noite vai de ~0,5 (nova) a ~2,9 (cheia) — as duas
+    // passam com folga, então a fase mudaria só o quanto se enxerga, e nada mais.
+    expect(intervaloDeSpawn(0)).toBeLessThan(intervaloDeSpawn(1));
+  });
+
+  it('lua cheia preserva exatamente o ritmo original', () => {
+    expect(intervaloDeSpawn(1)).toBe(SPAWN_INTERVAL);
+  });
+
+  it('é monotônico e nunca chega a zero — spawn instantâneo travaria o jogo', () => {
+    // O intervalo CRESCE com a iluminação: quanto mais cheia a lua, mais espaçado o surgimento.
+    let anterior = 0;
+    for (let i = 0; i <= 1; i += 0.05) {
+      const v = intervaloDeSpawn(i);
+      expect(v).toBeGreaterThan(0.5);
+      expect(v).toBeGreaterThanOrEqual(anterior - 1e-9);
+      anterior = v;
+    }
+  });
+
+  it('iluminação fora da faixa não quebra o ritmo', () => {
+    expect(intervaloDeSpawn(-5)).toBe(intervaloDeSpawn(0));
+    expect(intervaloDeSpawn(9)).toBe(intervaloDeSpawn(1));
+  });
+
+  it('o contexto sem lua preserva o comportamento antigo — testes existentes não mudam', () => {
+    const spawner = new MobSpawner();
+    const mundo: SpawnWorld = { getBlock: () => 0, getLight: () => 0 };
+    const ctx = { timeOfDay: 0, sunScale: 0, hostileCount: 0, maxY: 128 };
+    // Sem `moonIllumination`, o intervalo é o cheio: 3,9 s não dispara, 4,1 s dispara.
+    expect(spawner.update(3.9, mundo, { x: 0, y: 40, z: 0 }, ctx)).toBeNull();
   });
 });

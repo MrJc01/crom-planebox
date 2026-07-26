@@ -77,6 +77,27 @@ export interface ModSyncMsg {
   mod: ModPackage;
 }
 
+/**
+ * Relógio do mundo, enviado pelo anfitrião.
+ *
+ * Sem isto, cada par contava o próprio tempo a partir do momento em que entrou: dois jogadores no
+ * mesmo mundo viam horas do dia diferentes, fases da lua diferentes e — desde que o clima passou
+ * a ser derivado de (semente, dia) — climas diferentes no mesmo lugar.
+ *
+ * É barato de propósito: dois números, mandados de tempos em tempos. O convidado **não** ajusta o
+ * relógio de uma vez quando a diferença é pequena; ele corre um pouco mais rápido ou mais devagar
+ * até alcançar. Saltar faria o sol pular no céu a cada mensagem.
+ */
+export interface WorldTimeMsg {
+  type: 'world_time';
+  /** Fração do dia, 0..1. */
+  timeOfDay: number;
+  /** Dias completos desde a criação — governa a fase da lua e a sequência do clima. */
+  worldDay: number;
+  /** Clima imposto pelo anfitrião, ou ausente se o mundo segue a sequência natural. */
+  forcedWeather?: string | null;
+}
+
 export interface PlayerJoinedMsg { type: 'player_joined'; playerId: string; name: string; appearance?: Appearance }
 export interface PlayerLeftMsg { type: 'player_left'; playerId: string }
 export interface OpChangedMsg { type: 'op_changed'; playerId: string; isOp: boolean }
@@ -91,6 +112,7 @@ export type NetMessage =
   | CommandMsg
   | FullSyncMsg
   | ModSyncMsg
+  | WorldTimeMsg
   | PlayerJoinedMsg
   | PlayerLeftMsg
   | OpChangedMsg

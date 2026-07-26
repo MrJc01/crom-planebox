@@ -29,6 +29,7 @@ export const MOD_API_REFERENCE = {
     playerDamaged: { quando: 'o jogador leva dano', payload: '{ amount, cause, health }' },
     entityDeath: { quando: 'uma criatura morre', payload: '{ id, name, x, y, z }' },
     dayPhase: { quando: 'muda a fase do dia', payload: "{ phase: 'amanhecer'|'dia'|'anoitecer'|'noite', timeOfDay }" },
+    weatherChange: { quando: 'o clima muda (já traduzido pelo bioma local)', payload: "{ weather: 'limpo'|'nublado'|'chuva'|'tempestade'|'neve'|'neblina', previous }" },
   },
 
   funcoes: {
@@ -53,6 +54,13 @@ export const MOD_API_REFERENCE = {
 
     'api.time.ofDay()': 'fração do dia: 0 = meia-noite, 0.5 = meio-dia',
     'api.time.isNight()': 'true se está de noite',
+    'api.time.moonPhase()': 'fase da lua: 0 = nova (noite escura), 4 = cheia (noite clara)',
+    'api.time.isDarkNight()': 'true nas noites em torno da lua nova — hostis nascem quase no dobro do ritmo',
+
+    'api.weather.current()': "{ current, next, progress, lightning, wet } — clima já traduzido pelo bioma local",
+    'api.weather.isRaining()': 'true em chuva ou tempestade',
+    'api.weather.isStorm()': 'true só em tempestade (tem raios)',
+    'api.weather.set(clima|null)': "impõe um clima para o mundo todo; null devolve à sequência natural. Nomes: 'limpo','nublado','chuva','tempestade','neve','neblina'",
 
     'api.ui.toast(texto)': 'mensagem curta na tela',
     'api.audio.play(nome, posicao?, volume?)': 'toca som do catálogo; veja api.audio.nomes',

@@ -3,7 +3,8 @@ import { createScene } from './render/scene';
 import { World } from './world/world';
 import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
 import { WorldGen, WATER_LEVEL } from './world/worldgen';
-import { PesoBioma, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
+import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
+import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
@@ -11,7 +12,7 @@ import { isSolid } from './world/blocks';
 import { AudioSystem } from './audio/AudioSystem';
 import { SOUNDS, soundForBreak, soundForFootstep, soundForPlace } from './audio/synth';
 import { LightEngine } from './world/lighting';
-import { faseDoDia, nomeDaFase, noiteEscura } from './world/moon';
+import { diferencaCircular, faseDoDia, iluminacaoDaFase, nomeDaFase, noiteEscura } from './world/moon';
 import { invalidatePathCache } from './entities/Pathfinding';
 import { ModRuntime } from './mods/ModRuntime';
 import { ModHostBridge } from './mods/ModAPI';
@@ -73,6 +74,20 @@ async function bootstrap() {
   /** Mistura de biomas sob o jogador. Reamostrada a cada poucos quadros; ver o laço principal. */
   let pesosBioma: PesoBioma[] = [{ id: 'planicie', peso: 1 }];
   let quadrosAteBioma = 0;
+  /**
+   * Clima vigente. Derivado de (semente, dia) e do bioma dominante — não é sorteado nem gravado.
+   * Ver `src/world/weather.ts` para por que isso importa no P2P e no save.
+   */
+  let clima: ClimaAtual = climaEm(seed, 0, 'planicie');
+  /** Clima imposto por um mod ou pelo anfitrião. `undefined` = segue a sequência do mundo. */
+  let climaForcado: import('./world/weather').ClimaId | undefined;
+  /**
+   * Hora que o convidado está perseguindo, vinda do anfitrião. `null` = relógio livre.
+   * Ver `WorldTimeMsg`: alcançar correndo, em vez de saltar, evita o sol pular no céu.
+   */
+  let relogioAlvo: number | null = null;
+  /** Segundos até o anfitrião reenviar o relógio. */
+  let proximoEnvioDeHora = 0;
   const player = new PlayerController(world, gs.camera);
   const physics = new VoxelPhysics(world, gs.scene);
   const inter = new Interaction(world, physics, player, gs.scene);
@@ -419,6 +434,19 @@ async function bootstrap() {
     toast: (msg) => hud.showToast(msg),
     timeOfDay: () => timeOfDay,
     moonPhase: () => faseDoDia(worldDay),
+    weather: () => ({
+      current: clima.clima,
+      next: clima.proximo,
+      progress: clima.progresso,
+      lightning: clima.raios,
+      wet: clima.molha,
+    }),
+    setWeather: (nome) => {
+      if (nome === null) { climaForcado = undefined; return true; }
+      if (!(nome in CLIMAS)) return false;
+      climaForcado = nome as import('./world/weather').ClimaId;
+      return true;
+    },
     playSound: (nome, posicao, volume) => {
       const spec = SOUNDS[nome];
       if (!spec) return; // nome inválido é ignorado, não quebra o script
@@ -466,6 +494,7 @@ async function bootstrap() {
   const debugPanel = new DebugPanel({
     ambiente: () => ({
       bioma: descreverBioma(pesosBioma),
+      clima: descreverClima(clima),
       fase: nomeDaFase(gs.getMoonPhase()),
       noiteEscura: noiteEscura(gs.getMoonPhase()),
     }),
@@ -648,6 +677,20 @@ async function bootstrap() {
         }
         break;
       }
+      case 'world_time': {
+        // Só o convidado obedece; o anfitrião é o relógio.
+        if (peerSync.role !== 'guest') break;
+        worldDay = msg.worldDay;
+        gs.setMoonPhase(faseDoDia(worldDay));
+        climaForcado = (msg.forcedWeather ?? undefined) as typeof climaForcado;
+        // Diferença grande (troca de mundo, entrada na partida): acerta de uma vez. Diferença
+        // pequena: deixa o laço principal alcançar correndo, para o sol não pular no céu.
+        const alvo = ((msg.timeOfDay % 1) + 1) % 1;
+        const erro = diferencaCircular(alvo, timeOfDay);
+        if (Math.abs(erro) > 0.08) timeOfDay = alvo;
+        else relogioAlvo = alvo;
+        break;
+      }
       case 'mod_sync':
         // Mod criado pela IA do anfitrião durante a partida.
         mcpExecutors.modService.applyRemoteMods([msg.mod]).then((n) => {
@@ -704,6 +747,14 @@ async function bootstrap() {
         players: [],
         mods: mcpExecutors.modService.getMods(),
       });
+    });
+    // O relógio do mundo vai na entrada, não daqui a dez segundos: sem isto o convidado passaria
+    // o primeiro intervalo com a hora, a lua e o clima do próprio contador.
+    peerSync.sendTo(peerId, {
+      type: 'world_time',
+      timeOfDay,
+      worldDay,
+      forcedWeather: climaForcado ?? null,
     });
     peerSync.broadcast({ type: 'player_joined', playerId: peerId, name }, peerId);
     hud.showToast(`${name} entrou no mundo!`);
@@ -1436,7 +1487,32 @@ async function bootstrap() {
     // dia de jogo, e não a cada frame.
     const faseAnterior = fasesDoDia(timeOfDay);
     const anterior = timeOfDay;
-    timeOfDay = (timeOfDay + dt / DAY_LENGTH) % 1;
+
+    // Ritmo do relógio. O convidado que está atrás do anfitrião corre até 30% mais rápido (ou
+    // mais devagar) até alcançar — nunca salta, porque saltar faz o sol pular no céu e o mundo
+    // inteiro ser re-meshado de uma vez quando `sunScale` cruza o limiar.
+    let ritmo = 1;
+    if (relogioAlvo !== null) {
+      const erro = diferencaCircular(relogioAlvo, timeOfDay);
+      if (Math.abs(erro) < 0.0008) relogioAlvo = null;
+      else ritmo = 1 + Math.sign(erro) * 0.3;
+    }
+    timeOfDay = (timeOfDay + (dt * ritmo) / DAY_LENGTH) % 1;
+
+    // O anfitrião é o relógio do mundo: sem isto, cada par contava o tempo desde que entrou, e
+    // dois jogadores no mesmo lugar viam horas, fases da lua e climas diferentes.
+    if (peerSync.role === 'host') {
+      proximoEnvioDeHora -= dt;
+      if (proximoEnvioDeHora <= 0) {
+        proximoEnvioDeHora = 10;
+        peerSync.broadcast({
+          type: 'world_time',
+          timeOfDay,
+          worldDay,
+          forcedWeather: climaForcado ?? null,
+        });
+      }
+    }
     // Virou o dia: a lua avança uma fase, como no Minecraft (uma por amanhecer).
     if (timeOfDay < anterior) {
       worldDay++;
@@ -1462,6 +1538,9 @@ async function bootstrap() {
     const ponto = mobSpawner.update(dt, world, player.pos, {
       timeOfDay,
       sunScale,
+      // Lua nova gera hostis quase no dobro do ritmo. É o que dá consequência de jogo à fase:
+      // sem isto, olhar para o céu não mudaria nenhuma decisão do jogador.
+      moonIllumination: iluminacaoDaFase(gs.getMoonPhase()),
       hostileCount: entitySystem.hostileCount,
       maxY: CY,
     });
@@ -1494,6 +1573,15 @@ async function bootstrap() {
         montanha: col.mountain,
         acimaDoMar: col.height - WATER_LEVEL,
       });
+      // O dia fracionário é o relógio do clima. O bioma dominante traduz: a mesma chuva do mundo
+      // cai como neve na tundra e não cai no deserto.
+      const climaAnterior = clima.clima;
+      clima = climaEm(seed, worldDay + timeOfDay, biomaDominante(pesosBioma), climaForcado);
+      if (clima.clima !== climaAnterior) {
+        hud.showToast(`🌦️ ${descreverClima(clima)}`);
+        modRuntime.dispatch('weatherChange', { weather: clima.clima, previous: climaAnterior });
+      }
+      gs.setWeather(clima.luz, clima.alcanceNeblina);
     }
     gs.setBiomeAmbience(
       misturarCor(pesosBioma, 'neblina'),

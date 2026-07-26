@@ -74,6 +74,20 @@ export function noiteEscura(fase: number): boolean {
 }
 
 /**
+ * Menor diferença entre duas frações de dia, respeitando a volta em 1.
+ *
+ * Sem isto, 0,99 e 0,01 pareceriam distar 0,98 quando na verdade distam 0,02 — e um convidado
+ * sincronizando o relógio com o anfitrião atravessaria o dia inteiro ao contrário para "alcançar"
+ * uma hora que estava logo ali.
+ */
+export function diferencaCircular(alvo: number, atual: number): number {
+  let d = alvo - atual;
+  if (d > 0.5) d -= 1;
+  if (d < -0.5) d += 1;
+  return d;
+}
+
+/**
  * Dia do mundo a partir do tempo acumulado.
  * `timeOfDay` é a fração do dia atual; `dia` conta os ciclos completos desde o início.
  */

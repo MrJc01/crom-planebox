@@ -26,10 +26,11 @@ export type ModEvent =
   | 'blockBroken'   // payload: { x, y, z, block }
   | 'playerDamaged' // payload: { amount, cause, health }
   | 'entityDeath'   // payload: { id, name, x, y, z }
-  | 'dayPhase';     // payload: { phase, timeOfDay }
+  | 'dayPhase'      // payload: { phase, timeOfDay }
+  | 'weatherChange'; // payload: { weather, previous }
 
 export const MOD_EVENTS: ModEvent[] = [
-  'load', 'unload', 'tick', 'blockPlaced', 'blockBroken', 'playerDamaged', 'entityDeath', 'dayPhase',
+  'load', 'unload', 'tick', 'blockPlaced', 'blockBroken', 'playerDamaged', 'entityDeath', 'dayPhase', 'weatherChange',
 ];
 
 export type ModHandler = (payload: any) => void;
@@ -49,6 +50,10 @@ export interface ModHostBridge {
   toast(message: string): void;
   timeOfDay(): number;
   moonPhase(): number;
+  /** Clima vigente já traduzido pelo bioma local. */
+  weather(): { current: string; next: string; progress: number; lightning: boolean; wet: number };
+  /** Impõe um clima, ou devolve o mundo à sequência natural com `null`. */
+  setWeather(clima: string | null): boolean;
   /** Toca um som do catálogo, opcionalmente posicionado no mundo. */
   playSound(nome: string, posicao?: { x: number; y: number; z: number }, volume?: number): void;
 }
@@ -259,6 +264,22 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
       moonPhase: () => host.moonPhase(),
       /** A noite de hoje é das escuras? Útil para o mod reagir sem decorar a tabela de fases. */
       isDarkNight: () => noiteEscura(host.moonPhase()),
+    },
+
+    /**
+     * Clima. Ler é sempre permitido; **forçar altera o mundo para todos**, então vale a mesma
+     * regra dos blocos: é uma escrita, e um mod que abusa disso aparece no diagnóstico.
+     */
+    weather: {
+      /** Clima atual, o próximo e o quanto da transição já passou. */
+      current: () => host.weather(),
+      isRaining: () => {
+        const c = host.weather().current;
+        return c === 'chuva' || c === 'tempestade';
+      },
+      isStorm: () => host.weather().current === 'tempestade',
+      /** `null` devolve o mundo à sequência derivada da semente. Devolve false se o nome não existe. */
+      set: (clima: string | null) => host.setWeather(clima),
     },
 
     /** Chave-valor do mod, isolado dos demais. Dura a sessão. */
