@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1201 itens)
+# Checklist Mestre — Painel de Especialistas (1205 itens)
 
-> **Estado em 26/07/2026** — 522 de 1201 itens tratados (43%), com **757 testes** passando,
+> **Estado em 26/07/2026** — 526 de 1205 itens tratados (43%), com **767 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 439 | **Entregue** ao longo das rodadas, com teste. |
+> | `[~]` | 443 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 679 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -2747,3 +2747,32 @@ a tela que deveria contar o porquê já não existia.
 > suíte: um de validação ausente, um de **ordem** de operações, um de ciclo de vida de tela.
 > Nenhum é lógica errada — são todos "a coisa certa na hora errada". Vale mais um log de console
 > real do que uma rodada inteira de auditoria de código.
+
+### Oitavo caso, e o teste que devia existir desde o primeiro
+
+`WorldRepository.deleteWorld` estava lá: completa, transacional em nove tabelas (mundo, blocos,
+chat, threads, jogadores, customizações, mods, entidades e revisões). **Nada a chamava.** Não
+havia como apagar um mundo dentro do jogo — que é como os "Visitante de ws://localhost:8787" das
+tentativas frustradas viraram lixo permanente na lista.
+
+Isso encerra a lista dos oito, e deixa clara a natureza do problema:
+
+| # | Funcionalidade | O que faltava |
+|---|---|---|
+| 1 | `setViewRange` | `scene.fog` era `null`, o `if` falhava em silêncio |
+| 2 | `applyCurvature` | o shader existia com `invR = 0` |
+| 3 | `UndoManager.recordBatch` | nenhuma edição o chamava |
+| 4 | Estações | mudavam o clima e o F3, e nada no mundo |
+| 5 | Biomas | o worldgen usava limiares paralelos próprios |
+| 6 | Onda da água | `applyCurvature(waterMaterial)` sem o segundo argumento |
+| 7 | Tabela `CAMADA` | sete das nove telas escreviam `z-index` literal |
+| 8 | `deleteWorld` | não havia botão |
+
+**Os oito tinham todos os testes passando.** Uma função nunca chamada não quebra nada; ela
+simplesmente não acontece. Teste de unidade prova que a função funciona — nenhum pergunta se
+alguém a usa.
+
+- [~] 1218 `P0` **Botão de apagar mundo**, com confirmação em dois estados no próprio botão. Um `confirm()` do navegador é fácil de despachar no automático e, pior, alguns navegadores o bloqueiam — o mundo sumiria sem pergunta nenhuma
+- [~] 1219 `P1` **A lista de mundos se atualiza ao voltar para a aba** (`aoAtivar`), com `montar` e `aoAtivar` de papéis separados: se os dois desenhassem, na primeira ativação os dois rodariam e a lista sairia duplicada — a mesma corrida do `renderBody`
+- [~] 1220 `P0` **`tests/unit/fiacao.test.ts`** — guarda os oito casos de uma vez, procurando um chamador fora do arquivo que define. Textual, com a fragilidade que isso implica; a ferramenta ideal seria cobertura de integração com o jogo rodando, e isso exige WebGL que o jsdom não tem
+- [~] 1221 `P2` **O varredor testa a si mesmo**: um teste que varresse zero arquivos passaria vazio e daria falsa segurança

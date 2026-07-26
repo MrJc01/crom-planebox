@@ -3,6 +3,7 @@ import { WorldRepository } from '../storage/WorldRepository';
 import { WorldRecord } from '../storage/Database';
 import { CAMADA, CORES, FONTE } from './theme';
 import { Tabs } from './Tabs';
+import { icone } from './icons';
 
 export interface OnlineWorldEntry {
   roomId: string;
@@ -79,10 +80,16 @@ export class MainMenu {
       id: 'saved',
       titulo: 'Mundos Salvos',
       icone: 'mundo',
-      montar: async (container) => {
+      // Papéis separados de propósito: `montar` só prepara a estrutura, `aoAtivar` traz o
+      // conteúdo. Se os dois desenhassem, na PRIMEIRA ativação os dois rodariam — e como
+      // `renderSavedWorldsTab` limpa e depois espera o banco, duas execuções concorrentes se
+      // interpolariam e a lista sairia duplicada. É a mesma corrida do `renderBody` do PauseMenu.
+      montar: (container) => {
         container.style.cssText = 'display:flex; flex-direction:column; gap:12px; overflow-y:auto; height:100%;';
-        await this.renderSavedWorldsTab(container);
       },
+      // Um mundo criado no assistente, ou apagado, precisa aparecer (ou sumir) ao voltar para
+      // esta aba sem recarregar a página. `montar` roda uma vez só; isto roda sempre.
+      aoAtivar: (container) => { void this.renderSavedWorldsTab(container); },
     });
 
     // Aba 3: Mundos Online
@@ -163,7 +170,15 @@ export class MainMenu {
     ));
   }
 
+  /**
+   * Lista de mundos salvos, com carregar e apagar.
+   *
+   * Limpa o container no começo porque é **rechamada**: depois de apagar um mundo, e toda vez que
+   * a aba volta a ficar ativa (um mundo criado no assistente precisa aparecer aqui sem recarregar
+   * a página). Sem a limpeza, cada visita duplicaria a lista.
+   */
   private async renderSavedWorldsTab(container: HTMLElement): Promise<void> {
+    container.innerHTML = '';
     const worlds = await WorldRepository.getAllWorlds();
     if (worlds.length === 0) {
       const empty = document.createElement('p');
@@ -186,6 +201,9 @@ export class MainMenu {
           <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Seed ${w.seed} · Salvo em ${new Date(w.updatedAt).toLocaleDateString()}</div>
         </div>
       `;
+      const acoes = document.createElement('div');
+      acoes.style.cssText = 'display:flex; gap:8px; align-items:center; flex:0 0 auto;';
+
       const openBtn = document.createElement('button');
       openBtn.textContent = '▶ Carregar Mundo';
       openBtn.style.cssText = 'background:#0284c7; color:white; border:none; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer;';
@@ -193,7 +211,59 @@ export class MainMenu {
         this.close();
         this.cb.onOpenWorld(w.id);
       };
-      row.appendChild(openBtn);
+
+      // Apagar mundo.
+      //
+      // `WorldRepository.deleteWorld` já existia, completa e transacional em nove tabelas — e
+      // **nada a chamava**. Não havia como apagar um mundo dentro do jogo. É o oitavo caso deste
+      // repositório de funcionalidade pronta e nunca invocada, e o mais direto de todos: a função
+      // faz exatamente o que o botão precisa, e o botão não existia.
+      const apagarBtn = document.createElement('button');
+      apagarBtn.title = `Apagar "${w.name}" definitivamente`;
+      apagarBtn.setAttribute('aria-label', `Apagar o mundo ${w.name}`);
+      apagarBtn.style.cssText = `
+        background: transparent; border: 1px solid #7f1d1d; color: #fca5a5;
+        padding: 7px 9px; border-radius: 8px; cursor: pointer; display: inline-flex;
+        align-items: center; line-height: 0;
+      `;
+      apagarBtn.appendChild(icone('lixeira', 16));
+
+      // Confirmação em DOIS estados no próprio botão, e não um `confirm()` do navegador.
+      //
+      // Apagar um mundo é irreversível e leva junto blocos, chat, jogadores e mods. Um `confirm()`
+      // é fácil de despachar no automático — e, pior, o navegador o bloqueia em algumas
+      // configurações, o que faria o mundo sumir sem pergunta nenhuma. Aqui o segundo clique é
+      // deliberado, e o estado é visível.
+      let armado = false;
+      let expirar: ReturnType<typeof setTimeout> | undefined;
+      apagarBtn.onclick = async () => {
+        if (!armado) {
+          armado = true;
+          apagarBtn.textContent = 'Confirmar?';
+          apagarBtn.style.background = '#7f1d1d';
+          apagarBtn.style.color = '#fee2e2';
+          apagarBtn.style.lineHeight = '';
+          // Desarma sozinho: um botão que fica "armado" para sempre vira uma armadilha para o
+          // próximo clique distraído.
+          expirar = setTimeout(() => {
+            armado = false;
+            apagarBtn.textContent = '';
+            apagarBtn.appendChild(icone('lixeira', 16));
+            apagarBtn.style.background = 'transparent';
+            apagarBtn.style.color = '#fca5a5';
+            apagarBtn.style.lineHeight = '0';
+          }, 4000);
+          return;
+        }
+        clearTimeout(expirar);
+        apagarBtn.disabled = true;
+        apagarBtn.textContent = 'Apagando…';
+        await WorldRepository.deleteWorld(w.id);
+        await this.renderSavedWorldsTab(container);
+      };
+
+      acoes.append(openBtn, apagarBtn);
+      row.appendChild(acoes);
       container.appendChild(row);
     }
   }
