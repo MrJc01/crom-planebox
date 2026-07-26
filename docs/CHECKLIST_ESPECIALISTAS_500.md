@@ -2691,7 +2691,7 @@ Estes já estavam numerados nas seções anteriores e foram apenas **reconferido
 - [x] 1203 `P1` ~~Layout do inventário em duas colunas~~ — **duplicata de 1150**, que já estava feito. Conferido em `InventoryModal.ts` ("Layout em 2 Colunas", com Stats & Equipamento na direita)
 - [x] 1204 `P1` ~~`npm run relay` e URL padrão~~ — **auditado e já feito**: o script existe em `package.json` e o campo abre com `ws://localhost:8787`. Eu tinha escrito "1171 segue aberto" sem conferir.
 - [ ] 1205 `P1` Sombra das nuvens no chão
-- [ ] 1206 `P2` Teste que compile o GLSL de verdade, com WebGL headless — hoje nada compila os shaders, e o sintoma de um erro é o terreno sumir
+- [~] 1206 `P2` **A metade verificável foi feita** (seção 64): os marcadores de injeção são conferidos contra o `ShaderLib` real do three.js, e cada injeção precisa provar que chegou ao shader. Compilar de verdade continua exigindo WebGL headless, que jsdom não tem — segue aberto, e agora com escopo menor
 
 ### Rodada seguinte — a aba que o jogador perdia
 
@@ -3674,5 +3674,51 @@ sempre depois da primeira noite, sem nada indicando por quê.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1351 `P1` **O mesmo descompasso vale para qualquer salto de relógio** — `/time` de comando, ou o `world_time` do anfitrião puxando um convidado atrasado, também adiantam o mundo sem cobrar o corpo. `descansar` resolve o caso do sono; os outros continuam abertos
-- [ ] 1352 `P2` **Criaturas e fluidos também não atravessam a noite** — o mundo pula seis minutos e nenhum zumbi andou, nenhuma poça escoou. Nota-se pouco, mas é o mesmo erro de fundo
+- [x] 1351 `P1` ~~O mesmo descompasso vale para qualquer salto de relógio~~ — **RETIRADO depois de olhar melhor.** Não existe comando `/time`, e o único outro salto é a correção `world_time` do convidado. Cobrar o corpo ali seria **errado**: o convidado não pulou tempo, ele estava *enganado* sobre a hora — o corpo dele viveu em tempo real o tempo todo, e cobrá-lo puniria uma correção de rede. Dormir é o único salto de verdade
+- [ ] 1352 `P3` **Criaturas e fluidos também não atravessam a noite** — o mundo pula seis minutos e nenhuma poça escoou. Rebaixado a `P3`: no caso dos hostis o comportamento é o **desejado** (dormir existe para pular a noite deles), e no dos fluidos o efeito é imperceptível
+
+---
+
+## 64 — A ressalva do GLSL, encurtada (item 1206)
+
+Venho repetindo o mesmo aviso há várias rodadas: três sistemas injetam GLSL por `onBeforeCompile`,
+**nada compila esses shaders num teste**, e o sintoma de uma injeção malformada não é um erro na
+tela — é o terreno inteiro desaparecer.
+
+Compilar de verdade exige WebGL, e jsdom não tem. Um contexto headless traria dependência nativa que
+quebra a cada versão de Node: o remédio custaria mais que a doença. Mas há uma metade verificável, e
+ela cobre a classe de falha **silenciosa**.
+
+A injeção funciona por substituição de texto, e `String.replace` que não encontra o alvo **não faz
+nada e não avisa**. Se o three.js renomear um chunk numa versão nova — e ele faz isso —, a injeção
+para de acontecer sem um único erro: a curvatura sumiria, a onda pararia, e o jogo continuaria
+rodando bonito e errado.
+
+`THREE.ShaderLib` é dado puro em JavaScript. O teste pega o shader **real** do material que o jogo
+usa, roda a injeção de verdade em cima dele, e exige que o resultado tenha mudado — por injeção, e
+não pelo shader inteiro: se três acertarem o alvo e uma errar, o shader muda e uma verificação
+grosseira passaria enquanto a quarta funcionalidade some.
+
+### Dois testes meus que estavam errados, e o que eles me ensinaram
+
+Escrevi "nenhum marcador sobrou por substituir" e falhou. **Duas das quatro injeções preservam o
+marcador de propósito**: `#include <color_vertex>` seguido do nosso código, porque o chunk original
+precisa rodar antes — o tingimento multiplica `vColor`, que só existe depois que o include o
+preencheu. Só `project_vertex` é substituído por inteiro, porque ali o nosso código refaz a projeção.
+
+Isso virou um teste próprio, para o erro **simétrico**: trocar o corpo da substituição e esquecer de
+repetir o `#include` na saída. O nosso código continuaria lá, o outro teste passaria, e o chunk do
+three.js deixaria de rodar — `vColor` nunca receberia a cor do vértice, e o mundo inteiro ficaria de
+uma cor só.
+
+O segundo erro: testei a onda pelo nome do uniform, e `uOndaTempo` é declarado nos dois materiais
+porque o prelúdio de uniforms é um só. A comparação certa é pelo **deslocamento** (`sin(cqWorld.x`),
+senão o teste passa a impressão de que o terreno também ondula.
+
+**O que este arquivo NÃO prova**, e está escrito nele: que o GLSL compila. Um `vec3` somado a um
+`float`, um uniform com nome trocado ou um ponto e vírgula a menos passam por aqui. O item 1206
+segue aberto — com escopo menor e a parte barata resolvida.
+
+- [~] 1353 `P1` **`marcadoresDeShader.test.ts`** — 11 testes contra o `ShaderLib` real
+- [~] 1354 `P2` **Trava do material** — trocar o Lambert por Standard sem atualizar o teste faria tudo continuar verde verificando o shader errado
+- [~] 1355 `P2` **Chaves e parênteses balanceados** na saída — a forma mais comum de quebrar uma injeção por concatenação, e a de sintoma mais assustador
