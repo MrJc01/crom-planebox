@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1237 itens)
+# Checklist Mestre — Painel de Especialistas (1244 itens)
 
-> **Estado em 26/07/2026** — 557 de 1237 itens tratados (45%), com **801 testes** passando,
+> **Estado em 26/07/2026** — 566 de 1244 itens tratados (45%), com **814 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 474 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 680 | Pendente. |
+> | `[~]` | 483 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 678 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -1260,8 +1260,8 @@ para digitar, e campo vazio significaria zerar. Apagar de propósito tem botão 
 - [~] 732 `P1` **Aviso quando não há armazenamento persistente — as chaves valem só a sessão**
 - [~] 733 `P1` **Chave sensível em campo `password`, com botão próprio para apagar**
 - [ ] 734 `P1` Ferramenta MCP `set_mod_env` para as chaves não sensíveis (modelo, idioma)
-- [ ] 735 `P0` Agente **não consegue ler valor de segredo** por nenhuma ferramenta
-- [ ] 736 `P0` Segredo nunca aparece em log, toast, snapshot ou mensagem de erro
+- [~] 735 `P0` **Agente não lê valor de segredo** — auditado: `descreverEnv` devolve só metadados (nome, obrigatória, sensível, preenchida), e `modEnv` não é ferramenta do agente, só da API do script
+- [~] 736 `P0` **Segredo redigido do log e das mensagens de erro**, na GRAVAÇÃO e não na exibição
 - [ ] 737 `P1` Redação automática: qualquer valor de segredo é mascarado ao ser impresso
 - [ ] 738 `P1` `mod.env` versionado junto do mod (o esquema entra no `ModRevision`)
 - [ ] 739 `P1` Rollback de mod restaura o esquema, não os valores
@@ -2990,3 +2990,40 @@ registrado, para quem for fazer:
 - [ ] 1251 `P0` Tornar a API de mods assíncrona (`await api.world.getBlock(...)`) — **pré-requisito do 358**
 - [ ] 1252 `P0` Migrar os mods existentes, ou manter um modo compatível para os que já existem
 - [ ] 1253 `P1` Só então mover a execução para o Worker, com os globais do Worker apagados (`fetch`, `importScripts`, `indexedDB`) — no Worker isso funciona de verdade, porque a fuga pelo construtor devolve o global **daquele** reino, que está vazio
+
+## 52. O caminho de saída de um segredo não é a rede — é o texto
+
+`api.env.get('API_KEY')` devolve a chave de verdade ao script, e isso está **certo**: ele roda no
+mesmo cliente, com os mesmos privilégios do jogo. Um mod que precisa da chave para chamar uma API
+precisa da chave. Esconder dele seria teatro.
+
+A fronteira real é o valor **não sair da máquina**. E o caminho mais fácil de saída não é o
+`fetch` — que o sandbox já bloqueia. É o texto:
+
+```js
+api.log('conectando com', api.env.get('API_KEY'));
+```
+
+A chave vai para o log do mod, aparece no painel, entra no diagnóstico e pode acabar no histórico
+da conversa que o agente lê. Sai da máquina sem nenhuma chamada de rede envolvida.
+
+E acontece **sem má intenção**: depurar imprimindo a variável é o reflexo mais comum que existe, e
+uma IA escrevendo o mod faz exatamente isso.
+
+### Duas decisões de projeto
+
+**Redigir ao gravar, não ao exibir.** Proteger em cada leitor — painel, diagnóstico, contexto do
+agente — é uma corrida que se perde na primeira vez que alguém adiciona um leitor e esquece. O
+valor nunca chega a ser armazenado, então não há leitor capaz de vazá-lo.
+
+**Comparar por valor, não por origem.** Redigir "o que veio de `env.get`" exigiria rastrear o dado
+através de concatenações, interpolações e `JSON.stringify` — impossível sem instrumentar o motor.
+Comparar o texto final contra os valores conhecidos é simples e não tem como escapar.
+
+- [~] 1254 `P0` **`src/mods/redacao.ts`**: máscara sobre qualquer ocorrência, em qualquer posição
+- [~] 1255 `P0` **Aplicada em `ModContext.log` e em `recordError`** — `fetch(url + chave)` que falha traz a chave no texto da exceção
+- [~] 1256 `P1` **Segredos mais longos primeiro**: se um contém outro, redigir o curto antes partiria o longo e deixaria a cauda visível
+- [~] 1257 `P1` **Piso de 6 caracteres** — um segredo de dois ou três apareceria por acaso em toda mensagem, e o log viraria uma sopa de asteriscos, escondendo o problema de verdade
+- [~] 1258 `P1` **Caractere especial de regex escapado** no valor do segredo
+- [~] 1259 `P1` **13 testes**, incluindo chave dentro de objeto serializado e dentro de mensagem de erro
+- [~] 1260 `P2` **O stub de teste do host passou a implementar `modEnv`** — a alternativa era guardar a chamada com `?.`, que desligaria a redação em silêncio num host que esquecesse de implementar: exatamente a falha que ela previne

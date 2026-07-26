@@ -26,6 +26,10 @@ function fakeHost() {
     giveItem: (block, count) => { chamadas.itens.push({ block, count }); },
     toast: (m) => { chamadas.toasts.push(m); },
     timeOfDay: () => tempo,
+    // Obrigatório na interface, e agora chamado na carga: o runtime pede os valores do `mod.env`
+    // para saber quais segredos redigir do log. Guardar a chamada com `?.` desligaria a redação
+    // em silêncio num host que esquecesse de implementar — exatamente a falha que ela previne.
+    modEnv: () => ({ valores: {}, faltando: [] }),
   };
   return host;
 }

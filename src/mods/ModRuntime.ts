@@ -60,6 +60,9 @@ export class ModRuntime {
     if (this.contexts.has(pkg.id)) this.unloadMod(pkg.id);
 
     const ctx = new ModContext(pkg);
+    // Os segredos deste mod, para o log nunca guardá-los. Vem do host porque é ele quem conhece
+    // o cofre; o runtime não deve nem saber de onde os valores saem.
+    ctx.segredos = Object.values(this.host.modEnv(pkg.id).valores ?? {});
     this.contexts.set(pkg.id, ctx);
 
     const resultados: ScriptLoadResult[] = [];

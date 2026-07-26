@@ -15,6 +15,7 @@
 //     mod, para poder ser desfeito com precisão depois.
 
 import { B, BLOCKS } from '../world/blocks';
+import { redigirSegredos } from './redacao';
 import { ModPackage } from './ModTypes';
 import { noiteEscura } from '../world/moon';
 
@@ -95,6 +96,12 @@ export class ModContext {
 
   constructor(public readonly mod: ModPackage) {}
 
+  /**
+   * Segredos a redigir do log deste mod. Preenchido pelo `ModService` a cada resolução do
+   * `mod.env`. Vazio significa "nada a esconder", não "não checar".
+   */
+  public segredos: string[] = [];
+
   public log(level: ModLogEntry['level'], ...args: any[]): void {
     const message = args
       .map((a) => {
@@ -102,14 +109,19 @@ export class ModContext {
         try { return JSON.stringify(a); } catch { return String(a); }
       })
       .join(' ');
-    this.logs.push({ level, message, timestamp: Date.now() });
+    // Redigir aqui, e não na exibição: o log é lido pelo painel, pelo diagnóstico e pelo agente,
+    // e proteger em cada leitor é uma corrida que se perde na primeira que alguém esquecer. O
+    // valor nunca chega a ser armazenado.
+    this.logs.push({ level, message: redigirSegredos(message, this.segredos), timestamp: Date.now() });
     // Log limitado: um `tick` que imprime a cada frame encheria a memória em minutos.
     if (this.logs.length > 300) this.logs.shift();
   }
 
   /** Registra a falha de um script. Devolve true se ele foi desligado agora. */
   public recordError(scriptKey: string, err: unknown): boolean {
-    const msg = (err as any)?.message || String(err);
+    // A mensagem de erro é outro caminho de saída: `fetch(url + chave)` que falha traz a URL
+    // inteira — com a chave dentro — no texto da exceção.
+    const msg = redigirSegredos((err as any)?.message || String(err), this.segredos);
     const n = (this.errorCount.get(scriptKey) ?? 0) + 1;
     this.errorCount.set(scriptKey, n);
     this.log('error', `[${scriptKey}] ${msg}`);
