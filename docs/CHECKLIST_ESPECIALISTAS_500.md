@@ -1935,17 +1935,40 @@ como "estilo Bedrock".*
   parte do surgimento. Fade e névoa precisam ser ajustados juntos, ou o chunk aparece com
   opacidade cheia dentro de uma névoa que deveria escondê-lo.
 
-- [ ] 1001 `P0` Registrar o instante em que a malha de cada chunk fica pronta
-- [ ] 1002 `P0` Opacidade de 0 a 1 ao longo de ~0,6 s por chunk
-- [ ] 1003 `P0` Material volta a **opaco** ao terminar — transparente permanente derruba o desempenho e a profundidade
+- [~] 1001 `P0` **`FadeAgenda` registra o instante em que a malha de cada chunk fica pronta**
+- [~] 1002 `P0` **0 a 1 ao longo de 0,6 s, com suavização *ease-out***
+- [~] 1003 `P0` ****Material nunca fica transparente** — a transição é por descarte (Bayer 4×4)**
 - [ ] 1004 `P1` Deslocamento vertical opcional ("sobe para o lugar"), estilo Bedrock
-- [ ] 1005 `P1` Aparição escalonada entre chunks, não todos no mesmo quadro
-- [ ] 1006 `P1` Ajustar o fade à neblina, para não brigarem
-- [ ] 1007 `P1` Chunk re-meshado por alteração **não** refaz a animação — só os recém-carregados
-- [ ] 1008 `P2` Curva de suavização configurável (linear vs. ease-out)
-- [ ] 1009 `P2` Opção de desligar, junto do redutor de movimento (item 438)
-- [ ] 1010 `P2` A animação não pode atrasar a colisão: o chunk já colide antes de terminar de aparecer
-- [ ] 1011 `P2` Teste de que nenhum material fica transparente após a animação
+- [~] 1005 `P1` **Aparição escalonada, 45 ms entre chunks**
+- [~] 1006 `P1` **Não briga com a neblina: o material é opaco e a névoa age normalmente**
+- [~] 1007 `P1` **Re-mesh por alteração **não** refaz a animação — só os recém-carregados**
+- [~] 1008 `P2` **Curva *ease-out* isolada em `suavizar()`, trocável num lugar só**
+- [~] 1009 `P2` **`fadeAgenda.ligado = false` desliga (falta ligar ao redutor de movimento das opções)**
+- [~] 1010 `P2` **A colisão nunca esperou a malha: a física lê os dados do chunk, não a geometria**
+- [~] 1011 `P2` **Teste de que todo chunk que começa a aparecer termina, e volta ao material compartilhado**
+
+#### Por que descarte, e não transparência
+
+O item 1003 avisava do custo, e ele é maior do que parecia: material transparente **não escreve no
+buffer de profundidade**. O chunk que está chegando deixaria de ocultar o que está atrás dele — o
+jogador veria o interior do terreno através do chão que aparece, durante a animação inteira — e o
+renderizador ainda teria de ordenar os chunks por distância a cada quadro.
+
+Descartando fragmentos por um padrão de Bayer 4×4, o material continua opaco: escreve
+profundidade, dispensa ordenação, e o que varia é a *fração* de pixels desenhados. Em 0,6 s o olho
+lê como um esmaecimento.
+
+Dois detalhes que só aparecem ao implementar:
+
+- **`clone()` não serve** para o material da animação. `Material.copy` do three.js não copia
+  `onBeforeCompile`, e o clone sairia sem curvatura, sem tingimento e sem o descarte — em
+  silêncio. É preciso construir e reaplicar.
+- **Array GLSL com índice dinâmico não é portátil** em WebGL1. A tabela de Bayer virou duas
+  linhas de aritmética, o que também é mais barato.
+
+O item 1010 (a colisão não pode esperar a animação) já era verdade e foi verificado, não
+implementado: a física lê os dados do chunk, nunca a geometria.
+
 
 ## 39 — Diretor de Céu Noturno
 

@@ -53,7 +53,15 @@ export const tinturas = {
  * funcionar quando o outono chegou", sem nada apontando para a causa.
  */
 export function applyCurvature(mat: THREE.Material): void {
+  // Uniform de aparição, **por material** e não compartilhado: cada chunk que está chegando tem o
+  // próprio progresso. Fica pendurado no material para o chamador poder ajustar sem guardar um
+  // mapa paralelo — e como todos os materiais compartilham o mesmo `customProgramCacheKey`, criar
+  // um por chunk que aparece não recompila shader nenhum.
+  const fade = { value: 1 };
+  (mat as any).uFade = fade;
+
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFade = fade;
     shader.uniforms.uCurvStart = curvature.start;
     shader.uniforms.uCurvInvR = curvature.invR;
     shader.uniforms.uTintFolhagem = tinturas.folhagem;
@@ -85,8 +93,30 @@ export function applyCurvature(mat: THREE.Material): void {
          vec4 mvPosition = viewMatrix * cqWorld;
          gl_Position = projectionMatrix * mvPosition;`,
       );
+
+    // Aparição por DESCARTE, não por transparência.
+    //
+    // Transparência resolveria em duas linhas e custaria caro: material transparente não escreve
+    // profundidade, então o chunk que chega deixaria de ocultar o que está atrás — o jogador
+    // veria o interior do terreno através do chão que está aparecendo, durante a animação
+    // inteira, e o renderizador ainda teria de ordenar os chunks a cada quadro.
+    //
+    // Descartando fragmentos por um padrão de Bayer 4×4, o material continua opaco: escreve
+    // profundidade, dispensa ordenação, e o que varia é a fração de pixels desenhados. Em 0,6 s
+    // o olho lê como um esmaecimento.
+    shader.fragmentShader =
+      'uniform float uFade;\n' +
+      // Bayer 4×4 calculado, sem tabela: array com índice dinâmico não é portátil em WebGL1, e
+      // a construção recursiva do padrão custa quatro instruções.
+      'float cqBayer2(vec2 a) { a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }\n' +
+      'float cqBayer4(vec2 a) { return cqBayer2(a * 0.5) * 0.25 + cqBayer2(a); }\n' +
+      shader.fragmentShader.replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+         if (uFade < 0.999 && cqBayer4(gl_FragCoord.xy) > uFade) discard;`,
+      );
   };
-  mat.customProgramCacheKey = () => 'cq-curvature-tint';
+  mat.customProgramCacheKey = () => 'cq-curvature-tint-fade';
 }
 
 export interface GameScene {
@@ -117,6 +147,13 @@ export interface GameScene {
    * Não remonta chunk: só troca uniforms lidos pelo canal `aTint` do mesher.
    */
   setSeasonTint(folhagem: [number, number, number], grama: [number, number, number], molhado: number): void;
+  /**
+   * Cria um material para um chunk que está aparecendo. Descarta-o (`dispose`) ao terminar e
+   * devolva o chunk ao material compartilhado — ver `src/render/chunkFade.ts`.
+   */
+  criarMaterialFade(qual: 'solid' | 'water' | 'glass'): THREE.Material;
+  /** Progresso da aparição de um material criado por `criarMaterialFade`, 0..1. */
+  setMaterialFade(mat: THREE.Material, v: number): void;
   /** Clarão do relâmpago, 0..1. Ilumina a cena sem marcar chunk como sujo. */
   setLightningFlash(v: number): void;
   /** Fase lunar (0 = nova, 4 = cheia). Governa a claridade da noite e o desenho da lua. */
@@ -196,6 +233,35 @@ export function createScene(container: HTMLElement): GameScene {
   applyCurvature(solidMaterial);
   applyCurvature(waterMaterial);
   applyCurvature(glassMaterial);
+
+  /**
+   * Materiais para os chunks que estão aparecendo.
+   *
+   * Um por chunk em animação, porque o progresso é individual e o three.js só reenvia uniforms de
+   * material quando o material muda. Não é caro: `customProgramCacheKey` é o mesmo para todos, e
+   * portanto o shader é compilado **uma vez** e reaproveitado — o que se cria aqui é estado de
+   * uniform, não programa de GPU.
+   *
+   * `clone()` não serve: `Material.copy` do three.js não copia `onBeforeCompile`, e o clone sairia
+   * sem curvatura, sem tingimento e sem o descarte — silenciosamente.
+   */
+  function criarMaterialFade(qual: 'solid' | 'water' | 'glass'): THREE.Material {
+    const base = qual === 'solid' ? solidMaterial : qual === 'water' ? waterMaterial : glassMaterial;
+    const m = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      transparent: (base as THREE.MeshLambertMaterial).transparent,
+      opacity: (base as THREE.MeshLambertMaterial).opacity,
+      depthWrite: (base as THREE.MeshLambertMaterial).depthWrite,
+      side: (base as THREE.MeshLambertMaterial).side,
+    });
+    applyCurvature(m);
+    return m;
+  }
+
+  function setMaterialFade(mat: THREE.Material, v: number): void {
+    const u = (mat as any).uFade as { value: number } | undefined;
+    if (u) u.value = Math.max(0, Math.min(1, v));
+  }
 
   addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
@@ -391,5 +457,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, criarMaterialFade, setMaterialFade, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

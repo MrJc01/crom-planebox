@@ -7,6 +7,7 @@ import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
 import { EstadoSazonal, corDaFolhagem, corDaGrama, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
 import { Precipitation, Relampago } from './render/precipitation';
+import { FadeAgenda } from './render/chunkFade';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
@@ -196,6 +197,13 @@ async function bootstrap() {
   function disposeChunkMesh(key: string): void {
     const m = meshes.get(key);
     if (!m) return;
+    // Materiais da animação em curso vão junto: a malha que os usava está sendo destruída, e
+    // deixá-los vivos vazaria um material por chunk que for re-meshado durante a aparição.
+    const mats = materiaisFade.get(key);
+    if (mats) {
+      materiaisFade.delete(key);
+      for (const mat of mats) mat.dispose();
+    }
     for (const mesh of [m.solid, m.water, m.glass]) {
       if (!mesh) continue;
       gs.scene.remove(mesh);
@@ -255,6 +263,9 @@ async function bootstrap() {
       const dx = c.cx - pcx, dz = c.cz - pcz;
       if (dx * dx + dz * dz > unloadRadius * unloadRadius) {
         disposeChunkMesh(key);
+        // Fora do alcance: esquece também o registro de "já apareceu", para o chunk aparecer de
+        // novo quando o jogador voltar — é a mesma experiência da primeira vez.
+        fadeAgenda.esquecer(key);
         if (c.edited) {
           savedChunks.set(key, c.data);
         }
@@ -333,6 +344,11 @@ async function bootstrap() {
     const key = chunkKey(cx, cz);
     disposeChunkMesh(key);
 
+    // Chunk novo aparece gradualmente; re-mesh por alteração do jogador, não — senão o chunk
+    // pisca a cada bloco colocado. Quem decide é a agenda, que já viu esta chave antes.
+    const aparecendo = fadeAgenda.registrar(key);
+    if (aparecendo) materiaisFade.set(key, []);
+
     const entry: ChunkMeshes = { solid: null, water: null, glass: null };
     const partes: [keyof ChunkMeshes, typeof geo.solid, THREE.Material, boolean][] = [
       ['solid', geo.solid, gs.solidMaterial, true],
@@ -340,8 +356,14 @@ async function bootstrap() {
       ['glass', geo.glass, gs.glassMaterial, true],
     ];
 
-    for (const [nome, bruto, material, projetaSombra] of partes) {
+    for (const [nome, bruto, compartilhado, projetaSombra] of partes) {
       if (!bruto) continue;
+      let material = compartilhado;
+      if (aparecendo) {
+        material = gs.criarMaterialFade(nome);
+        gs.setMaterialFade(material, 0);
+        materiaisFade.get(key)!.push(material);
+      }
       const mesh = new THREE.Mesh(geometryFromRaw(bruto), material);
       mesh.position.set(cx * CX, 0, cz * CZ);
       mesh.castShadow = projetaSombra;
@@ -353,6 +375,28 @@ async function bootstrap() {
     meshes.set(key, entry);
   }
 
+
+  /**
+   * Aparição gradual dos chunks. A agenda é pura (`src/render/chunkFade.ts`); aqui fica só a
+   * troca de material: enquanto aparece, o chunk usa um material próprio com o progresso; ao
+   * terminar, volta ao compartilhado e o próprio é descartado.
+   */
+  const fadeAgenda = new FadeAgenda();
+  const materiaisFade = new Map<string, THREE.Material[]>();
+
+  /** Devolve o chunk ao material compartilhado e libera o material da animação. */
+  function encerrarFade(key: string): void {
+    const mats = materiaisFade.get(key);
+    if (!mats) return;
+    materiaisFade.delete(key);
+    const entry = meshes.get(key);
+    if (entry) {
+      if (entry.solid) entry.solid.material = gs.solidMaterial;
+      if (entry.water) entry.water.material = gs.waterMaterial;
+      if (entry.glass) entry.glass.material = gs.glassMaterial;
+    }
+    for (const m of mats) m.dispose();
+  }
 
   // Nenhum mundo é criado/carregado automaticamente — o MainMenu decide isso (seção 2 do checklist).
   let currentWorld: WorldRecord = {
@@ -1088,6 +1132,8 @@ async function bootstrap() {
     // (estações erradas) apareceria longe de qualquer coisa que o jogador tenha feito ali.
     limparPerfis();
     relampago.reset();
+    for (const key of Array.from(materiaisFade.keys())) encerrarFade(key);
+    fadeAgenda.limpar();
     mcpExecutors.setWorldId(worldId);
     eventSystem.setWorldId(worldId);
     entitySystem.clearAll();
@@ -1640,6 +1686,16 @@ async function bootstrap() {
 
     // Precipitação. `clima.particulas` já vem interpolado entre o clima que sai e o que entra,
     // então a chuva engrossa e afina junto com a transição, sem nenhum tratamento aqui.
+    // Aparição dos chunks recém-carregados.
+    fadeAgenda.update(dt);
+    if (fadeAgenda.aparecendo > 0) {
+      for (const [key, mats] of materiaisFade) {
+        const p = fadeAgenda.progresso(key);
+        for (const m of mats) gs.setMaterialFade(m, p);
+      }
+    }
+    for (const key of fadeAgenda.terminados()) encerrarFade(key);
+
     profiler.begin('clima');
     const camPos = cameraManager.getActiveCameraPosition();
     precipitacao.update(dt, camPos, clima.particulas, clima.clima === 'neve', (x, y, z) =>
