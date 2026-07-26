@@ -9,7 +9,63 @@
 // A escala é em metros do mundo: o jogador tem 1.8m, que na régua de mini-voxels do projeto
 // (3 por metro) dá os ~5.4 mini-voxels citados no prompt do sistema da IA.
 
+/**
+ * Altura do jogador na régua interna das peças, em metros.
+ *
+ * **Isto não é a unidade do mundo.** As peças são descritas em metros por serem legíveis assim
+ * (uma cabeça de 0,52 m se entende; uma de 1,53 mini-voxels, não), e convertidas na hora de
+ * desenhar por `ESCALA_MODELO`.
+ */
 export const PLAYER_HEIGHT = 1.8;
+
+/**
+ * Altura do jogador em **unidades de mundo** (mini-voxels), igual à do corpo de colisão em
+ * `src/player/controller.ts`.
+ *
+ * ## O defeito que esta constante corrige
+ *
+ * O relato foi "a skin está ficando dentro da terra e não respeita as proporções". A causa era
+ * uma **incompatibilidade de unidade**, e nada no código a denunciava: a física trabalha em
+ * mini-voxels (jogador com 5,3 de altura) e o modelo era construído em metros (1,8) — sem
+ * nenhuma conversão entre os dois. O boneco saía com **um terço** do tamanho do próprio corpo de
+ * colisão, afundado no chão em relação à câmera, que fica a 4,9 de altura.
+ *
+ * Os dois números eram certos cada um na sua régua. Nenhum teste podia perceber, porque não
+ * havia nada errado com nenhum deles isoladamente — o erro estava no espaço entre os dois.
+ */
+export const ALTURA_MUNDO = 5.3;
+
+/** Metros → unidades de mundo. É a ponte que faltava. */
+export const ESCALA_MODELO = ALTURA_MUNDO / PLAYER_HEIGHT;
+
+/**
+ * Proporções verticais, em metros, somando exatamente `PLAYER_HEIGHT`.
+ *
+ * Cabeça generosa e torso curto: é a leitura da referência de arte voxel, e o que separa a
+ * silhueta de um boneco de seis caixas iguais. A soma é verificada em teste — mudar um valor sem
+ * compensar outro deixaria o modelo mais alto ou mais baixo que o corpo de colisão, e o sintoma
+ * seria de novo o pé afundado ou flutuando.
+ */
+export const PROPORCOES = {
+  bota: 0.10,
+  perna: 0.66,
+  torso: 0.52,
+  cabeca: 0.52,
+} as const;
+
+/**
+ * Altura das articulações a partir dos pés, **derivada** das proporções.
+ *
+ * Estavam cravadas no `PlayerModel` (ombro 1,34; quadril 0,80; pescoço 1,40), casando com uma
+ * versão anterior das proporções. Mexer numa altura sem lembrar de mexer aqui giraria os membros
+ * em torno de um ponto que não é mais a articulação — o braço sairia do ombro. Derivando, isso
+ * deixa de ser possível.
+ */
+export const PIVOS = {
+  quadril: PROPORCOES.bota + PROPORCOES.perna,
+  ombro: PROPORCOES.bota + PROPORCOES.perna + PROPORCOES.torso - 0.06,
+  pescoco: PROPORCOES.bota + PROPORCOES.perna + PROPORCOES.torso,
+} as const;
 
 /** Cada peça é uma caixa com tamanho, deslocamento a partir dos pés e uma cor da paleta. */
 export interface BodyPartSpec {
@@ -127,26 +183,40 @@ export function buildBodyParts(appearance: Appearance): BodyPartSpec[] {
   const a = appearance;
   const parts: BodyPartSpec[] = [];
 
-  const legH = 0.68, torsoH = 0.6, headH = 0.4, bootH = 0.12;
+  const { bota: bootH, perna: legH, torso: torsoH, cabeca: headH } = PROPORCOES;
   const legY = bootH + legH / 2;
   const torsoY = bootH + legH + torsoH / 2;
   const headY = bootH + legH + torsoH + headH / 2;
 
+  // Larguras, seguindo a referência de arte voxel: ombros ESTREITOS — mais estreitos que a
+  // cabeça — braços e pernas finos. É a diferença entre a silhueta da referência e um boneco de
+  // caixas iguais, e o que faz a cabeça grande ler como estilo em vez de erro de escala.
+  const larguraTorso = 0.40;
+  const larguraBraco = 0.12;
+  const larguraPerna = 0.16;
+  const larguraCabeca = 0.46;
+  const xBraco = larguraTorso / 2 + larguraBraco / 2;   // encostado no torso, sem afundar nele
+  const xPerna = larguraPerna / 2 + 0.01;               // folga de 1 cm entre as pernas
+  const bracoH = 0.50;
+  const maoH = 0.10;
+
   parts.push(
-    { id: 'bootLeft', label: 'Bota esquerda', slot: 'boots', size: [0.19, bootH, 0.26], offset: [-0.11, bootH / 2, 0.01], limb: 'legLeft' },
-    { id: 'bootRight', label: 'Bota direita', slot: 'boots', size: [0.19, bootH, 0.26], offset: [0.11, bootH / 2, 0.01], limb: 'legRight' },
-    { id: 'legLeft', label: 'Perna esquerda', slot: 'pants', size: [0.18, legH, 0.2], offset: [-0.11, legY, 0], limb: 'legLeft' },
-    { id: 'legRight', label: 'Perna direita', slot: 'pants', size: [0.18, legH, 0.2], offset: [0.11, legY, 0], limb: 'legRight' },
-    { id: 'torso', label: 'Torso', slot: 'shirt', size: [0.46, torsoH, 0.26], offset: [0, torsoY, 0] },
-    { id: 'belt', label: 'Cinto', slot: 'accent', size: [0.48, 0.08, 0.28], offset: [0, bootH + legH + 0.04, 0] },
-    { id: 'armLeft', label: 'Braço esquerdo', slot: 'shirt', size: [0.14, 0.54, 0.16], offset: [-0.3, torsoY + 0.03, 0], limb: 'armLeft' },
-    { id: 'armRight', label: 'Braço direito', slot: 'shirt', size: [0.14, 0.54, 0.16], offset: [0.3, torsoY + 0.03, 0], limb: 'armRight' },
-    { id: 'handLeft', label: 'Mão esquerda', slot: 'skin', size: [0.15, 0.14, 0.17], offset: [-0.3, torsoY - 0.26, 0], limb: 'armLeft' },
-    { id: 'handRight', label: 'Mão direita', slot: 'skin', size: [0.15, 0.14, 0.17], offset: [0.3, torsoY - 0.26, 0], limb: 'armRight' },
-    // Cabeça generosa: é a marca da silhueta estilo Hytale.
-    { id: 'head', label: 'Cabeça', slot: 'skin', size: [0.42, headH, 0.4], offset: [0, headY, 0], limb: 'head' },
-    { id: 'eyeLeft', label: 'Olho esquerdo', slot: 'eyes', size: [0.08, 0.08, 0.02], offset: [-0.1, headY + 0.04, -0.2], limb: 'head' },
-    { id: 'eyeRight', label: 'Olho direito', slot: 'eyes', size: [0.08, 0.08, 0.02], offset: [0.1, headY + 0.04, -0.2], limb: 'head' },
+    { id: 'bootLeft', label: 'Bota esquerda', slot: 'boots', size: [larguraPerna + 0.02, bootH, 0.22], offset: [-xPerna, bootH / 2, 0.01], limb: 'legLeft' },
+    { id: 'bootRight', label: 'Bota direita', slot: 'boots', size: [larguraPerna + 0.02, bootH, 0.22], offset: [xPerna, bootH / 2, 0.01], limb: 'legRight' },
+    { id: 'legLeft', label: 'Perna esquerda', slot: 'pants', size: [larguraPerna, legH, 0.18], offset: [-xPerna, legY, 0], limb: 'legLeft' },
+    { id: 'legRight', label: 'Perna direita', slot: 'pants', size: [larguraPerna, legH, 0.18], offset: [xPerna, legY, 0], limb: 'legRight' },
+    { id: 'torso', label: 'Torso', slot: 'shirt', size: [larguraTorso, torsoH, 0.24], offset: [0, torsoY, 0] },
+    { id: 'belt', label: 'Cinto', slot: 'accent', size: [larguraTorso + 0.02, 0.07, 0.26], offset: [0, PIVOS.quadril + 0.035, 0] },
+    // O braço pende do OMBRO: o centro fica meio comprimento abaixo dele. Escrever assim, e não
+    // como um número solto, é o que mantém o ombro no lugar quando as proporções mudam.
+    { id: 'armLeft', label: 'Braço esquerdo', slot: 'shirt', size: [larguraBraco, bracoH, 0.14], offset: [-xBraco, PIVOS.ombro - bracoH / 2, 0], limb: 'armLeft' },
+    { id: 'armRight', label: 'Braço direito', slot: 'shirt', size: [larguraBraco, bracoH, 0.14], offset: [xBraco, PIVOS.ombro - bracoH / 2, 0], limb: 'armRight' },
+    { id: 'handLeft', label: 'Mão esquerda', slot: 'skin', size: [larguraBraco + 0.02, maoH, 0.15], offset: [-xBraco, PIVOS.ombro - bracoH - maoH / 2, 0], limb: 'armLeft' },
+    { id: 'handRight', label: 'Mão direita', slot: 'skin', size: [larguraBraco + 0.02, maoH, 0.15], offset: [xBraco, PIVOS.ombro - bracoH - maoH / 2, 0], limb: 'armRight' },
+    // Cabeça generosa e quase cúbica: é a marca da silhueta da referência.
+    { id: 'head', label: 'Cabeça', slot: 'skin', size: [larguraCabeca, headH, 0.44], offset: [0, headY, 0], limb: 'head' },
+    { id: 'eyeLeft', label: 'Olho esquerdo', slot: 'eyes', size: [0.09, 0.07, 0.02], offset: [-0.11, headY + 0.03, -0.22], limb: 'head' },
+    { id: 'eyeRight', label: 'Olho direito', slot: 'eyes', size: [0.09, 0.07, 0.02], offset: [0.11, headY + 0.03, -0.22], limb: 'head' },
   );
 
   // Cabelo: peças extras por estilo, sempre coladas ao volume da cabeça.

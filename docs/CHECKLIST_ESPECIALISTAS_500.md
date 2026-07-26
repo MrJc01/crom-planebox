@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1205 itens)
+# Checklist Mestre — Painel de Especialistas (1212 itens)
 
-> **Estado em 26/07/2026** — 526 de 1205 itens tratados (43%), com **767 testes** passando,
+> **Estado em 26/07/2026** — 533 de 1212 itens tratados (43%), com **775 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 443 | **Entregue** ao longo das rodadas, com teste. |
+> | `[~]` | 450 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 679 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -2776,3 +2776,48 @@ alguém a usa.
 - [~] 1219 `P1` **A lista de mundos se atualiza ao voltar para a aba** (`aoAtivar`), com `montar` e `aoAtivar` de papéis separados: se os dois desenhassem, na primeira ativação os dois rodariam e a lista sairia duplicada — a mesma corrida do `renderBody`
 - [~] 1220 `P0` **`tests/unit/fiacao.test.ts`** — guarda os oito casos de uma vez, procurando um chamador fora do arquivo que define. Textual, com a fragilidade que isso implica; a ferramenta ideal seria cobertura de integração com o jogo rodando, e isso exige WebGL que o jsdom não tem
 - [~] 1221 `P2` **O varredor testa a si mesmo**: um teste que varresse zero arquivos passaria vazio e daria falsa segurança
+
+## 47. O avatar enterrado — 26/07/2026
+
+Você mandou uma referência de arte voxel e três frases: *"o jogador tem de 4-5 bloquinhos de
+altura, a skin tá ficando dentro da terra, e não respeitando as proporções"*. Eram **dois
+defeitos distintos**, e o segundo é dos mais instrutivos que apareceram aqui.
+
+### 1. O balanço da marcha era dono da posição de mundo
+
+`main.ts` escrevia a posição do jogador em `playerModel.group.position`. A linha seguinte —
+`playerModel.update(...)` — terminava com:
+
+```ts
+this.group.position.y = moving ? Math.abs(Math.sin(this.walkCycle * 2)) * 0.02 : 0;
+```
+
+O balanço **descartava** o `y` que o `main` tinha acabado de escrever, plantando o avatar em
+`y = 0` do mundo. Literalmente "a skin ficando dentro da terra": o boneco enterrado na origem
+vertical, e não nos pés do jogador. **Dois donos para a mesma propriedade.** O conserto é
+estrutural — um grupo interno (`corpo`) carrega o balanço, e `group` fica só com a transformação
+de mundo. Não existe mais caminho para um sobrescrever o outro.
+
+### 2. Duas réguas, e nenhuma ponte entre elas
+
+A física conta em mini-voxels: `HEIGHT = 5.3` em `controller.ts`. O modelo era construído em
+metros: `PLAYER_HEIGHT = 1.8` em `Appearance.ts`. **Nada convertia entre os dois.** O avatar saía
+com um terço do tamanho do próprio corpo de colisão.
+
+Este é o tipo de defeito que nenhum teste unitário encontra, e vale entender por quê: **os dois
+números estavam certos**, cada um na sua régua. Não havia nada a reprovar em `5.3`, nem em `1.8`.
+O erro morava no espaço entre os dois arquivos, que é exatamente onde não há teste.
+
+- [~] 1222 `P0` **Grupo `corpo` interno** — o balanço deixa de sobrescrever a posição de mundo
+- [~] 1223 `P0` **`ESCALA_MODELO`** liga as duas réguas; `ALTURA_MUNDO` passa a ser a fonte única
+- [~] 1224 `P0` **Proporções da referência**: cabeça grande (29%), torso curto, ombros mais estreitos que a cabeça, braços e pernas finos
+- [~] 1225 `P0` **Pivôs derivados das proporções** — eram cravados (1,34 / 0,80 / 1,40) e casavam com uma versão antiga. Mudar uma altura girava o braço em torno de um ponto que não era mais o ombro
+- [~] 1226 `P1` **Plaquinha de nome e câmera do preview derivadas de `ALTURA_MUNDO`** — as duas estavam calibradas para 1,8; a câmera do criador ficaria dentro do joelho do boneco
+- [~] 1227 `P1` **8 testes de ancoragem e proporção**: o balanço não toca na posição de mundo, o balanço continua existindo (a correção não pode ser desligar o efeito), os pés ficam em `y=0`, o corpo tem a altura da colisão, as proporções somam a altura, e as articulações caem onde o corpo muda de peça
+- [~] 1228 `P2` **Acessor `pecas`** para teste e acessórios, em vez de acoplamento a `group.children`
+
+> **O que este caso ensina, e é diferente dos oito anteriores.** Aqueles eram código que ninguém
+> chamava. Estes dois são código chamado, correto e **em conflito com outro código igualmente
+> correto**. Um teste por arquivo não os encontra: só encontra quem olha para a costura. O teste
+> que agora existe mede o avatar *no mundo* — caixa envolvente contra a altura da colisão — em vez
+> de conferir números dentro de um arquivo só.

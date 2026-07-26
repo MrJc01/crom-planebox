@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import { PlayerModel } from '../../src/player/PlayerModel';
 import {
+  ALTURA_MUNDO,
+  PIVOS,
+  PROPORCOES,
   Appearance,
   COLOR_SLOTS,
   DEFAULT_APPEARANCE,
@@ -176,8 +180,8 @@ describe('PlayerModel — o corpo em primeira pessoa', () => {
 
     // Exatamente um pivô fica invisível — e o resto do corpo continua desenhado. Contar é o que
     // prova a afirmação: "some só a cabeça" é uma frase sobre quantidade.
-    const invisiveis = m.group.children.filter((c) => !c.visible);
-    const visiveis = m.group.children.filter((c) => c.visible);
+    const invisiveis = m.pecas.filter((c) => !c.visible);
+    const visiveis = m.pecas.filter((c) => c.visible);
     expect(invisiveis.length).toBe(1);
     expect(visiveis.length).toBeGreaterThan(2); // braços, pernas e tronco continuam lá
 
@@ -190,7 +194,7 @@ describe('PlayerModel — o corpo em primeira pessoa', () => {
     m.setVisible(true);
     m.setPrimeiraPessoa(true);
     m.setPrimeiraPessoa(false);
-    expect(m.group.children.every((c) => c.visible)).toBe(true);
+    expect(m.pecas.every((c) => c.visible)).toBe(true);
   });
 
   it('CRÍTICO: trocar de aparência em primeira pessoa não faz a cabeça reaparecer', () => {
@@ -200,7 +204,7 @@ describe('PlayerModel — o corpo em primeira pessoa', () => {
     m.setVisible(true);
     m.setPrimeiraPessoa(true);
     m.setAppearance({ ...m.getAppearance(), skin: '#ff0000' });
-    expect(m.group.children.filter((c) => !c.visible).length).toBe(1);
+    expect(m.pecas.filter((c) => !c.visible).length).toBe(1);
   });
 
   it('oculto por inteiro continua oculto, seja qual for o modo', () => {
@@ -211,5 +215,99 @@ describe('PlayerModel — o corpo em primeira pessoa', () => {
     m.setPrimeiraPessoa(false);
     m.setVisible(false);
     expect(m.group.visible).toBe(false);
+  });
+});
+
+describe('escala e ancoragem — o avatar enterrado', () => {
+  it('CRÍTICO: o balanço da caminhada NÃO escreve na posição de mundo', () => {
+    // O defeito relatado como "a skin está ficando dentro da terra". O `main` escrevia a posição
+    // do jogador em `group.position`, e a linha seguinte — o balanço da marcha — fazia
+    // `group.position.y = 0`, plantando o avatar na origem vertical do mundo.
+    //
+    // Um objeto não pode ter dois donos para a mesma propriedade.
+    const m = new PlayerModel();
+    m.group.position.set(10, 73, -4);
+
+    m.update(0.016, 5, true, 0, 0);   // andando
+    expect(m.group.position.y).toBe(73);
+
+    m.update(0.016, 0, true, 0, 0);   // parado
+    expect(m.group.position.y).toBe(73);
+    expect(m.group.position.x).toBe(10);
+  });
+
+  it('o balanço existe — não foi "consertado" desligando o efeito', () => {
+    // Sem esta verificação, a correção acima passaria removendo o balanço, que não é o pedido.
+    const m = new PlayerModel();
+    const antes = m.pecas.length;
+    let mexeu = false;
+    for (let i = 0; i < 40; i++) {
+      m.update(0.05, 5, true, 0, 0);
+      if (Math.abs(m.alturaDoBalanco) > 1e-6) mexeu = true;
+    }
+    expect(mexeu).toBe(true);
+    expect(m.pecas.length).toBe(antes);
+  });
+
+  it('CRÍTICO: o modelo tem a altura do CORPO DE COLISÃO, não a da régua interna', () => {
+    // A causa de "não respeita as proporções": a física conta em mini-voxels (5,3 de altura) e as
+    // peças são descritas em metros (1,8). Sem conversão, o avatar saía com um terço do tamanho
+    // do próprio corpo de colisão. Os dois números estavam certos, cada um na sua régua — o erro
+    // vivia no espaço entre eles, onde nenhum teste olhava.
+    const m = new PlayerModel();
+    expect(m.height).toBeCloseTo(ALTURA_MUNDO, 5);
+  });
+
+  it('CRÍTICO: os pés ficam em y=0 local — é o que apoia o avatar no chão', () => {
+    // `main` faz `group.position.y = player.pos.y`, e `player.pos.y` são os PÉS. Se a origem do
+    // modelo fosse a cintura, ele afundaria metade da altura no terreno.
+    const caixa = new THREE.Box3().setFromObject(new PlayerModel().group);
+    expect(caixa.min.y).toBeCloseTo(0, 4);
+
+    // O CORPO tem exatamente a altura da colisão. Medido num careca, porque o cabelo é a única
+    // peça que pode ultrapassar o topo da cabeça — e deve mesmo, como na referência.
+    const careca = new PlayerModel({ ...DEFAULT_APPEARANCE, hairStyle: 'careca' });
+    const caixaCareca = new THREE.Box3().setFromObject(careca.group);
+    expect(caixaCareca.min.y).toBeCloseTo(0, 4);
+    expect(caixaCareca.max.y).toBeCloseTo(ALTURA_MUNDO, 4);
+
+    // Com cabelo o topo sobe um pouco, e só um pouco: um penteado que ultrapassasse muito faria
+    // o avatar bater a cabeça em tetos onde a colisão passa.
+    expect(caixa.max.y).toBeGreaterThanOrEqual(caixaCareca.max.y);
+    expect(caixa.max.y).toBeLessThan(ALTURA_MUNDO * 1.1);
+  });
+
+  it('as proporções somam exatamente a altura — nenhuma sobra, nenhuma falta', () => {
+    // Mexer numa altura sem compensar outra deixaria o avatar mais alto ou mais baixo que a
+    // colisão, e o sintoma seria de novo o pé afundado ou flutuando.
+    const soma = PROPORCOES.bota + PROPORCOES.perna + PROPORCOES.torso + PROPORCOES.cabeca;
+    expect(soma).toBeCloseTo(PLAYER_HEIGHT, 6);
+  });
+
+  it('as articulações caem onde o corpo muda de peça', () => {
+    // Os pivôs eram números cravados que casavam com proporções antigas. Derivados, não há como
+    // divergirem — e este teste é o que prova a derivação, não a coincidência.
+    expect(PIVOS.quadril).toBeCloseTo(PROPORCOES.bota + PROPORCOES.perna, 6);
+    expect(PIVOS.pescoco).toBeCloseTo(PROPORCOES.bota + PROPORCOES.perna + PROPORCOES.torso, 6);
+    expect(PIVOS.ombro).toBeLessThan(PIVOS.pescoco);
+    expect(PIVOS.ombro).toBeGreaterThan(PIVOS.quadril);
+  });
+
+  it('a silhueta é a da referência: cabeça mais larga que os ombros', () => {
+    // É o que separa o estilo voxel de um boneco de seis caixas iguais. Se o torso ficar mais
+    // largo que a cabeça, a cabeça grande deixa de ler como estilo e passa a parecer erro.
+    const partes = buildBodyParts(DEFAULT_APPEARANCE);
+    const cabeca = partes.find((p) => p.id === 'head')!;
+    const torso = partes.find((p) => p.id === 'torso')!;
+    const braco = partes.find((p) => p.id === 'armLeft')!;
+    expect(cabeca.size[0]).toBeGreaterThan(torso.size[0]);
+    expect(braco.size[0]).toBeLessThan(torso.size[0] / 2);
+  });
+
+  it('os braços saem do ombro, não do meio do tronco', () => {
+    const partes = buildBodyParts(DEFAULT_APPEARANCE);
+    const braco = partes.find((p) => p.id === 'armLeft')!;
+    // Topo do braço = centro + metade da altura. Deve coincidir com o ombro.
+    expect(braco.offset[1] + braco.size[1] / 2).toBeCloseTo(PIVOS.ombro, 6);
   });
 });

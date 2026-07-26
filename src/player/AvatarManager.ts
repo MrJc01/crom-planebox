@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { Appearance, sanitizeAppearance } from './Appearance';
 import { PlayerModel } from './PlayerModel';
+import { ALTURA_MUNDO } from './Appearance';
 
 interface Avatar {
   model: PlayerModel;
@@ -55,7 +56,10 @@ export class AvatarManager {
     if (!avatar) {
       const model = new PlayerModel(clean);
       const label = makeNameLabel(name);
-      label.position.set(0, 2.15, 0);
+      // Derivado da altura do avatar, e não cravado: com o número solto (2.15, calibrado para
+      // um modelo de 1,8) a plaquinha foi parar na altura do peito quando o modelo passou a ter
+      // o tamanho certo de 5,3.
+      label.position.set(0, ALTURA_MUNDO + 0.45, 0);
       model.group.add(label);
       this.scene.add(model.group);
 
@@ -86,7 +90,10 @@ export class AvatarManager {
       avatar.model.group.remove(avatar.label);
       disposeLabel(avatar.label);
       avatar.label = makeNameLabel(name);
-      avatar.label.position.set(0, 2.15, 0);
+      avatar.// Derivado da altura do avatar, e não cravado: com o número solto (2.15, calibrado para
+      // um modelo de 1,8) a plaquinha foi parar na altura do peito quando o modelo passou a ter
+      // o tamanho certo de 5,3.
+      label.position.set(0, ALTURA_MUNDO + 0.45, 0);
       avatar.model.group.add(avatar.label);
     }
   }
@@ -141,7 +148,9 @@ function makeNameLabel(name: string): THREE.Sprite {
   }
   const texture = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-  sprite.scale.set(1.4, 0.35, 1);
+  // Acompanha a escala do avatar: uma plaquinha de 1,4 ao lado de um boneco de 5,3 fica
+  // ilegível de longe.
+  sprite.scale.set(2.8, 0.7, 1);
   return sprite;
 }
 

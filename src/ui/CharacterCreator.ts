@@ -11,6 +11,7 @@ import { CAMADA } from './theme';
 import * as THREE from 'three';
 import { UIScreen } from './UIManager';
 import {
+  ALTURA_MUNDO,
   Appearance,
   COLOR_SLOTS,
   ColorSlot,
@@ -59,8 +60,15 @@ export class CharacterCreator implements UIScreen {
     this.scene.add(rim);
     this.scene.add(this.model.group);
 
-    this.camera.position.set(0, 1.05, 3.1);
-    this.camera.lookAt(0, 0.95, 0);
+    // Enquadramento derivado da altura do avatar, não cravado.
+    //
+    // Os números anteriores (1,05 / 3,1) foram calibrados para o modelo de 1,8 — com o tamanho
+    // correto de 5,3 a câmera ficaria dentro do joelho do boneco. Escrever em função da altura é
+    // o que evita ter de recalibrar isto a cada mudança de proporção, e é o mesmo motivo dos
+    // pivôs terem deixado de ser números soltos.
+    const alvoY = ALTURA_MUNDO * 0.55;
+    this.camera.position.set(0, alvoY + ALTURA_MUNDO * 0.06, ALTURA_MUNDO * 1.72);
+    this.camera.lookAt(0, alvoY, 0);
 
     const { root, previewHost, slotsHost } = this.buildDom();
     this.root = root;
