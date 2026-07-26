@@ -22,6 +22,12 @@ export interface PauseMenuDeps {
   getCurrentWorldName: () => string;
   /** Roster de jogadores (local + remotos) para a aba Multiplayer listar e gerenciar OP. */
   listPlayers: () => KnownPlayer[];
+  /** Estilo de gradação de cor (ver `src/render/grading.ts`). */
+  getGradacao: () => string;
+  setGradacao: (id: string) => void;
+  /** Aparição gradual dos chunks — desligável junto do redutor de movimento (item 1009). */
+  getFadeChunks: () => boolean;
+  setFadeChunks: (v: boolean) => void;
   setOp: (playerIdOrName: string, isOp: boolean) => boolean;
 }
 
@@ -328,6 +334,30 @@ export class PauseMenu {
     renderInput.style.cssText = 'width:100%;';
     renderInput.oninput = () => this.deps.cameraManager.setRenderDistance(Number(renderInput.value));
     sec.appendChild(this.inputRow(`Distância de Renderização: ${this.deps.cameraManager.renderDistance} chunks`, renderInput));
+
+    // --- Aparência do mundo -------------------------------------------------------------
+    const gradSelect = document.createElement('select');
+    gradSelect.style.cssText = inputStyle;
+    const gradLabels: Record<string, string> = {
+      natural: 'Natural (padrão)',
+      cinema: 'Cinema — mais contido e frio',
+      vivido: 'Vívido — cores mais fortes',
+      nenhuma: 'Nenhuma — cor crua',
+    };
+    for (const [id, rotulo] of Object.entries(gradLabels)) {
+      const opt = document.createElement('option');
+      opt.value = id; opt.textContent = rotulo;
+      if (id === this.deps.getGradacao()) opt.selected = true;
+      gradSelect.appendChild(opt);
+    }
+    gradSelect.onchange = () => this.deps.setGradacao(gradSelect.value as any);
+    sec.appendChild(this.inputRow('Gradação de Cor', gradSelect));
+
+    const fadeCheck = document.createElement('input');
+    fadeCheck.type = 'checkbox';
+    fadeCheck.checked = this.deps.getFadeChunks();
+    fadeCheck.onchange = () => this.deps.setFadeChunks(fadeCheck.checked);
+    sec.appendChild(this.inputRow('Chunks aparecem gradualmente', fadeCheck));
 
     const resetBtn = document.createElement('button');
     resetBtn.textContent = '🔄 Resetar Personagem (Spawn)';

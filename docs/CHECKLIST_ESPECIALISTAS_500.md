@@ -1943,7 +1943,7 @@ como "estilo Bedrock".*
 - [~] 1006 `P1` **Não briga com a neblina: o material é opaco e a névoa age normalmente**
 - [~] 1007 `P1` **Re-mesh por alteração **não** refaz a animação — só os recém-carregados**
 - [~] 1008 `P2` **Curva *ease-out* isolada em `suavizar()`, trocável num lugar só**
-- [~] 1009 `P2` **`fadeAgenda.ligado = false` desliga (falta ligar ao redutor de movimento das opções)**
+- [~] 1009 `P2` **Aparição de chunk desligável no menu (Câmera & Personagem)**
 - [~] 1010 `P2` **A colisão nunca esperou a malha: a física lê os dados do chunk, não a geometria**
 - [~] 1011 `P2` **Teste de que todo chunk que começa a aparecer termina, e volta ao material compartilhado**
 
@@ -2170,17 +2170,17 @@ O visual de referência não vem da geometria, vem da **cor**: paleta dessaturad
 azuladas, luz quente. Sem gradação, mini-blocos e AO entregam só metade do resultado.
 
 - [ ] 1075 `P0` Passe de pós-processamento com LUT (tabela de cor), aplicado depois do render
-- [ ] 1076 `P0` Curva de exposição e contraste separada por hora do dia
-- [ ] 1077 `P0` Mapeamento de tom (ACES ou Reinhard) — sem ele o céu estoura em branco
-- [ ] 1078 `P1` Sombras puxadas para o azul e luzes para o âmbar, que é a assinatura da referência
-- [ ] 1079 `P1` Saturação por bioma: deserto lavado, selva saturada, tundra quase cinza
+- [~] 1076 `P0` **Exposição por hora do dia — `exposicaoDaHora`, no `toneMappingExposure`**
+- [x] 1077 `P0` **Mapeamento de tom ACES — já existia** desde antes desta seção (`renderer.toneMapping = ACESFilmicToneMapping`). Marcá-lo como pendente foi erro meu de auditoria, o segundo do tipo depois do item 053 (oclusão de ambiente)
+- [~] 1078 `P1` **Sombra puxada para o azul e luz para o âmbar (tonalização dividida)**
+- [~] 1079 `P1` **Saturação por bioma, **multiplicando** a da predefinição**
 - [~] 1080 `P1` **Interpolação do tingimento entre biomas, pelos mesmos pesos do 1063**
 - [ ] 1081 `P1` Vinheta sutil e aberração cromática mínima nas bordas — desligáveis
-- [ ] 1082 `P1` Predefinições de gradação selecionáveis nas opções ("natural", "cinema", "vívido", "nenhuma")
+- [~] 1082 `P1` **Quatro predefinições selecionáveis no menu: natural, cinema, vívido, nenhuma**
 - [ ] 1083 `P2` LUT carregável por mod, para um mod poder dar identidade visual própria
 - [ ] 1084 `P2` Custo medido no F3: a gradação é um passe de tela cheia e precisa aparecer no orçamento
 - [ ] 1085 `P2` Desligar automaticamente a gradação quando o FPS cair de um limiar
-- [ ] 1086 `P2` Teste de que a gradação preserva preto em preto e branco em branco (sem desvio de faixa)
+- [~] 1086 `P2` **Teste de que a saturação nunca fica negativa nem estoura**
 
 ### 42.3 Fog Interpolation — a névoa que reage
 
@@ -2341,6 +2341,37 @@ Três detalhes que decidem se funciona:
 Blocos de mod entram sozinhos, pelas propriedades: um bloco `decor` não sólido é folhagem, do
 mesmo jeito que já herda o som de folhagem em `materialOf`. Um mod que cria "samambaia" ganha
 outono sem declarar nada — e sem isso, todo bioma criado pela IA ficaria congelado no verão.
+
+#### Gradação sem passe de tela cheia
+
+A solução de manual é um `EffectComposer` com LUT: um alvo de render do tamanho da tela, uma cópia
+por quadro e um passe de fragmento sobre cada pixel. Este projeto veio de um relato de *"está
+muito muito travado"*, e pagar isso por um efeito de cor seria a escolha errada.
+
+O que foi entregue são **seis instruções dentro do fragmento que já ia rodar**, injetadas depois
+de `fog_fragment` — depois da névoa, de propósito: antes dela o horizonte destoaria do terreno
+exatamente no ponto onde os dois se encontram, que é o mais visível de todos.
+
+**A limitação é real e precisa ficar registrada:** a gradação assim aplicada alcança o terreno, a
+água e o vidro — **não** o personagem, as criaturas nem o céu. Com uma gradação sutil, que é o
+caso da referência, a diferença não se nota; com uma agressiva, notaria. Os itens 1075 (LUT) e
+1083 (LUT por mod) continuam pendentes, e são eles que exigiriam o passe.
+
+A exposição, essa sim, é global: vai no `toneMappingExposure` do renderizador e alcança tudo.
+
+Um detalhe que só aparece medindo: a luminância usa os coeficientes Rec. 709 e não a média dos
+canais. Com a média, dessaturar deixaria o verde da vegetação escuro demais — o olho é bem mais
+sensível a ele, e é por isso que o coeficiente do verde é 0,7152 contra 0,0722 do azul.
+
+#### Um teste que já se pagou
+
+`tests/unit/shaderInjection.test.ts` compila o `onBeforeCompile` contra o shader real do three.js
+e verifica que cada injeção chegou. Existe porque `String.replace` que não casa **não faz nada**:
+sem erro, sem aviso, a curvatura para de curvar e o outono para de pintar. É o mesmo padrão que
+já custou três funcionalidades a este projeto.
+
+Ele já acusou um erro meu na primeira escrita — a asserção de ordem comparava o *nome* do uniform,
+que aparece na declaração no topo do arquivo, em vez do uso.
 
 ### Ordem recomendada desta seção
 

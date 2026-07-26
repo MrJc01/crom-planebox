@@ -8,6 +8,7 @@ import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
 import { EstadoSazonal, corDaFolhagem, corDaGrama, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
 import { Precipitation, Relampago } from './render/precipitation';
 import { FadeAgenda } from './render/chunkFade';
+import { PredefinicaoId, gradacaoEm } from './render/grading';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
@@ -87,6 +88,10 @@ async function bootstrap() {
   const precipitacao = new Precipitation();
   gs.scene.add(precipitacao.pontos);
   const relampago = new Relampago();
+  /** Saturação vinda da mistura de biomas; reamostrada junto com o bioma. */
+  let saturacaoBioma = 1;
+  /** Estilo de gradação de cor. Ajustável nas opções (item 1082). */
+  let predefinicaoGradacao: PredefinicaoId = 'natural';
   /** Clima imposto por um mod ou pelo anfitrião. `undefined` = segue a sequência do mundo. */
   let climaForcado: import('./world/weather').ClimaId | undefined;
   /**
@@ -1276,6 +1281,10 @@ async function bootstrap() {
     onWorldChange: (worldId) => loadWorldById(worldId),
     getCurrentWorldName: () => currentWorld.name,
     listPlayers: listAllPlayers,
+    getGradacao: () => predefinicaoGradacao,
+    setGradacao: (id) => { predefinicaoGradacao = id as PredefinicaoId; },
+    getFadeChunks: () => fadeAgenda.ligado,
+    setFadeChunks: (v) => { fadeAgenda.ligado = v; },
     setOp: setPlayerOp,
   });
   uiManager.registerBlocking(pauseMenu);
@@ -1677,6 +1686,9 @@ async function bootstrap() {
       // O outono pinta o mundo trocando três números num uniform. Nenhum chunk é remontado —
       // o canal `aTint` do mesher já disse quais vértices respondem.
       gs.setSeasonTint(corDaFolhagem(estacao), corDaGrama(estacao), clima.molha);
+      // Gradação: a saturação do bioma multiplica a da predefinição, então o deserto continua
+      // mais lavado que a selva *dentro* do estilo que o jogador escolheu.
+      saturacaoBioma = misturarEscalar(pesosBioma, 'saturacao');
     }
     gs.setBiomeAmbience(
       misturarCor(pesosBioma, 'neblina'),
@@ -1695,6 +1707,17 @@ async function bootstrap() {
       }
     }
     for (const key of fadeAgenda.terminados()) encerrarFade(key);
+
+    // A gradação acompanha a hora todo quadro (a exposição muda continuamente), mas a parte que
+    // vem do bioma só é reamostrada junto com o bioma, acima.
+    gs.setGrading(
+      gradacaoEm({
+        predefinicao: predefinicaoGradacao,
+        elevacaoSolar: gs.getSunElevation(),
+        saturacaoBioma,
+        molhado: clima.molha,
+      }),
+    );
 
     profiler.begin('clima');
     const camPos = cameraManager.getActiveCameraPosition();

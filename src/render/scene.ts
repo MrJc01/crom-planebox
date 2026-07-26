@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { Sky } from './sky';
 import { claridadeNoturna } from '../world/moon';
+import { Gradacao } from './grading';
 
 /**
  * Uniforms da curvatura do mundo, compartilhados por terreno, água e vidro.
@@ -36,6 +37,14 @@ export const CURVATURA_QUEDA_PADRAO = 26;
  * A operação é **multiplicativa**: preserva o sombreamento e a luz que já estão na cor, em vez
  * de substituí-los por uma cor chapada.
  */
+export const gradacaoUniforms = {
+  saturacao: { value: 1 },
+  contraste: { value: 1 },
+  sombra: { value: new THREE.Color(1, 1, 1) },
+  luz: { value: new THREE.Color(1, 1, 1) },
+  forca: { value: 0 },
+};
+
 export const tinturas = {
   /** Cor multiplicada na folhagem. Branco = sem efeito. */
   folhagem: { value: new THREE.Color(1, 1, 1) },
@@ -67,6 +76,11 @@ export function applyCurvature(mat: THREE.Material): void {
     shader.uniforms.uTintFolhagem = tinturas.folhagem;
     shader.uniforms.uTintGrama = tinturas.grama;
     shader.uniforms.uMolhado = tinturas.molhado;
+    shader.uniforms.uGradSat = gradacaoUniforms.saturacao;
+    shader.uniforms.uGradCon = gradacaoUniforms.contraste;
+    shader.uniforms.uGradSombra = gradacaoUniforms.sombra;
+    shader.uniforms.uGradLuz = gradacaoUniforms.luz;
+    shader.uniforms.uGradForca = gradacaoUniforms.forca;
 
     // O tingimento entra depois de `color_vertex`, onde `vColor` já recebeu a cor do vértice com
     // luz e oclusão dentro. Multiplicar preserva as duas; somar ou substituir apagaria o relevo.
@@ -115,6 +129,32 @@ export function applyCurvature(mat: THREE.Material): void {
         `#include <clipping_planes_fragment>
          if (uFade < 0.999 && cqBayer4(gl_FragCoord.xy) > uFade) discard;`,
       );
+
+    // Gradação de cor, **depois da névoa**: se viesse antes, a névoa entraria sem gradar e o
+    // horizonte destoaria do terreno — exatamente onde os dois se encontram.
+    //
+    // Seis instruções dentro de um fragmento que já ia rodar. A alternativa de manual é um passe
+    // de tela cheia com LUT, que custa um alvo de render do tamanho da tela e uma cópia por
+    // quadro; ver `src/render/grading.ts` para por que isso foi recusado aqui.
+    shader.fragmentShader =
+      'uniform float uGradSat;\nuniform float uGradCon;\n' +
+      'uniform vec3 uGradSombra;\nuniform vec3 uGradLuz;\nuniform float uGradForca;\n' +
+      shader.fragmentShader.replace(
+        '#include <fog_fragment>',
+        `#include <fog_fragment>
+         if (uGradForca > 0.001) {
+           vec3 cqC = gl_FragColor.rgb;
+           // Luminância perceptual (Rec. 709): usar a média dos canais deixaria o verde da
+           // vegetação escuro demais ao dessaturar, porque o olho é mais sensível a ele.
+           float cqL = dot(cqC, vec3(0.2126, 0.7152, 0.0722));
+           cqC = mix(vec3(cqL), cqC, uGradSat);
+           cqC = (cqC - 0.5) * uGradCon + 0.5;
+           // Tonalização dividida: a sombra puxa para o frio, a luz para o quente. É a assinatura
+           // da referência, e o que faz a mesma paleta parecer "de fim de tarde".
+           cqC *= mix(uGradSombra, uGradLuz, clamp(cqL, 0.0, 1.0));
+           gl_FragColor.rgb = mix(gl_FragColor.rgb, max(cqC, vec3(0.0)), uGradForca);
+         }`,
+      );
   };
   mat.customProgramCacheKey = () => 'cq-curvature-tint-fade';
 }
@@ -151,6 +191,10 @@ export interface GameScene {
    * Cria um material para um chunk que está aparecendo. Descarta-o (`dispose`) ao terminar e
    * devolva o chunk ao material compartilhado — ver `src/render/chunkFade.ts`.
    */
+  /** Aplica a gradação de cor (ver `src/render/grading.ts`). */
+  setGrading(g: Gradacao): void;
+  /** Elevação do sol agora, -1 (meia-noite) a 1 (meio-dia) — entrada da gradação. */
+  getSunElevation(): number;
   criarMaterialFade(qual: 'solid' | 'water' | 'glass'): THREE.Material;
   /** Progresso da aparição de um material criado por `criarMaterialFade`, 0..1. */
   setMaterialFade(mat: THREE.Material, v: number): void;
@@ -293,6 +337,7 @@ export function createScene(container: HTMLElement): GameScene {
 
     // Altura do sol: -1 (meia-noite) a 1 (meio-dia).
     const elevation = -Math.cos(frac * Math.PI * 2);
+    sunElevation = elevation;
 
     // O piso noturno vem da FASE DA LUA, e não é mais fixo em 0.12. É o que faz a lua nova ser
     // uma noite realmente escura e a cheia uma noite navegável — e, como o motor separa luz de
@@ -322,6 +367,12 @@ export function createScene(container: HTMLElement): GameScene {
 
   function getSunScale(): number {
     return sunScale;
+  }
+
+  /** Elevação do sol: -1 (meia-noite) a 1 (meio-dia). */
+  let sunElevation = 1;
+  function getSunElevation(): number {
+    return sunElevation;
   }
 
   const SNAP = 8;
@@ -426,6 +477,19 @@ export function createScene(container: HTMLElement): GameScene {
   /**
    * Tingimento sazonal e de chuva. Barato de propósito: três uniforms, nenhuma geometria tocada.
    */
+  /**
+   * Aplica a gradação. `exposicao` vai direto no renderizador, que é global e alcança tudo —
+   * inclusive o que os uniforms de material não alcançam.
+   */
+  function setGrading(g: Gradacao): void {
+    gradacaoUniforms.saturacao.value = g.saturacao;
+    gradacaoUniforms.contraste.value = g.contraste;
+    gradacaoUniforms.sombra.value.setRGB(g.sombra[0], g.sombra[1], g.sombra[2]);
+    gradacaoUniforms.luz.value.setRGB(g.luz[0], g.luz[1], g.luz[2]);
+    gradacaoUniforms.forca.value = g.forca;
+    renderer.toneMappingExposure = g.exposicao;
+  }
+
   function setSeasonTint(
     folhagem: [number, number, number],
     grama: [number, number, number],
@@ -457,5 +521,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, criarMaterialFade, setMaterialFade, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, setGrading, getSunElevation, criarMaterialFade, setMaterialFade, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }
