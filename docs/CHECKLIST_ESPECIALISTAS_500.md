@@ -3936,8 +3936,64 @@ o item 1364, e ele deixa de ser opcional no dia do Worker.
 - **O teste que passa quando a fuga funciona** (`modSandbox.test.ts`) precisa ser **invertido** no
   mesmo commit, senão ele passa a mentir na direção contrária.
 
-- [ ] 1368 `P0` `modWorker.ts` — reino de execução com globais apagados
-- [ ] 1369 `P0` `PonteDeMods.ts` — RPC, com escritas de mão única
+- [~] 1368 `P0` **`modWorker.ts` + `nucleoDoWorker.ts`** — reino de execução com globais apagados. **Escrito e testado, ainda NÃO no caminho de execução** (ver 1373)
+- [~] 1369 `P0` **`PonteDeMods.ts`** — RPC com escritas de mão única, 16 testes ponta a ponta por portas falsas
 - [ ] 1370 `P0` Inverter o teste da fuga pelo construtor, no mesmo commit
 - [ ] 1371 `P1` Orçamento por mensagens/frame no lugar do de milissegundos (é o 1364 sob outra forma)
 - [ ] 1372 `P1` Teste manual documentado do isolamento, já que jsdom não tem `Worker`
+
+---
+
+## 68 — O reino isolado, construído e testado — e ainda desligado
+
+As três peças do desenho da seção 67 existem: `protocoloDeMods.ts` (o contrato),
+`nucleoDoWorker.ts` (o que roda lá dentro), `modWorker.ts` (a casca que apaga os globais) e
+`PonteDeMods.ts` (o lado de cá). 16 testes ponta a ponta.
+
+**E nada disso está no caminho de execução ainda.** O `ModRuntime` continua compilando os scripts no
+thread principal. Digo isto em primeiro lugar, e mantive o teste da fuga pelo construtor como está —
+ele continua passando quando a fuga funciona, porque **a fuga continua real na execução de hoje**.
+Invertê-lo agora seria a mentira exata que a seção 67 previu.
+
+### A decisão que molda a fronteira inteira: escrita não espera
+
+`setBlock` devolve se conseguiu, e quase nenhum mod olha. Se cada escrita esperasse resposta, uma
+construção de 20.000 blocos viraria 20.000 idas e voltas. Escritas são **mão única**: vão, devolvem
+`true` otimisticamente, e não geram mensagem de volta — há teste que conta as mensagens para provar.
+
+`fillBox` é o caso que confirma a regra pelo avesso: ele *é* escrita, mas devolve uma contagem que só
+o lado do mundo sabe. Fazê-lo no worker chamando `setBlock` N vezes seriam N mensagens; virou uma
+leitura só, calculada inteira deste lado.
+
+### Três coisas que só apareceram ao construir
+
+**As constantes não podem atravessar.** `api.B.STONE` precisa continuar sendo um número. Por RPC,
+`if (bloco === api.B.STONE)` compararia um número com uma promessa e daria **sempre falso** — sem
+erro nenhum, com o mod simplesmente nunca reagindo. Elas são enviadas uma vez, na carga.
+
+**`api.storage` não pode atravessar.** O mod o usa dentro de `tick`, sessenta vezes por segundo, e
+não há um único leitor deste lado. Fica inteiro no worker; há teste que prova que nenhuma chamada
+sai.
+
+**O log tem que atravessar, e no sentido contrário do óbvio.** A redação de segredos (seção 52)
+acontece ao gravar, do lado que conhece o cofre. Se o log fosse formatado no worker, o valor da
+chave de API teria que viajar até lá em texto para ser mascarado — ou sairia sem máscara.
+
+### O membro esquecido estoura em vez de sumir
+
+O buraco de fiação mais provável desta arquitetura é acrescentar um membro em `MEMBROS_DA_API` e
+esquecer de ligá-lo na ponte. Devolver `undefined` em silêncio faria o mod receber um valor vazio e
+seguir em frente, com o defeito aparecendo três passos adiante. A ponte lança dizendo o nome, e há
+um teste que percorre o protocolo inteiro e fixa exatamente quais membros ainda dependem de
+`extras`.
+
+### O que fica sem cobertura, dito com todas as letras
+
+**O isolamento.** Os testes ligam núcleo e ponte por portas falsas, no mesmo reino. Que
+`[].constructor.constructor('return this')()` devolva um global vazio depende de `modWorker.ts` ter
+apagado `fetch` e `indexedDB` num Worker de verdade — e `vitest` com jsdom não tem `Worker`. A
+lógica, que é onde os defeitos aparecem, está coberta; a segurança, que é onde ela mora, não está.
+
+- [ ] 1373 `P0` **Ligar o `ModRuntime` à ponte** — é o que falta para o 358 estar feito. Move os handlers para o worker, transforma a carga em algo dirigido por evento e faz `describe()` ler a contagem relatada
+- [ ] 1374 `P1` **Ligar os `extras`** — `fillBox`, `findNearest`, `blockId`, `time.isNight`, `weather.*`, `season.*`: a lógica que hoje mora em `buildModAPI` e precisa passar a rodar deste lado
+- [ ] 1375 `P1` **Só então inverter o teste da fuga** (item 1370), no mesmo commit em que a execução mudar de lado
