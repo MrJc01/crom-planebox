@@ -8,6 +8,7 @@
 // frame impede que dez mods razoáveis, juntos, façam o que um mod ruim faria sozinho.
 
 import { ModPackage, ModScript } from './ModTypes';
+import { compilarScriptDeMod } from './sandbox';
 import { ModContext, ModEvent, ModHostBridge, buildModAPI } from './ModAPI';
 
 /** Teto de tempo por frame para o conjunto de todos os `tick`, em milissegundos. */
@@ -87,10 +88,14 @@ export class ModRuntime {
     this.apis.delete(`${ctx.mod.id}:${script.key}`);
     const api = this.apiFor(ctx, script.key);
     try {
-      // `new Function` com um único parâmetro: o corpo não recebe `window` nem `globalThis`
-      // como argumento, e o modo estrito impede criar global implícito com atribuição solta.
-      const fn = new Function('api', `"use strict";\n${script.code}`);
-      fn(api);
+      // O escopo global é SOMBREADO — ver `src/mods/sandbox.ts`.
+      //
+      // O comentário que estava aqui afirmava que `new Function` com um parâmetro só impedia o
+      // corpo de ver `window` e `globalThis`. Era falso: `new Function` isola do escopo LOCAL de
+      // quem cria, e o corpo continua avaliado no escopo global, com `fetch`, `document`,
+      // `localStorage` e `indexedDB` ao alcance. Num projeto onde estes scripts são escritos por
+      // uma IA e rodam na mesma origem do cofre de chaves, isso não era um detalhe.
+      compilarScriptDeMod(script.code)(api);
       this.flush(ctx, api);
       return { scriptKey: script.key, ok: true };
     } catch (err: any) {

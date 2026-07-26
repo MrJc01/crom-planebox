@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1219 itens)
+# Checklist Mestre — Painel de Especialistas (1224 itens)
 
-> **Estado em 26/07/2026** — 540 de 1219 itens tratados (44%), com **779 testes** passando,
+> **Estado em 26/07/2026** — 545 de 1224 itens tratados (44%), com **789 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 457 | **Entregue** ao longo das rodadas, com teste. |
+> | `[~]` | 462 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 679 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -527,7 +527,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [~] 356 `P1` **Validação estrita do pacote de mod antes de persistir**
 - [~] 357 `P1` **Script de comportamento de entidade compilado com falha isolada**
 - [ ] 358 `P0` Executar scripts da IA em Web Worker isolado sem acesso a `window`/`fetch`
-- [ ] 359 `P0` Allowlist explícita de funções expostas ao script (hoje o escopo global vaza)
+- [~] 359 `P0` **Escopo global sombreado** — `fetch`, `window`, `document`, `localStorage`, `indexedDB` e cia. entram como parâmetros `undefined`. Barra o acesso direto; **não é fronteira de segurança** (ver 358)
 - [ ] 360 `P1` Limite de iterações além do limite de tempo
 - [ ] 361 `P1` Limite de memória/blocos por script
 - [ ] 362 `P1` Nunca persistir chave de API em texto claro sem aviso ao usuário
@@ -1327,7 +1327,7 @@ se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já
 - [ ] 762 `P0` **Allowlist de hosts por mod** — sem host declarado, sem rede
 - [ ] 763 `P0` Consentimento explícito do usuário na primeira ativação, host a host
 - [ ] 764 `P0` `fetch` do mod passa por um wrapper que aplica a allowlist
-- [ ] 765 `P0` Mod **nunca** recebe acesso ao `fetch` global (hoje o escopo do script vaza)
+- [~] 765 `P0` **Mod não alcança mais o `fetch` global** por acesso direto — com a mesma ressalva do 359
 - [ ] 766 `P0` Capacidade sensível (microfone, geolocalização) exige consentimento separado
 - [ ] 767 `P0` Revogar capacidade a qualquer momento, sem desinstalar o mod
 - [ ] 768 `P0` Log de auditoria: que mod chamou que host, quando, com que volume
@@ -2865,3 +2865,49 @@ outro ramo do tratador tocaria em algo ainda não construído.
 > transmite os blocos corretamente. O que faltava era uma camada acima — a pergunta "os dois
 > jogadores estão no mesmo mundo?" nunca tinha sido feita. Testar bem a parte não diz nada sobre
 > o todo quando a peça que falta é a que liga as partes.
+
+## 49. Auditoria de prioridade — 26/07/2026
+
+Você pediu para eu olhar o que o próprio documento chama de prioridade. Contagem dos pendentes:
+**41 `P0`**, 219 `P1`, 384 `P2`, 35 `P3`.
+
+O maior agrupamento de `P0` não é jogabilidade nem interface: são **doze itens de segurança do
+sandbox de mods** (358, 359, 735, 736, 761–768, 775). Fui verificar a afirmação em vez de repetir
+o documento, e ela estava certa — o comentário no código é que estava errado:
+
+```ts
+// `new Function` com um único parâmetro: o corpo não recebe `window` nem `globalThis`
+const fn = new Function('api', `"use strict";\n${script.code}`);
+```
+
+`new Function` isola o corpo do escopo **local** de quem o cria. Nada mais. O código continua
+sendo avaliado no escopo **global**, onde `window`, `fetch`, `document`, `localStorage` e
+`indexedDB` são variáveis livres perfeitamente alcançáveis. Não passar como argumento não esconde
+coisa alguma.
+
+Isso pesa mais aqui que na média: os scripts são **escritos por uma IA** a pedido do jogador e
+rodam no navegador dele, na **mesma origem** onde estão os mundos salvos e o cofre de chaves de
+API. Um script com `fetch` manda qualquer um dos dois para qualquer lugar.
+
+### O que foi feito, e o que explicitamente NÃO foi
+
+Os nomes perigosos passaram a ser **sombreados**: entram como parâmetros da função com valor
+`undefined`, e como parâmetro é ligação léxica, `fetch` dentro do corpo resolve para o parâmetro.
+
+**Isto não é uma fronteira de segurança contra código hostil**, e o teste diz isso em voz alta:
+há um caso que **verifica a brecha existir** — `[].constructor.constructor('return this')()`
+ainda escapa, porque a função criada por `Function` também é avaliada no escopo global. Ele passa
+quando a fuga funciona, de propósito, para ninguém ler os outros nove e concluir demais.
+
+`eval` não está na lista de sombreados e não é esquecimento: em modo estrito ele é proibido como
+nome de ligação, então `new Function('eval', …)` é um `SyntaxError`. É mais uma razão para a
+fronteira real ser outro reino de execução.
+
+- [~] 1236 `P0` **`src/mods/sandbox.ts`**: escopo global sombreado, com o critério documentado (bloqueia rede, armazenamento, documento e caminhos de volta ao global; preserva `Math`, `JSON`, `Date`, `Promise` — sem eles a plataforma de mods não serve para nada)
+- [~] 1237 `P0` **10 testes de sandbox**, sendo um que confirma a brecha restante em vez de escondê-la
+- [~] 1238 `P1` **O comentário mentiroso do `ModRuntime` foi corrigido** — ele afirmava a proteção que não existia, que é pior que não comentar nada
+
+### Continua pendente, e agora com o tamanho certo
+
+- [ ] 1239 `P0` **Item 358 é a correção de verdade**: rodar o script em Web Worker sem `fetch`, ou iframe com `sandbox`. Só outro reino de execução fecha a saída pelo construtor
+- [ ] 1240 `P0` Item 382 (**sincronizar entidades**) — em aberto e confirmado no código: o convidado roda o próprio `MobSpawner` sem checar o papel, e `EntityUpdateMsg` está **definida no protocolo e nunca enviada nem recebida**. É o nono caso de código dormente, e a continuação direta do "o mundo não é o mesmo no multiplayer"
