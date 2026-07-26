@@ -220,6 +220,65 @@ describe('objetivos — o guia do novato está de fato ligado (item 007)', () =>
   });
 });
 
+describe('callback é propriedade, não lista de assinantes (casos 11 e 12)', () => {
+  // O nono e o décimo modos de "código presente não é código ativo", e os mais silenciosos até
+  // agora. `survivalSystem.onDamage` e `onDeath` são **propriedades**: a segunda atribuição apaga a
+  // primeira. Havia duas de cada, separadas por umas sessenta linhas.
+  //
+  // O que se perdeu: o som de dano, o som de morte e o evento `playerDamaged` dos mods. Todos
+  // escritos, corretos, comentados — e nunca executados. Nada falhava. O jogo só era silencioso ao
+  // apanhar e ao morrer, e quem notasse pensaria que faltava o som, não que ele estava lá.
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  const atribuicoes = (nome: string) =>
+    (main.match(new RegExp(`survivalSystem\\.${nome}\\s*=`, 'g')) ?? []).length;
+
+  it('CRÍTICO: `onDamage` tem UMA atribuição', () => {
+    expect(atribuicoes('onDamage'), 'mais de uma: a última apaga as outras').toBe(1);
+  });
+
+  it('CRÍTICO: `onDeath` tem UMA atribuição', () => {
+    expect(atribuicoes('onDeath'), 'mais de uma: a última apaga as outras').toBe(1);
+  });
+
+  it('CRÍTICO: o som de dano e o de morte sobreviveram à fusão', () => {
+    // Consertar o conflito removendo o handler "errado" resolveria o teste acima e perderia
+    // exatamente o que se queria de volta.
+    expect(/SOUNDS\.morte/.test(main), 'som de morte sumiu').toBe(true);
+    expect(/SOUNDS\.dano/.test(main), 'som de dano sumiu').toBe(true);
+    expect(/dispatch\('playerDamaged'/.test(main), 'evento de mod sumiu').toBe(true);
+  });
+});
+
+describe('penalidade de morte — o custo chega ao jogo (item 011)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: a regra é consultada na morte', () => {
+    expect(/aplicarPenalidade\s*\(/.test(main)).toBe(true);
+    expect(/penalidadeDoMundo\s*\(/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: os itens caem E os slots são esvaziados', () => {
+    // Largar sem esvaziar duplicaria o inventário: os itens no chão E na mão. É o tipo de defeito
+    // que ninguém reporta como defeito — reportam como "achei um jeito de multiplicar item".
+    expect(/efeito\.largar/.test(main), 'nada é largado').toBe(true);
+    expect(/efeito\.esvaziar/.test(main), 'nada é esvaziado').toBe(true);
+  });
+
+  it('CRÍTICO: o mundo hardcore encerrado não pode ser reaberto', () => {
+    // Marcar e não checar seria o pior dos dois mundos: o jogador veria "mundo encerrado", voltaria
+    // ao menu, clicaria no mesmo mundo e continuaria jogando.
+    expect(/encerradoEm = Date\.now\(\)/.test(main), 'não marca').toBe(true);
+    expect(/wRecord\.encerradoEm/.test(main), 'marca e não confere').toBe(true);
+  });
+
+  it('CRÍTICO: a escolha existe na criação do mundo', () => {
+    const wizard = FONTE.find((f) => f.arquivo.endsWith('ui/WorldCreationWizard.ts'))!.texto;
+    expect(/wiz-morte/.test(wizard), 'não há seletor').toBe(true);
+    expect(/penalidadeDeMorte:/.test(wizard), 'o seletor não é gravado').toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos

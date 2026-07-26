@@ -17,6 +17,16 @@ export interface WorldRecord {
   timeOfDay?: number;
   /** Dias completos desde a criação. Governa a fase da lua. Ausente = 0. */
   worldDay?: number;
+  /**
+   * O que a morte custa neste mundo: `'manter'`, `'dropar'` ou `'hardcore'` (item 011).
+   *
+   * Ausente = `'manter'`, e **não** o padrão dos mundos novos. Um mundo gravado antes deste campo
+   * existir sempre teve morte sem custo; fazer a atualização do jogo mudar isso em silêncio faria o
+   * jogador perder o inventário na próxima morte por uma decisão que ninguém tomou nem comunicou.
+   */
+  penalidadeDeMorte?: 'manter' | 'dropar' | 'hardcore';
+  /** Momento em que um mundo hardcore acabou. Presente = não pode mais ser jogado. */
+  encerradoEm?: number;
   /** Versão do schema de save deste mundo (mundos antigos sem o campo são tratados como versão 1). Incremente ao mudar o formato de PlayerRecord/WorldRecord de um jeito que exija migração. */
   saveVersion?: number;
   createdAt: number;

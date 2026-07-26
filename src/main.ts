@@ -55,6 +55,7 @@ import { UndoManager } from './storage/UndoManager';
 import { GameModeManager } from './game/GameModeManager';
 import { EventoDeProgresso, RastreadorDeObjetivos } from './game/Objetivos';
 import { chaveDeCelula, mapearAbrigo } from './game/abrigo';
+import { aplicarPenalidade, penalidadeDoMundo } from './game/penalidadeDeMorte';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -1054,12 +1055,18 @@ async function bootstrap() {
     }
   };
 
+  // `onDamage`/`onDeath` são propriedades de um callback só, e não uma lista de assinantes: a
+  // segunda atribuição APAGA a primeira. Havia duas de cada, umas 60 linhas adiante — o som de
+  // dano, o som de morte e o evento `playerDamaged` dos mods estavam escritos, corretos e
+  // **nunca executados**. Nada falhava; o jogo só era silencioso ao apanhar e ao morrer.
+  //
+  // Por isso os dois handlers vivem aqui, inteiros, e não há mais nenhuma atribuição a eles.
   survivalSystem.onDamage = (amount, cause) => {
     modRuntime.dispatch('playerDamaged', { amount, cause, health: survivalSystem.health });
     // Dano contínuo (fome, queimadura) chega a cada frame: sem deduplicar, viraria um zumbido.
     audio.play(cause === 'queimadura' ? SOUNDS.queimadura : SOUNDS.dano, { dedupeKey: `dano:${cause}`, volume: 0.9 });
+    if (amount > 1) hud.showToast(`-${amount.toFixed(0)} de vida (${cause})`);
   };
-  survivalSystem.onDeath = () => audio.play(SOUNDS.morte, { volume: 1 });
 
   entitySystem.onEntityDeath = (mob) => {
     modRuntime.dispatch('entityDeath', { id: mob.id, name: mob.name, x: mob.pos.x, y: mob.pos.y, z: mob.pos.z });
@@ -1122,13 +1129,43 @@ async function bootstrap() {
   inventoryModal.onBlockedByMode = () => hud.showToast('Inventário criativo indisponível neste modo de jogo.');
 
   survivalSystem.onDeath = () => {
-    hud.showToast('Você morreu! Renascendo no spawn...');
+    audio.play(SOUNDS.morte, { volume: 1 });
+
+    const modo = penalidadeDoMundo(currentWorld.penalidadeDeMorte);
+    const efeito = aplicarPenalidade(modo, inter.hotbar);
+
+    if (efeito.encerraMundo) {
+      // Hardcore. O mundo é marcado ANTES de qualquer outra coisa: se o jogador fechar a aba nesta
+      // fração de segundo, a partida não pode ressuscitar por não ter sido gravada.
+      currentWorld.encerradoEm = Date.now();
+      WorldRepository.saveWorld(currentWorld);
+      hud.showToast('Mundo encerrado — era uma vida só.');
+      uiManager.closeBlocking('pause');
+      if (document.pointerLockElement) document.exitPointerLock();
+      chatOverlay.hide();
+      mainMenu.open();
+      return;
+    }
+
+    // Os itens caem no lugar da morte, e não no spawn: a caminhada de volta é a penalidade, e
+    // largá-los no destino a anularia.
+    const ondeMorreu = player.pos.clone();
+    for (const item of efeito.largar) {
+      itemDropSystem.spawn(item.block, item.count, ondeMorreu.x, ondeMorreu.y + 0.5, ondeMorreu.z);
+    }
+    for (const i of efeito.esvaziar) {
+      inter.hotbar[i] = { label: '', block: -1, count: 0 };
+    }
+    if (efeito.largar.length > 0) {
+      inter.onChanged();
+      hud.showToast(`Você morreu! Seus itens ficaram onde você caiu (${efeito.largar.length} pilha(s)).`);
+    } else {
+      hud.showToast('Você morreu! Renascendo no spawn...');
+    }
+
     player.pos.copy(findSpawn());
     player.vel.set(0, 0, 0);
     survivalSystem.reset();
-  };
-  survivalSystem.onDamage = (amount, cause) => {
-    if (amount > 1) hud.showToast(`-${amount.toFixed(0)} de vida (${cause})`);
   };
 
   chatOverlay.getLocationContext = () => {
@@ -1228,6 +1265,17 @@ async function bootstrap() {
 
     const wRecord = await WorldRepository.getWorld(worldId);
     if (!wRecord) return;
+
+    // Hardcore encerrado. A recusa vive aqui, na porta de entrada, e não na tela que lista os
+    // mundos: há mais de um caminho até `loadWorldById` — o menu, o último mundo aberto ao iniciar,
+    // e a troca de mundo pelo hub — e proteger cada um deles seria uma corrida que se perde na
+    // primeira vez que alguém acrescentar um caminho novo.
+    if (wRecord.encerradoEm) {
+      const quando = new Date(wRecord.encerradoEm).toLocaleDateString();
+      hud.showToast(`"${wRecord.name}" era um mundo de uma vida só, e acabou em ${quando}.`);
+      mainMenu.open();
+      return;
+    }
 
     currentWorld = wRecord;
     // Perfis sazonais são registrados por mods e valem por mundo. Sem limpar, um mundo com o mod

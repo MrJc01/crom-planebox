@@ -102,8 +102,9 @@ propaganda:
   019, 1286).
 - **A noite não é perigosa o bastante** para justificar o abrigo do passo 6. Os hostis nascem, mas
   não há evento que force o jogador a se esconder (item 009).
-- **A morte não custa nada** além de voltar ao spawn, então o risco dos passos 10–13 é abstrato
-  (itens 010, 011).
+- **O ponto de renascimento é sempre o spawn original** (item 010). O custo da morte já existe e é
+  escolhido na criação do mundo (item 011), mas a caminhada de volta do fundo de uma caverna é
+  sempre a mesma caminhada longa.
 - **O tempo da tabela é estimativa**, não medição. Nada no jogo registra quanto o jogador leva de
   fato até a primeira ferramenta (item 022).
 - **Não há tutorial de controles.** O guia diz *o que* fazer; quem não sabe que se coloca bloco com

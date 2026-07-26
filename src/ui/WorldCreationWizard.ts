@@ -5,6 +5,7 @@ import { WorldRepository } from '../storage/WorldRepository';
 import { WorldRecord, GameMode, CURRENT_SAVE_VERSION } from '../storage/Database';
 import { BLOCKS, B } from '../world/blocks';
 import { GAME_MODE_RULES, GameModeManager } from '../game/GameModeManager';
+import { PENALIDADE_PADRAO, PenalidadeDeMorte, ROTULOS } from '../game/penalidadeDeMorte';
 
 export class WorldCreationWizard {
   private overlay: HTMLDivElement;
@@ -63,6 +64,14 @@ export class WorldCreationWizard {
     const modeOptions = GameModeManager.allModes().map((m) => `<option value="${m}">${GAME_MODE_RULES[m].label}</option>`).join('');
     panel.appendChild(field('Modo de Jogo Padrão', `<select id="wiz-mode" style="${inputStyle}">${modeOptions}</select>`));
 
+    // Penalidade de morte: aqui e não nas configurações, porque muda o que o mundo é. Trocá-la no
+    // meio da partida permitiria ligar `hardcore` depois de já estar seguro, ou desligá-lo no
+    // instante anterior à morte — e as duas coisas esvaziam a escolha.
+    const penalidadeOptions = (Object.keys(ROTULOS) as PenalidadeDeMorte[])
+      .map((p) => `<option value="${p}" ${p === PENALIDADE_PADRAO ? 'selected' : ''}>${ROTULOS[p].titulo} — ${ROTULOS[p].descricao}</option>`)
+      .join('');
+    panel.appendChild(field('Ao Morrer', `<select id="wiz-morte" style="${inputStyle}">${penalidadeOptions}</select>`));
+
     const onlineWrap = document.createElement('div');
     onlineWrap.style.cssText = 'display:flex; align-items:center; gap:10px; background:rgba(15,23,42,0.5); padding:10px 12px; border-radius:8px;';
     onlineWrap.innerHTML = `
@@ -109,6 +118,7 @@ export class WorldCreationWizard {
       cameraMode: GAME_MODE_RULES[defaultGameMode].cameraMode,
       defaultGameMode,
       onlineEnabled,
+      penalidadeDeMorte: (this.overlay.querySelector('#wiz-morte') as HTMLSelectElement).value as PenalidadeDeMorte,
       saveVersion: CURRENT_SAVE_VERSION,
       createdAt: Date.now(),
       updatedAt: Date.now(),

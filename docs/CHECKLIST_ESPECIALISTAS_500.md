@@ -105,7 +105,7 @@ loop de objetivos que puxe o jogador do primeiro dia até um chefe final.*
 - [~] 008 `P0` Curva de progressão em tiers de material (madeira → pedra → ferro → diamante) com gate real de acesso — a corrente vai de 1 a 4 sem buraco, **cada degrau coleta algo que o anterior não coletava**, e o último tem porta própria (obsidiana, itens 1287/1293). O gate é "quebra mas não dropa", não parede: gateia a *aquisição* sem trancar ninguém no cenário
 - [ ] 009 `P1` Primeira noite como evento de tensão: inimigos surgem só após o anoitecer
 - [ ] 010 `P1` Sistema de "camas"/ponto de renascimento definido pelo jogador
-- [ ] 011 `P1` Morte com penalidade escolhível por mundo (dropar inventário / manter / hardcore)
+- [~] 011 `P1` Morte com penalidade escolhível por mundo (dropar inventário / manter / hardcore) — `src/game/penalidadeDeMorte.ts`, escolhida na criação do mundo; ver a seção 60
 - [ ] 012 `P1` Diário de bordo no mundo registrando marcos alcançados
 - [ ] 013 `P2` Estrutura de "vilas" geradas com NPCs que dão missões simples
 - [ ] 014 `P2` Sistema de reputação com facções (o `faction` das entidades já existe e está ocioso)
@@ -2628,7 +2628,7 @@ Um detalhe que só aparece medindo: a luminância usa os c### Entregue nesta rod
 - [~] 1186 `P1` **Animações de Transição Fluidas**: Slide horizontal suave + Fade cross-dissolve (`150ms ease-out`), respeitando `prefers-reduced-motion`
 - [~] 1187 `P1` **Aba [Inventário]**: Layout 2 colunas com grade de blocos/crafting (esquerda) + diorama do personagem e status (direita)
 - [ ] 1188 `P1` **Aba [Habilidades]**: Árvore visual de habilidades/melhorias com painel de descrição e custo
-- [ ] 1189 `P1` **Aba [Missões]**: Diário de objetivos ativos, concluídos e marcadores no mapa
+- [~] 1189 `P1` **Aba [Missões]**: o diário está feito (aba "Objetivos" no hub, itens 007/1305). **Falta** o marcador no mapa — e ele depende de objetivos com lugar no mundo, que a corrente atual não tem
 - [ ] 1190 `P1` **Aba [Mapa]**: Cartografia expandida do mundo com waypoints, biomas e coordenadas XYZ
 - [ ] 1191 `P1` **Aba [Opções]**: Configurações de Vídeo, Áudio, Controles e IA com aplicação instantânea
 - [ ] 1192 `P1` **Aba [Sistema/Sair]**: Save management, multiplayer room hosting, e confirmação de saída
@@ -2688,7 +2688,7 @@ Estes já estavam numerados nas seções anteriores e foram apenas **reconferido
 
 ### Pendente
 
-- [ ] 1203 `P1` Layout do inventário em duas colunas, como a referência (1150)
+- [x] 1203 `P1` ~~Layout do inventário em duas colunas~~ — **duplicata de 1150**, que já estava feito. Conferido em `InventoryModal.ts` ("Layout em 2 Colunas", com Stats & Equipamento na direita)
 - [x] 1204 `P1` ~~`npm run relay` e URL padrão~~ — **auditado e já feito**: o script existe em `package.json` e o campo abre com `ws://localhost:8787`. Eu tinha escrito "1171 segue aberto" sem conferir.
 - [ ] 1205 `P1` Sombra das nuvens no chão
 - [ ] 1206 `P2` Teste que compile o GLSL de verdade, com WebGL headless — hoje nada compila os shaders, e o sintoma de um erro é o terreno sumir
@@ -3336,7 +3336,7 @@ para perto do `worldDay++`.
 - [~] 1306 `P1` **O abrigo passou a ser verificado, não contado** — `src/game/abrigo.ts`, busca em largura com orçamento; ver a seção 58
 - [ ] 1307 `P1` **O loop não tem segunda volta** — fecha no papel, mas depois da obsidiana não há material melhor nem objetivo maior. Liga-se aos itens 018/019/1286
 - [ ] 1308 `P2` **A noite não é perigosa o bastante** para justificar o abrigo do passo 6 — os hostis nascem, mas nada força o jogador a se esconder (item 009)
-- [ ] 1309 `P2` **A morte não custa nada** além de voltar ao spawn, então o risco dos passos 10–13 é abstrato (itens 010/011)
+- [~] 1309 `P2` **A morte passou a custar** (item 011). Segue aberto o 010 — o ponto de renascimento ainda é sempre o spawn original
 - [ ] 1310 `P2` **Os tempos da tabela são estimativa, não medição** — nada registra quanto o jogador leva de fato até a primeira ferramenta (item 022)
 - [ ] 1311 `P2` **O guia diz o quê, não como se joga** — quem não sabe que se coloca bloco com o botão direito ainda descobre sozinho (item 021)
 
@@ -3445,3 +3445,67 @@ cumprido, quem sai à noite de propósito já sabe o que está fazendo.
 - [ ] 1321 `P1` **A criatura já nascida não é expulsa** — a regra vale para o berço, não para quem já está dentro. Quem tapar o buraco com um zumbi dentro fica com ele lá para sempre
 - [ ] 1322 `P2` **O abrigo só é mapeado a partir do jogador** — num mundo com dois jogadores, a casa do outro não protege ninguém enquanto ele não estiver dentro dela
 - [ ] 1323 `P2` **A porta ainda não existe** — sem um bloco que abra e feche, todo abrigo é selado com bloco e reaberto na pá, e o "buraco derruba o abrigo" fica sendo a mecânica de entrar e sair
+
+---
+
+## 60 — O que a morte custa, e dois callbacks que nunca tocaram (item 011)
+
+### Os casos 11 e 12 de código dormente, e os mais silenciosos até agora
+
+`survivalSystem.onDamage` e `onDeath` são **propriedades**, não listas de assinantes: a segunda
+atribuição apaga a primeira. Havia **duas de cada**, separadas por umas sessenta linhas de
+`main.ts`.
+
+O que se perdeu: o **som de dano**, o **som de morte** e o evento `playerDamaged` dos mods. Todos
+escritos, corretos, comentados — e nunca executados.
+
+Nada falhava. O jogo só era silencioso ao apanhar e ao morrer, e quem notasse pensaria que faltava o
+som, não que ele estava lá o tempo todo. É o mesmo modo de falha das dez vezes anteriores, com uma
+diferença que vale registrar: **desta vez o código não estava só sem chamador — estava sendo
+chamado e imediatamente substituído.** Um `grep` por "quem usa isto?" acharia o chamador e diria que
+está tudo bem.
+
+A trava nova conta atribuições, e um segundo teste exige que os sons tenham sobrevivido à fusão —
+senão a saída fácil seria apagar o handler "errado" e perder exatamente o que se queria de volta.
+
+### A penalidade de morte
+
+Morrer devolvia o jogador ao spawn com o inventário intacto. O efeito não é "o jogo é fácil": é que
+**o risco deixa de ser informação**. Descer 25 metros atrás de diamante e cair na lava custava a
+caminhada de volta, e nada mais — então não havia decisão a tomar sobre quando descer, o que levar,
+ou quando voltar com o que já se tem.
+
+Três opções, e elas não são uma escala de dificuldade — são três jogos: `manter` (construir sem
+atrito), `dropar` (o padrão) e `hardcore` (uma vida).
+
+**A ferramenta não cai.** Regra deliberada: a penalidade é o material que você carregava, não a
+progressão que você destravou. Perder a picareta de diamante numa queda apagaria uma corrente
+inteira de progressão, e a reação de quem joga não é "vou com mais cuidado" — é parar de descer. O
+medo que faz alguém sair do jogo não é o mesmo que faz alguém jogar melhor.
+
+**Dois padrões diferentes, de propósito.** Mundo novo nasce `dropar`; mundo gravado antes deste
+campo existir lê como `manter`. Fazer a atualização do jogo mudar em silêncio as regras de um mundo
+em andamento é a pior surpresa possível — o jogador perderia o inventário na próxima morte por uma
+decisão que ninguém tomou nem comunicou.
+
+**A escolha é na criação, não nas configurações.** Trocá-la no meio da partida permitiria ligar
+`hardcore` depois de já estar seguro, ou desligá-lo no instante anterior à morte, e as duas coisas
+esvaziam a escolha.
+
+**A recusa do mundo encerrado vive na porta de entrada** (`loadWorldById`), e não na tela que lista
+os mundos: há mais de um caminho até lá — o menu, o último mundo aberto ao iniciar, a troca pelo hub
+— e proteger cada um seria uma corrida que se perde na primeira vez que alguém acrescentar um
+caminho novo.
+
+- [~] 1324 `P0` **Dois callbacks sobrescritos** — som de dano, som de morte e `playerDamaged` voltaram a acontecer
+- [~] 1325 `P1` **Trava que conta atribuições** de `onDamage`/`onDeath`, mais a que exige os sons vivos depois da fusão
+- [~] 1326 `P1` **`penalidadeDeMorte.ts`** com 15 testes, incluindo "largar sem esvaziar duplicaria o inventário" — o defeito que ninguém reporta como defeito, e sim como "achei um jeito de multiplicar item"
+- [~] 1327 `P1` **Seletor "Ao Morrer"** no assistente de criação de mundo, com a consequência escrita em cada opção
+- [~] 1328 `P1` **Mundo hardcore encerrado não reabre** — marcado antes de qualquer outra coisa, para que fechar a aba naquela fração de segundo não ressuscite a partida
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1329 `P1` **A lista de mundos não mostra que um mundo acabou** — o jogador clica, recebe um toast e volta. Devia estar riscado na lista, com a data
+- [ ] 1330 `P1` **Os itens largados não expiram nem são marcados** — quem morre duas vezes no mesmo lugar não distingue as duas pilhas, e nada avisa que elas somem (ou que não somem)
+- [ ] 1331 `P2` **A ferramenta não perde durabilidade na morte** — como ela não cai, `dropar` acaba sendo mais brando do que a descrição sugere para quem só carrega ferramenta
+- [ ] 1332 `P2` **Hardcore não avisa antes** — nenhuma confirmação ao escolher, e nenhum aviso de vida baixa que reconheça que aquela vida é única
