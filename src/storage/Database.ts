@@ -55,6 +55,14 @@ export interface PlayerRecord {
   gameMode: GameMode;
   inventory: { label: string; block: number; count: number; infinite?: boolean; toolTier?: number }[];
   isOp: boolean;
+  /**
+   * Progresso dos objetivos (item 007), por id do objetivo.
+   *
+   * Opcional de propósito: todo save que existe hoje foi gravado sem este campo, e o rastreador
+   * trata `undefined` como "ninguém começou". Um campo obrigatório aqui exigiria uma migração para
+   * dar a todos os mundos antigos um progresso vazio que já é o padrão.
+   */
+  objetivos?: Record<string, number>;
   updatedAt: number;
 }
 

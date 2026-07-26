@@ -30,6 +30,12 @@ export class InventoryModal {
   /** false impede ABRIR o inventário criativo (ex.: modo de jogo sem inventário criativo). */
   public gateOpen: () => boolean = () => true;
   public onBlockedByMode: () => void = () => {};
+  /**
+   * Uma receita foi coletada da bancada. É o único ponto do jogo onde fabricar realmente acontece,
+   * por isso o gancho fica aqui e não em `match()` — casar a forma não é fabricar, e um jogador
+   * montando a receita para *ver* o resultado não deveria concluir objetivo nenhum.
+   */
+  public onCrafted: (recipe: CraftingRecipe) => void = () => {};
 
   constructor(interaction: Interaction) {
     this.interaction = interaction;
@@ -529,6 +535,7 @@ export class InventoryModal {
       };
     }
     this.craftGrid = CraftingSystem.emptyGrid(6);
+    this.onCrafted(recipe);
     this.renderHotbar();
     this.renderStatsPanel();
     this.renderCraftGrid(container);

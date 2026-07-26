@@ -118,6 +118,73 @@ describe('as oito funcionalidades que já estiveram dormentes seguem ligadas', (
   }
 });
 
+describe('objetivos — o guia do novato está de fato ligado (item 007)', () => {
+  // O candidato mais óbvio a virar o nono caso. `RastreadorDeObjetivos` é uma classe pura,
+  // testável e completamente inerte sozinha: sem os quatro pontos de instrumentação abaixo, todos
+  // os testes de `objetivos.test.ts` passariam e **nenhum objetivo jamais avançaria em jogo**.
+  //
+  // Cada linha aqui corresponde a um evento do tipo `EventoDeProgresso`. Se alguém acrescentar uma
+  // variante nova ao tipo e não a emitir, é este arquivo que deveria crescer junto.
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: quebrar um bloco alimenta o progresso', () => {
+    expect(/registrarProgresso\(\{\s*tipo:\s*'quebrou'/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: quebrar reporta o bloco que SAIU, não o ar que ficou', () => {
+    // `onBlockChange` recebe `blockType = 0` ao quebrar. Passar esse zero faria "derrube uma
+    // árvore" nunca casar, e o guia travaria no primeiro passo para sempre.
+    expect(/tipo:\s*'quebrou',\s*bloco:\s*blocoAnterior/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: colocar um bloco alimenta o progresso (objetivo do abrigo)', () => {
+    expect(/registrarProgresso\(\{\s*tipo:\s*'colocou'/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: fabricar alimenta o progresso', () => {
+    expect(/onCrafted\s*=/.test(main)).toBe(true);
+    expect(/registrarProgresso\(\{\s*tipo:\s*'fabricou'/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: `onCrafted` é disparado por quem coleta a receita', () => {
+    const inv = FONTE.find((f) => f.arquivo.endsWith('ui/InventoryModal.ts'))!.texto;
+    expect(/this\.onCrafted\(/.test(inv)).toBe(true);
+  });
+
+  it('CRÍTICO: o amanhecer alimenta o progresso', () => {
+    expect(/registrarProgresso\(\{\s*tipo:\s*'amanheceu'/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: o amanhecer é o AMANHECER, não a virada do contador de dias', () => {
+    // O relógio do mundo dá a volta em `timeOfDay = 0`, que é **meia-noite**. Pendurar o evento na
+    // virada de `worldDay` — o lugar mais óbvio, e onde ele esteve — fecharia "sobreviva até o
+    // amanhecer" no meio da noite, antes da parte perigosa. Nada falharia: o objetivo marcaria, o
+    // toast apareceria, e a única coisa errada seria o jogo ter dado a vitória cedo demais.
+    const trecho = main.slice(
+      Math.max(0, main.indexOf("registrarProgresso({ tipo: 'amanheceu'") - 400),
+      main.indexOf("registrarProgresso({ tipo: 'amanheceu'"),
+    );
+    expect(/faseAtual === 'amanhecer'/.test(trecho), 'não está preso à fase do dia').toBe(true);
+    expect(/worldDay\+\+/.test(trecho), 'voltou a pendurar na virada do contador de dias').toBe(false);
+  });
+
+  it('CRÍTICO: a profundidade alimenta o progresso', () => {
+    expect(/registrarProgresso\(\{\s*tipo:\s*'profundidade'/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: o cartão do HUD é desenhado por alguém', () => {
+    // A classe podia estar perfeitamente alimentada e ainda assim invisível.
+    expect(temChamador(/mostrarObjetivo\s*\(/, ['ui/HUD.ts']).length).toBeGreaterThan(0);
+  });
+
+  it('CRÍTICO: o progresso é salvo E restaurado', () => {
+    // Salvar sem restaurar é o meio-caminho que não falha em lugar nenhum: tudo funciona na
+    // sessão, e o jogador perde a corrente inteira ao fechar a aba.
+    expect(/objetivos\.serializar\(\)/.test(main), 'não é salvo').toBe(true);
+    expect(/objetivos\.restaurar\(/.test(main), 'não é restaurado').toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos

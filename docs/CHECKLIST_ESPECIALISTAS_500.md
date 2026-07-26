@@ -100,9 +100,9 @@ loop de objetivos que puxe o jogador do primeiro dia até um chefe final.*
 - [x] 003 `P0` Quebrar/colocar blocos com tier de ferramenta — `src/player/interaction.ts`
 - [x] 004 `P1` Drops de item ao quebrar blocos — `src/game/ItemDropSystem.ts`
 - [x] 005 `P1` Bancada de crafting com receitas — `src/crafting/CraftingSystem.ts`
-- [ ] 006 `P0` Definir e documentar o **loop central de 30 minutos** (acordar → coletar → craftar → abrigar → explorar)
-- [ ] 007 `P0` Sistema de objetivos/conquistas guiando o jogador novato ("faça sua primeira picareta")
-- [ ] 008 `P0` Curva de progressão em tiers de material (madeira → pedra → ferro → diamante) com gate real de acesso
+- [~] 006 `P0` Definir e documentar o **loop central de 30 minutos** (acordar → coletar → craftar → abrigar → explorar) — `docs/LOOP_CENTRAL.md`, com os quinze passos, os portões que obrigam a ordem, e uma seção final do que o loop **ainda não tem**
+- [~] 007 `P0` Sistema de objetivos/conquistas guiando o jogador novato ("faça sua primeira picareta") — `src/game/Objetivos.ts` + cartão no HUD, 21 testes de lógica e 9 de fiação
+- [~] 008 `P0` Curva de progressão em tiers de material (madeira → pedra → ferro → diamante) com gate real de acesso — a corrente vai de 1 a 4 sem buraco, **cada degrau coleta algo que o anterior não coletava**, e o último tem porta própria (obsidiana, itens 1287/1293). O gate é "quebra mas não dropa", não parede: gateia a *aquisição* sem trancar ninguém no cenário
 - [ ] 009 `P1` Primeira noite como evento de tensão: inimigos surgem só após o anoitecer
 - [ ] 010 `P1` Sistema de "camas"/ponto de renascimento definido pelo jogador
 - [ ] 011 `P1` Morte com penalidade escolhível por mundo (dropar inventário / manter / hardcore)
@@ -3280,3 +3280,62 @@ Acelerá-las não daria sensação nenhuma e ainda tornaria o modo detalhe difí
 
 - [~] 1294 `P1` **`fatorDeVelocidade`** em módulo próprio, com teto de ~2,2× — sem o piso, uma corrente de tiers longa levaria o fator a zero e o mundo deixaria de ter custo
 - [~] 1295 `P1` **8 testes**, incluindo "ferramenta insuficiente não é penalizada aqui" (quem barra o bloco é a regra de tier mínimo; penalizar de novo seria punir duas vezes pelo mesmo motivo, num lugar onde ninguém procuraria)
+
+---
+
+## 57 — O loop central e o guia do novato (itens 006, 007, 008)
+
+O jogo tinha cinco modos, sobrevivência com vida e fome, minérios por profundidade e uma corrente
+de ferramentas de quatro degraus — e **nada que dissesse ao jogador o que fazer com isso**.
+
+Não é um defeito de código: cada peça funcionava. É que a progressão inteira era **invisível**.
+Nada avisava que a picareta de madeira abre a pedra, que o carvão vira tocha, nem que a tocha é o
+que torna a caverna explorável. Descobrir a cadeia exigia ler receitas. O sintoma não é confusão —
+é o jogador construir uma casinha, achar que viu tudo, e sair em dez minutos.
+
+### O que foi feito
+
+`docs/LOOP_CENTRAL.md` define os quinze passos com tempo aproximado e, em cada um, **o que obriga o
+seguinte**. Três deles são portões de verdade, onde o jogo diz "não" e o jogador precisa voltar um
+passo: sem picareta a pedra não rende, sem tocha a caverna é escura demais para achar minério, sem
+picareta de ferro o diamante não sai. Sem portões a ordem seria decorativa.
+
+`src/game/Objetivos.ts` é a mesma corrente executável, com três regras:
+
+**Um passo de cada vez.** O HUD mostra **um** objetivo, nunca a lista. Um novato diante de quinze
+caixinhas continua sem saber por onde começar — que é exatamente o problema que o guia resolve.
+
+**A ordem é sugestão, não trilho.** Cada evento é testado contra *todos* os pendentes. Ninguém
+desce numa caverna seguindo uma lista, e obrigar a refazer o que já foi feito é a maneira mais
+rápida de transformar um guia em estorvo.
+
+**Concluído nunca volta a pendente.** Sem isso, gastar as tábuas na bancada desmarcaria "fabrique
+tábuas", e o guia mandaria de volta à árvore alguém que já está no ferro.
+
+### O defeito que a própria fiação revelou
+
+Pendurei `amanheceu` na virada do contador de dias — o lugar mais óbvio, e onde o `worldDay++` já
+estava. **`timeOfDay = 0` é meia-noite, não amanhecer.** "Sobreviva até o amanhecer" fecharia no
+meio da noite, antes da parte perigosa.
+
+Nada falharia: o objetivo marcaria, o toast apareceria, o som tocaria. A única coisa errada seria o
+jogo ter dado a vitória cedo demais — e é por isso que virou teste. Passou a estar preso à
+transição de fase (`faseAtual === 'amanhecer'`), com uma trava que reprova se alguém o devolver
+para perto do `worldDay++`.
+
+- [~] 1299 `P0` **`RastreadorDeObjetivos`** — 21 testes, incluindo "restaurar de vazio zera" (um só rastreador serve todos os mundos da sessão; sem limpar, quem cria um mundo novo depois de jogar outro começa com meia corrente feita)
+- [~] 1300 `P0` **Cartão de objetivo no HUD**, canto superior esquerdo, só no Modo Sobrevivência
+- [~] 1301 `P1` **9 travas de fiação** — a classe é pura e completamente inerte sozinha; sem os quatro pontos de instrumentação, todos os 21 testes passariam e nenhum objetivo avançaria em jogo
+- [~] 1302 `P1` **`amanheceu` preso ao amanhecer**, não à meia-noite — com teste que reprova a regressão
+- [~] 1303 `P2` **Som próprio de conquista** (sobe uma oitava, dura o triplo de `pegarItem`) — um clique curto se confunde com pegar item, e a conquista deixa de ser um momento
+- [~] 1304 `P2` **Progresso no save do jogador**, por id e não por índice — guardar "estou no passo 4" faria um objetivo inserido no meio deslocar todos os mundos já salvos
+
+### Lacunas que este trabalho revelou
+
+- [ ] 1305 `P1` **Não há lista completa em lugar nenhum** — o cartão mostra um passo; quem quiser rever o que já fez, ou o que vem depois, não tem onde. Cabe uma aba no hub de pausa
+- [ ] 1306 `P1` **O objetivo do abrigo não verifica abrigo** — conta 12 blocos colocados, e doze blocos de terra em fila cumprem. Verificar recinto fechado (volume sem saída para o céu) é um problema de inundação em 3D, não uma contagem
+- [ ] 1307 `P1` **O loop não tem segunda volta** — fecha no papel, mas depois da obsidiana não há material melhor nem objetivo maior. Liga-se aos itens 018/019/1286
+- [ ] 1308 `P2` **A noite não é perigosa o bastante** para justificar o abrigo do passo 6 — os hostis nascem, mas nada força o jogador a se esconder (item 009)
+- [ ] 1309 `P2` **A morte não custa nada** além de voltar ao spawn, então o risco dos passos 10–13 é abstrato (itens 010/011)
+- [ ] 1310 `P2` **Os tempos da tabela são estimativa, não medição** — nada registra quanto o jogador leva de fato até a primeira ferramenta (item 022)
+- [ ] 1311 `P2` **O guia diz o quê, não como se joga** — quem não sabe que se coloca bloco com o botão direito ainda descobre sozinho (item 021)

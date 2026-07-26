@@ -153,6 +153,10 @@ export const SOUNDS: Record<string, SoundSpec> = {
   queimadura:  { freq: 160, freqEnd: 200, duration: 0.35, noise: 0.90, filterHz: 1000, gain: 0.30, attack: 0.02 },
   splash:      { freq: 300, freqEnd: 160, duration: 0.34, noise: 0.95, filterHz: 2400, gain: 0.42, attack: 0.004 },
   ferramentaQuebrou: { freq: 700, freqEnd: 180, duration: 0.30, noise: 0.55, filterHz: 3000, gain: 0.50, attack: 0.001 },
+  // Objetivo cumprido: sobe uma oitava inteira (523 → 1046 Hz), dura o triplo de `pegarItem` e é
+  // quase todo harmônico. A duração é o que separa conquista de coleta — um clique curto se
+  // confunde com pegar um item, e a conquista deixaria de ser um momento.
+  objetivo:    { freq: 523, freqEnd: 1046, duration: 0.34, noise: 0.03, filterHz: 7000, gain: 0.34, attack: 0.004, harmonics: 3 },
 };
 
 /**

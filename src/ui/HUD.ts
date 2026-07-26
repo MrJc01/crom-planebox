@@ -11,6 +11,7 @@ export class HUD {
   private survivalBar: HTMLDivElement;
   private healthEl: HTMLDivElement;
   private hungerEl: HTMLDivElement;
+  private objetivoEl: HTMLDivElement;
 
   constructor(cameraManager?: CameraManager) {
     if (cameraManager) this.cameraManager = cameraManager;
@@ -150,7 +151,55 @@ export class HUD {
     this.survivalBar.appendChild(this.hungerEl);
     this.container.appendChild(this.survivalBar);
 
+    // Cartão do objetivo atual (item 007). Canto superior esquerdo: é o único canto livre, e é
+    // para onde o olho vai primeiro sem que nada precise piscar para chamar atenção.
+    //
+    // `display: none` por padrão — o cartão só existe no modo em que a progressão existe. Mostrá-lo
+    // no Criativo, onde o jogador já tem todos os blocos, seria pedir que ele "fabrique a picareta
+    // de madeira" para abrir uma pedra que ele pode colocar e tirar à vontade.
+    this.objetivoEl = document.createElement('div');
+    this.objetivoEl.style.cssText = `
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      max-width: 250px;
+      display: none;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-left: 3px solid #38bdf8;
+      color: #e2e8f0;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      transition: opacity 0.3s ease;
+    `;
+    this.container.appendChild(this.objetivoEl);
+
     document.body.appendChild(this.container);
+  }
+
+  /**
+   * Mostra o próximo passo — **um** passo, nunca a lista.
+   *
+   * O contador `n/total` fica de propósito: sem ele o cartão parece uma dica solta e não uma
+   * progressão, e o jogador não tem como saber se está no começo ou no fim. A dica em cinza abaixo
+   * do título é o que diferencia um guia de um placar: diz *como*, não só *o quê*.
+   */
+  public mostrarObjetivo(titulo: string, dica: string, progresso: number, meta: number, feitos: number, total: number): void {
+    const contagem = meta > 1 ? ` <span style="color:#38bdf8">${progresso}/${meta}</span>` : '';
+    this.objetivoEl.innerHTML =
+      `<div style="font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:#64748b; margin-bottom:3px;">Objetivo ${feitos + 1} de ${total}</div>` +
+      `<div style="font-weight:600; color:#f8fafc;">${titulo}${contagem}</div>` +
+      `<div style="color:#94a3b8; margin-top:3px;">${dica}</div>`;
+    this.objetivoEl.style.display = 'block';
+  }
+
+  /** Esconde o cartão — fim da corrente, ou modo sem progressão. */
+  public esconderObjetivo(): void {
+    this.objetivoEl.style.display = 'none';
   }
 
   public setSurvivalVisible(visible: boolean): void {

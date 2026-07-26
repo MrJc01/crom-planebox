@@ -3,7 +3,7 @@ import { OrcamentoDeQuadro } from './render/orcamentoQuadro';
 import * as THREE from 'three';
 import { createScene } from './render/scene';
 import { World } from './world/world';
-import { Chunk, chunkKey, CX, CY, CZ, TOPO_VARREDURA } from './world/chunk';
+import { Chunk, chunkKey, CX, CY, CZ, SCALE, TOPO_VARREDURA } from './world/chunk';
 import { WorldGen, WATER_LEVEL } from './world/worldgen';
 import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
@@ -53,6 +53,7 @@ import { EntitySystem } from './entities/EntitySystem';
 import { EventSystem } from './events/EventSystem';
 import { UndoManager } from './storage/UndoManager';
 import { GameModeManager } from './game/GameModeManager';
+import { EventoDeProgresso, RastreadorDeObjetivos } from './game/Objetivos';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -151,6 +152,7 @@ async function bootstrap() {
 
   const cameraManager = new CameraManager(gs.scene, gs.camera, gs.renderer, player);
   const gameModeManager = new GameModeManager(cameraManager, player);
+  const objetivos = new RastreadorDeObjetivos();
   const survivalSystem = new SurvivalSystem(player);
   const itemDropSystem = new ItemDropSystem(gs.scene, player);
 
@@ -637,6 +639,41 @@ async function bootstrap() {
   inventoryModal.setHotbarVisible(false);
   chatOverlay.hide();
 
+  // --- Objetivos (item 007) ---------------------------------------------------
+  //
+  // Só no Modo Sobrevivência. Nos outros o jogador já tem todos os blocos e não gasta ferramenta,
+  // então "fabrique a picareta de madeira para abrir a pedra" seria um passo sem obstáculo — um
+  // guia que manda fazer o que já está feito ensina a ignorar o guia.
+  const guiaAtivo = () => gameModeManager.rules.hasSurvival;
+
+  function atualizarCartaoDeObjetivo(): void {
+    if (!guiaAtivo()) { hud.esconderObjetivo(); return; }
+    const atual = objetivos.atual();
+    if (!atual) { hud.esconderObjetivo(); return; }
+    hud.mostrarObjetivo(
+      atual.def.titulo, atual.def.dica, atual.progresso, atual.def.meta,
+      objetivos.totalConcluidos, objetivos.total,
+    );
+  }
+
+  function registrarProgresso(e: EventoDeProgresso): void {
+    if (!guiaAtivo()) return;
+    const concluidos = objetivos.registrar(e);
+    for (const def of concluidos) {
+      hud.showToast(`Objetivo cumprido: ${def.titulo}`);
+      audio.play(SOUNDS.objetivo, { channel: 'ui', dedupeKey: 'objetivo' });
+    }
+    // O cartão é redesenhado a cada evento que interessa, e não a cada quadro: o conteúdo só muda
+    // quando o progresso muda, e reescrever `innerHTML` 60 vezes por segundo faria o navegador
+    // recalcular o layout do cartão sem nenhuma mudança visível.
+    if (concluidos.length > 0 || e.tipo !== 'profundidade') atualizarCartaoDeObjetivo();
+    if (concluidos.length > 0) schedulePlayerSave();
+  }
+
+  inventoryModal.onCrafted = (recipe) => {
+    registrarProgresso({ tipo: 'fabricou', bloco: recipe.outputBlock, tier: recipe.outputTool?.tier });
+  };
+
   // --- Identidade local & Rede P2P (host-autoritativo; ver docs/NETWORK_PROTOCOL.md) ---
   const localPlayerId = `local-${Math.random().toString(36).slice(2, 9)}`;
   const localPlayerName = 'Você';
@@ -1037,6 +1074,14 @@ async function bootstrap() {
     relight(x, y, z);
     modRuntime.dispatch(blockType === 0 ? 'blockBroken' : 'blockPlaced', { x, y, z, block: blockType });
 
+    // Progresso dos objetivos. Quebrar reporta o bloco que SAIU (`blocoAnterior`); o que entrou no
+    // lugar é ar, e "quebre um tronco" nunca casaria.
+    if (blockType === 0) {
+      if (blocoAnterior !== undefined) registrarProgresso({ tipo: 'quebrou', bloco: blocoAnterior });
+    } else {
+      registrarProgresso({ tipo: 'colocou', bloco: blockType });
+    }
+
     // Quebrar soa como o bloco que SAIU; colocar, como o que entrou.
     const semente = (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
     const material = blockType === 0 ? (blocoAnterior ?? 3) : blockType;
@@ -1069,6 +1114,9 @@ async function bootstrap() {
     hud.setSurvivalVisible(mode === 'survival');
     if (mode === 'survival') survivalSystem.reset();
     hud.showToast(`Modo de jogo: ${mode}`);
+    // O cartão de objetivo aparece e some com o modo — sem isto ele ficaria na tela depois de
+    // trocar para o Criativo, mandando fabricar o que o jogador já tem infinito.
+    atualizarCartaoDeObjetivo();
     schedulePlayerSave();
   };
   inventoryModal.gateOpen = () => gameModeManager.rules.hasCreativeInventory;
@@ -1135,6 +1183,7 @@ async function bootstrap() {
       gameMode: gameModeManager.mode,
       inventory: inter.hotbar.map((s) => ({ label: s.label, block: s.block, count: s.count, infinite: s.infinite, toolTier: s.toolTier })),
       isOp: localIsOp,
+      objetivos: objetivos.serializar(),
       updatedAt: Date.now(),
     }).catch(() => {});
   }
@@ -1258,6 +1307,11 @@ async function bootstrap() {
       player.pos.copy(findSpawn());
       player.vel.set(0, 0, 0);
     }
+    // Objetivos são do jogador, não do mundo: quem volta a um mundo antigo continua de onde parou,
+    // e quem entra num mundo novo começa a corrente do zero. `restaurar(undefined)` zera — sem essa
+    // chamada no ramo do `else`, o progresso do mundo anterior vazaria para o mundo recém-criado.
+    objetivos.restaurar(savedPlayer?.objetivos);
+    atualizarCartaoDeObjetivo();
 
     localStorage.setItem(LAST_WORLD_KEY, worldId);
 
@@ -1623,6 +1677,7 @@ async function bootstrap() {
   const clock = new THREE.Timer();
   let streamAccum = 0;
   let saveAccum = 0;
+  let relogioDeProfundidade = 0;
   let netAccum = 0;
   /** Acumulador do retrato de criaturas enviado aos convidados. */
   let mobSyncAccum = 0;
@@ -1729,6 +1784,12 @@ async function bootstrap() {
     gs.setTimeOfDay(timeOfDay);
     const faseAtual = fasesDoDia(timeOfDay);
     if (faseAtual !== faseAnterior) modRuntime.dispatch('dayPhase', { phase: faseAtual, timeOfDay });
+    // "Sobreviva até o amanhecer" precisa do AMANHECER, e não da virada do contador de dias: o
+    // relógio dá a volta em `timeOfDay = 0`, que é **meia-noite** — o objetivo fecharia no meio da
+    // noite, antes da parte perigosa, e o jogador ganharia por ter sobrevivido a metade dela.
+    if (faseAtual === 'amanhecer' && faseAnterior !== 'amanhecer') {
+      registrarProgresso({ tipo: 'amanheceu' });
+    }
 
     profiler.begin('mods'); modRuntime.tickAll(dt); profiler.end('mods');
     const sunScale = gs.getSunScale();
@@ -1874,6 +1935,22 @@ async function bootstrap() {
     profiler.end('clima');
 
     hud.updateCoords(player.pos.x, player.pos.y, player.pos.z);
+
+    // Profundidade, para o objetivo de descer. Medida contra a superfície DAQUI, não contra a
+    // altura do spawn: quem anda até um vale estaria "15 metros abaixo" sem ter cavado nada, e o
+    // objetivo seria cumprido por caminhar.
+    //
+    // `gen.column` é ruído puro e barato, mas não de graça — a cada meio segundo basta, porque
+    // ninguém desce 15 metros nesse intervalo.
+    if (rules.hasSurvival && !objetivos.concluido('desceu')) {
+      relogioDeProfundidade -= dt;
+      if (relogioDeProfundidade <= 0) {
+        relogioDeProfundidade = 0.5;
+        const superficie = gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height;
+        registrarProgresso({ tipo: 'profundidade', metros: (superficie - player.pos.y) / SCALE });
+      }
+    }
+
     hud.updateCameraMode(cameraManager.mode);
     hud.updateNetworkStatus(peerSync.role, peerSync.peerCount);
     if (rules.hasSurvival) hud.updateSurvival(survivalSystem.health, survivalSystem.maxHealth, survivalSystem.hunger, survivalSystem.maxHunger);
