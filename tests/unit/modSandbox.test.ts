@@ -20,9 +20,13 @@
 //
 // ## O que estes testes garantem, e o que não garantem
 //
-// Eles verificam que os nomes perigosos estão **sombreados** — a técnica clássica de passá-los
-// como parâmetros com valor `undefined`. Isso barra o acesso direto e acidental, que é o caso
-// real de um script gerado por IA.
+// O escopo do script é um `with` sobre um `Proxy` cujo `has` responde **sempre que sim**. Dentro
+// de um `with`, o motor pergunta ao objeto se ele tem cada nome livre ANTES de procurar no
+// escopo externo — respondendo sempre que sim, nenhuma busca chega ao global, e o `get` decide
+// nome a nome o que devolver.
+//
+// A consequência que mais importa: é uma lista de **permitidos**, não de negados. O que ninguém
+// previu — uma API nova do navegador, ou uma que eu esqueci — já nasce bloqueada.
 //
 // **Não é uma fronteira de segurança contra código hostil.** Continua havendo saída por
 // `[].constructor.constructor('return globalThis')()` e parentes. A fronteira de verdade é
@@ -85,14 +89,36 @@ describe('sandbox de mod — o escopo global não vaza mais', () => {
     expect(rodar('api.registrar(Math.max(2, 7))')).toBe(7);
   });
 
-  it('modo estrito ativo: atribuição solta não cria global', () => {
-    expect(() => rodar('vazando = 1')).toThrow();
+  it('CRÍTICO: TODO nome da lista de perigosos é de fato inalcançável', () => {
+    // A lista deixou de ser decoração: cada nome dela é executado dentro do sandbox e precisa
+    // sair `undefined`. Antes o teste só verificava que a lista CONTINHA o nome — o que provava
+    // que alguém o escreveu, não que ele está bloqueado.
+    for (const nome of GLOBAIS_BLOQUEADOS) {
+      expect(rodar(`api.registrar(typeof ${nome})`), `${nome} continua alcançável`).toBe('undefined');
+    }
   });
 
-  it('a lista de bloqueados cobre os nomes que dão rede ou armazenamento', () => {
-    for (const nome of ['fetch', 'XMLHttpRequest', 'WebSocket', 'indexedDB', 'localStorage', 'window', 'globalThis', 'document', 'navigator']) {
-      expect(GLOBAIS_BLOQUEADOS, `faltou bloquear ${nome}`).toContain(nome);
+  it('CRÍTICO: é lista de PERMITIDOS — o que ninguém previu já nasce bloqueado', () => {
+    // A diferença que mais importa. Com lista de negados, uma API nova do navegador (ou uma que
+    // eu esqueci) entra livre. Aqui o `with` + Proxy responde "eu tenho esse nome" para tudo, e
+    // devolve `undefined` para o que não está explicitamente permitido.
+    for (const inventado of ['WebTransport', 'showSaveFilePicker', 'apiQueAindaNaoExiste', 'crypto', 'performance']) {
+      expect(rodar(`api.registrar(typeof ${inventado})`), `${inventado} vazou`).toBe('undefined');
     }
+  });
+
+  it('escrever numa variável global é recusado, não silenciosamente ignorado', () => {
+    // `with` obriga o invólucro a ser permissivo, onde `vazando = 1` criaria um global de
+    // verdade. O `set` do Proxy é o que ocupa o lugar do `"use strict"` externo.
+    expect(() => rodar('vazando = 1')).toThrow(/global/i);
+  });
+});
+
+describe('modo estrito no corpo do script', () => {
+  it('CRÍTICO: `this` numa função chamada sem receptor NÃO é o objeto global', () => {
+    // Rota de fuga mais curta que existe, e ela ficaria aberta se o corpo herdasse o modo
+    // permissivo que o `with` obriga no invólucro.
+    expect(rodar('api.registrar(typeof (function(){ return this; })())')).toBe('undefined');
   });
 });
 

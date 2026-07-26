@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1230 itens)
+# Checklist Mestre — Painel de Especialistas (1237 itens)
 
-> **Estado em 26/07/2026** — 553 de 1230 itens tratados (44%), com **799 testes** passando,
+> **Estado em 26/07/2026** — 557 de 1237 itens tratados (45%), com **801 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 470 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 677 | Pendente. |
+> | `[~]` | 474 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 680 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -526,7 +526,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 355 `P1` Erro de script isolado e reportado sem derrubar o jogo
 - [~] 356 `P1` **Validação estrita do pacote de mod antes de persistir**
 - [~] 357 `P1` **Script de comportamento de entidade compilado com falha isolada**
-- [ ] 358 `P0` Executar scripts da IA em Web Worker isolado sem acesso a `window`/`fetch`
+- [ ] 358 `P0` Executar scripts da IA em Web Worker isolado sem acesso a `window`/`fetch` — **dimensionado na seção 51: exige tornar a API de mods assíncrona, e esse é o custo real**
 - [~] 359 `P0` **Escopo global sombreado** — `fetch`, `window`, `document`, `localStorage`, `indexedDB` e cia. entram como parâmetros `undefined`. Barra o acesso direto; **não é fronteira de segurança** (ver 358)
 - [ ] 360 `P1` Limite de iterações além do limite de tempo
 - [ ] 361 `P1` Limite de memória/blocos por script
@@ -2949,3 +2949,44 @@ perto da robustez que compra.
 > **O padrão dos dois relatos de multijogador.** Em ambos, a parte tinha teste e passava. O que
 > faltava era a pergunta de cima: *"os dois jogadores estão vendo a mesma coisa?"*. Testar bem
 > cada peça não diz nada sobre o todo quando o que falta é a peça que liga as peças.
+
+## 51. Sandbox: de lista de negados para lista de permitidos — e o tamanho real do item 358
+
+A primeira versão sombreava os nomes perigosos passando-os como parâmetros `undefined`. Funciona,
+e tem o defeito de toda lista de negados: **o que eu esquecer, ou o que o navegador ganhar depois,
+entra livre**.
+
+Agora o corpo do script roda dentro de um `with` sobre um `Proxy` cujo `has` responde **sempre que
+sim**. Dentro de um `with`, o motor pergunta ao objeto se ele tem cada nome livre *antes* de
+procurar no escopo externo — respondendo sempre que sim, nenhuma busca chega ao global, e o `get`
+decide nome a nome. Vira lista de **permitidos**: só cálculo puro passa.
+
+Três detalhes que o teste fixou:
+
+- **`with` é proibido em modo estrito**, então o invólucro é permissivo. O corpo do script,
+  dentro dele, é estrito — e precisa ser: em modo permissivo `(function(){return this})()`
+  devolve o objeto global, a rota de fuga mais curta que existe.
+- Sem o estrito externo, `vazando = 1` criaria um global de verdade. O `set` do Proxy recusa.
+- `Symbol.unscopables` precisa devolver `undefined`, senão o motor o interpreta como uma lista de
+  nomes a ignorar e o `with` deixa de capturar tudo.
+
+- [~] 1247 `P0` **Escopo por lista de permitidos** (`with` + `Proxy`), no lugar da lista de negados
+- [~] 1248 `P0` **Corpo em modo estrito dentro do invólucro permissivo** — fecha a fuga pelo `this`
+- [~] 1249 `P1` **A lista de perigosos virou teste executável**: cada nome dela é rodado dentro do sandbox e precisa sair `undefined`. Antes o teste só verificava que a lista *continha* o nome — provava que alguém o escreveu, não que estava bloqueado
+- [~] 1250 `P1` **Teste com nomes inventados** (`WebTransport`, `apiQueAindaNaoExiste`) provando o bloqueio por omissão
+
+### O tamanho real do item 358, medido
+
+Fui implementar o Worker e parei para medir. **O obstáculo não é o Worker — é a API.**
+
+`buildModAPI` é **síncrona e de leitura**: `world.getBlock(x,y,z)` devolve o bloco na hora,
+`world.findNearest` varre e retorna, `player.position()` responde imediatamente. Um Worker só
+conversa por `postMessage`, que é assíncrono. Levar o script para lá obriga **toda** a API a
+virar `await`, e isso reescreve o modelo de programação de todo mod já criado.
+
+Não é trabalho de uma passada, e fingir que é seria pior que deixar pendente. O que fica
+registrado, para quem for fazer:
+
+- [ ] 1251 `P0` Tornar a API de mods assíncrona (`await api.world.getBlock(...)`) — **pré-requisito do 358**
+- [ ] 1252 `P0` Migrar os mods existentes, ou manter um modo compatível para os que já existem
+- [ ] 1253 `P1` Só então mover a execução para o Worker, com os globais do Worker apagados (`fetch`, `importScripts`, `indexedDB`) — no Worker isso funciona de verdade, porque a fuga pelo construtor devolve o global **daquele** reino, que está vazio
