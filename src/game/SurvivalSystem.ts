@@ -120,6 +120,40 @@ export class SurvivalSystem {
     }
   }
 
+  /**
+   * O corpo atravessa um período de descanso — dormir (item 1347).
+   *
+   * ## O buraco que isto fecha
+   *
+   * Dormir corre o **relógio do mundo** a 90×, mas `update(dt)` continua recebendo o `dt` real. A
+   * consequência é que uma noite inteira — cerca de seis minutos de jogo — passava para o mundo e
+   * **quatro segundos** para o corpo. Metade da barra de fome deixava de ser cobrada, e dormir
+   * virava a maneira mais eficiente de não comer.
+   *
+   * Não falharia em lugar nenhum: a fome simplesmente decairia mais devagar para quem dorme, e a
+   * explicação estaria a três arquivos de distância do sintoma.
+   *
+   * ## Por que descansar custa MENOS que ficar acordado
+   *
+   * `FATOR_DE_REPOUSO` cobra metade da fome do período. Um corpo parado gasta menos que um corpo
+   * cavando, e isso é o que dá à cama uma vantagem real além do tempo — sem ela, dormir seria
+   * neutro e o jogador continuaria preferindo minerar a noite toda.
+   *
+   * ## Por que a vida volta inteira
+   *
+   * A regeneração normal leva ~20 s com fome acima de 50%, e a noite tem seis minutos. Simular
+   * segundo a segundo daria o mesmo resultado por um caminho mais longo e mais fácil de errar; a
+   * condição de fome é conferida **depois** do gasto, para uma noite que zera a barra não curar.
+   */
+  public descansar(segundos: number): void {
+    if (segundos <= 0) return;
+    const FATOR_DE_REPOUSO = 0.5;
+    this.hunger = Math.max(0, this.hunger - HUNGER_DECAY_PER_SEC * segundos * FATOR_DE_REPOUSO);
+    if (this.hunger > 50) this.health = this.maxHealth;
+    else if (this.hunger <= 0) this.applyDamage(STARVE_DAMAGE_PER_SEC * Math.min(segundos, 10), 'fome');
+    this.onChanged();
+  }
+
   /** Consumir um item de comida restaura fome (chamado pela hotbar/inventário de sobrevivência). */
   public eat(amount: number): void {
     this.hunger = Math.min(this.maxHunger, this.hunger + amount);

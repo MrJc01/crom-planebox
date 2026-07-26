@@ -3635,6 +3635,44 @@ regra é a **luz**, não a hora, e é isso que faz a tocha ser ferramenta de ter
 ### Lacunas anotadas nesta rodada
 
 - [ ] 1345 `P2` **A primeira noite não é enquadrada como evento** — ela tem peso mecânico (hostis, abrigo, dormir), mas nada no jogo a marca como diferente das outras
-- [ ] 1346 `P2` **Não há tela de sono** — o mundo corre a 90× com o jogador de pé no meio dele, em vez de escurecer. Funciona, mas parece um bug de velocidade
-- [ ] 1347 `P2` **Dormir não cura nem restaura fome** — passar a noite abrigado não tem nenhum efeito no corpo, o que torna a cama útil só pelo tempo
+- [~] 1346 `P2` **Véu de sono** que escurece por transição, não por corte — o gradual é a informação, um corte seco pareceria congelamento
+- [~] 1347 `P2` **`descansar(segundos)`** — e a descoberta que veio junto: o corpo NÃO atravessava a noite que o mundo atravessava; ver a seção 63
 - [ ] 1348 `P3` **O convidado não tem como pedir para dormir** — a recusa é honesta, mas num mundo compartilhado ninguém dorme nunca, a menos que o anfitrião resolva
+
+---
+
+## 63 — O corpo que não atravessava a noite (itens 1346, 1347)
+
+Fui acrescentar "dormir restaura vida" e encontrei um buraco maior do lado.
+
+**Dormir corre o relógio do MUNDO a 90×, mas `update(dt)` continua recebendo o `dt` real.** Uma
+noite inteira passava para o mundo — uns seis minutos de jogo — e **quatro segundos** para o corpo.
+Metade da barra de fome deixava de ser cobrada, e dormir virava a maneira mais eficiente de não
+comer.
+
+Não falharia em lugar nenhum. A fome simplesmente decairia mais devagar para quem dorme, e a
+explicação estaria a três arquivos de distância do sintoma: quem notasse concluiria que a fome é
+lenta demais e mexeria na constante errada.
+
+`descansar(segundos)` cobra do corpo o período que o mundo pulou, com duas decisões:
+
+**Descansar custa metade.** Um corpo parado gasta menos que um corpo cavando. É o que dá à cama uma
+vantagem real além do tempo — sem isso, dormir seria neutro e continuaria valendo mais minerar a
+noite toda. O teste compara as duas coisas de frente: dormir uma noite contra ficar acordado a mesma
+noite, simulada em passos de meio segundo.
+
+**A fome é conferida DEPOIS do gasto.** Na ordem inversa, uma noite que zera a barra ainda curaria —
+e dormir seria uma forma de trocar comida por vida sem ter comida.
+
+O véu de sono (1346) usa `opacity` com transição, e não `display`: o escurecer gradual é a
+informação, porque é ele que comunica a passagem do tempo. Um corte seco pareceria congelamento. E
+há trava exigindo que ele acenda **e apague** — acender e esquecer deixaria a tela preta para
+sempre depois da primeira noite, sem nada indicando por quê.
+
+- [~] 1349 `P1` **`descansar`** com 6 testes, incluindo "dormir de barriga vazia não cura"
+- [~] 1350 `P1` **2 travas de fiação** — o método é puro e passaria em todos os testes com o jogo nunca o chamando
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1351 `P1` **O mesmo descompasso vale para qualquer salto de relógio** — `/time` de comando, ou o `world_time` do anfitrião puxando um convidado atrasado, também adiantam o mundo sem cobrar o corpo. `descansar` resolve o caso do sono; os outros continuam abertos
+- [ ] 1352 `P2` **Criaturas e fluidos também não atravessam a noite** — o mundo pula seis minutos e nenhum zumbi andou, nenhuma poça escoou. Nota-se pouco, mas é o mesmo erro de fundo

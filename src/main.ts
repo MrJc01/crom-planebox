@@ -1228,7 +1228,8 @@ async function bootstrap() {
     }
 
     dormindo = true;
-    hud.showToast('Dormindo até o amanhecer...');
+    horaAoDeitar = timeOfDay;
+    hud.mostrarSono(true);
   };
 
   chatOverlay.getLocationContext = () => {
@@ -1808,6 +1809,8 @@ async function bootstrap() {
   let avisouDescoberto = false;
   /** O jogador está dormindo: o relógio do mundo corre acelerado até o amanhecer. */
   let dormindo = false;
+  /** Hora do mundo no momento de deitar, para cobrar do corpo o tempo que o mundo pulou. */
+  let horaAoDeitar = 0;
   let netAccum = 0;
   /** Acumulador do retrato de criaturas enviado aos convidados. */
   let mobSyncAccum = 0;
@@ -1928,6 +1931,14 @@ async function bootstrap() {
     // ela sem nada apontar a discordância. Sem esta parada, o relógio a 90× daria voltas no dia.
     if (dormindo && deveAcordar(faseAtual)) {
       dormindo = false;
+      hud.mostrarSono(false);
+
+      // O corpo atravessa o mesmo período que o mundo. Sem isto, uma noite inteira passava para o
+      // mundo (uns seis minutos) e quatro segundos para o jogador — metade da barra de fome deixava
+      // de ser cobrada, e dormir virava a maneira mais eficiente de não comer.
+      const pulado = ((timeOfDay - horaAoDeitar) % 1 + 1) % 1;
+      survivalSystem.descansar(pulado * DAY_LENGTH);
+
       hud.showToast('Bom dia.');
       // O relógio saltou horas: os convidados precisam saber agora, e não no envio periódico de
       // 10 em 10 segundos — nesse intervalo eles ainda estariam de noite, com o céu de outro

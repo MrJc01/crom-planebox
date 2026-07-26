@@ -313,6 +313,21 @@ describe('cama — o ponto de renascimento chega ao jogo (item 010)', () => {
     expect(/deveAcordar\(/.test(main), 'ninguém acorda').toBe(true);
   });
 
+  it('CRÍTICO: o corpo é cobrado pelo tempo que o mundo pulou', () => {
+    // O relógio corre a 90×, mas `update(dt)` recebe o `dt` real. Sem esta chamada, metade da barra
+    // de fome deixa de ser cobrada por noite dormida, e dormir vira a maneira de não comer. Não
+    // falha em lugar nenhum: a fome só decai mais devagar para quem dorme.
+    expect(/survivalSystem\.descansar\(/.test(main), 'ninguém cobra o tempo pulado').toBe(true);
+    expect(/horaAoDeitar/.test(main), 'não se sabe quanto tempo passou').toBe(true);
+  });
+
+  it('a tela de sono acompanha o estado de dormir', () => {
+    // Acender e nunca apagar deixaria o jogador com a tela preta para sempre depois da primeira
+    // noite — e nada, nem o menu, indicaria por quê.
+    expect(/mostrarSono\(true\)/.test(main), 'nunca escurece').toBe(true);
+    expect(/mostrarSono\(false\)/.test(main), 'escurece e nunca clareia').toBe(true);
+  });
+
   it('CRÍTICO: o ponto de renascimento é conferido na hora de USAR', () => {
     // Conferir só na hora de gravar não adianta: entre gravar e morrer o mundo muda, e quem tapou
     // o próprio quarto renasceria dentro da pedra, preso, logo depois de morrer.

@@ -12,6 +12,7 @@ export class HUD {
   private healthEl: HTMLDivElement;
   private hungerEl: HTMLDivElement;
   private objetivoEl: HTMLDivElement;
+  private sonoEl: HTMLDivElement;
 
   constructor(cameraManager?: CameraManager) {
     if (cameraManager) this.cameraManager = cameraManager;
@@ -178,6 +179,28 @@ export class HUD {
     `;
     this.container.appendChild(this.objetivoEl);
 
+    // Véu de sono. Fica acima de tudo o que o HUD desenha, mas dentro do container, para sumir
+    // junto com ele quando o jogo não começou.
+    this.sonoEl = document.createElement('div');
+    this.sonoEl.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: #05070d;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.9s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 15px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      z-index: ${CAMADA.tela};
+    `;
+    this.sonoEl.textContent = 'Dormindo';
+    this.container.appendChild(this.sonoEl);
+
     document.body.appendChild(this.container);
   }
 
@@ -200,6 +223,21 @@ export class HUD {
   /** Esconde o cartão — fim da corrente, ou modo sem progressão. */
   public esconderObjetivo(): void {
     this.objetivoEl.style.display = 'none';
+  }
+
+  /**
+   * A tela de sono (item 1346).
+   *
+   * Sem ela, dormir era o mundo correndo a 90× com o jogador de pé no meio dele: as sombras
+   * girando, o céu piscando, tudo funcionando — e parecendo um defeito de velocidade, não uma
+   * escolha do jogador. Escurecer é o que transforma "o jogo acelerou" em "eu dormi".
+   *
+   * `opacity` em vez de `display` porque a transição é a informação: o escurecer gradual comunica
+   * a passagem do tempo, e um corte seco pareceria um congelamento.
+   */
+  public mostrarSono(dormindo: boolean): void {
+    this.sonoEl.style.opacity = dormindo ? '1' : '0';
+    this.sonoEl.style.pointerEvents = 'none';
   }
 
   public setSurvivalVisible(visible: boolean): void {

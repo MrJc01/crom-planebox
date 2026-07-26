@@ -190,3 +190,65 @@ describe('SurvivalSystem — comida (o ciclo de fome deixou de ser só um cronô
     expect(s.health).toBeLessThan(antes);
   });
 });
+
+describe('descansar — o corpo atravessa a mesma noite que o mundo (item 1347)', () => {
+  // Dormir corre o RELÓGIO DO MUNDO a 90×, mas `update(dt)` continua recebendo o `dt` real. Sem
+  // este método, uma noite inteira passava para o mundo — uns seis minutos — e quatro segundos para
+  // o corpo: metade da barra de fome deixava de ser cobrada, e dormir virava a maneira mais
+  // eficiente de não comer.
+  //
+  // Não falharia em lugar nenhum. A fome simplesmente decairia mais devagar para quem dorme, e a
+  // explicação estaria a três arquivos de distância do sintoma.
+  const NOITE = 360; // ~40% de um dia de 900 s
+
+  it('CRÍTICO: a fome é cobrada pelo tempo que o mundo pulou', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.descansar(NOITE);
+    expect(s.hunger).toBeLessThan(s.maxHunger);
+  });
+
+  it('CRÍTICO: descansar custa MENOS que ficar acordado o mesmo tempo', () => {
+    // Um corpo parado gasta menos que um corpo cavando, e é o que dá à cama uma vantagem real além
+    // do tempo. Sem isso, dormir seria neutro e continuaria valendo mais minerar a noite toda.
+    const dormiu = new SurvivalSystem(makePlayer());
+    dormiu.descansar(NOITE);
+
+    const acordado = new SurvivalSystem(makePlayer());
+    for (let t = 0; t < NOITE; t += 0.5) acordado.update(0.5);
+
+    expect(dormiu.hunger).toBeGreaterThan(acordado.hunger);
+  });
+
+  it('CRÍTICO: uma noite bem dormida cura', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.applyDamage(60, 'teste');
+    s.descansar(NOITE);
+    expect(s.health).toBe(s.maxHealth);
+  });
+
+  it('CRÍTICO: dormir de barriga vazia NÃO cura', () => {
+    // A condição de fome é conferida DEPOIS do gasto. Antes, uma noite que zera a barra ainda
+    // curaria — e dormir seria uma forma de trocar comida por vida sem ter comida.
+    const s = new SurvivalSystem(makePlayer());
+    s.hunger = 20;
+    s.applyDamage(60, 'teste');
+    s.descansar(NOITE);
+    expect(s.health).toBeLessThan(s.maxHealth);
+  });
+
+  it('a fome nunca fica negativa', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.descansar(100000);
+    expect(s.hunger).toBe(0);
+  });
+
+  it('período zero ou negativo não faz nada', () => {
+    const s = new SurvivalSystem(makePlayer());
+    s.applyDamage(30, 'teste');
+    const antes = s.health;
+    s.descansar(0);
+    s.descansar(-5);
+    expect(s.health).toBe(antes);
+    expect(s.hunger).toBe(s.maxHunger);
+  });
+});
