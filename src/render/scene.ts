@@ -317,7 +317,10 @@ export function createScene(container: HTMLElement): GameScene {
     side: THREE.DoubleSide,
   });
   applyCurvature(solidMaterial);
-  applyCurvature(waterMaterial);
+  // O `true` é o que liga a onda. Sem ele o shader da onda é escrito, compilado e nunca emitido
+  // para a água — o mesmo defeito que já apareceu cinco vezes neste projeto: código completo que
+  // ninguém chama. Ver o teste `agua.test.ts`, que existe para esta linha não voltar a ser `false`.
+  applyCurvature(waterMaterial, true);
   applyCurvature(glassMaterial);
 
   /**
@@ -340,7 +343,10 @@ export function createScene(container: HTMLElement): GameScene {
       depthWrite: (base as THREE.MeshLambertMaterial).depthWrite,
       side: (base as THREE.MeshLambertMaterial).side,
     });
-    applyCurvature(m);
+    // A água que está APARECENDO também ondula. Esquecer aqui daria o defeito mais difícil de
+    // enxergar da família: o lago ondula, mas para de ondular durante os 0,6 s em que o chunk
+    // surge — e volta a ondular sozinho quando termina.
+    applyCurvature(m, qual === 'water');
     return m;
   }
 

@@ -13,7 +13,8 @@
 
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { applyCurvature, curvature, gradacaoUniforms, tinturas } from '../../src/render/scene';
+import { readFileSync } from 'node:fs';
+import { applyCurvature, curvature, gradacaoUniforms, ondaUniforms, tinturas } from '../../src/render/scene';
 
 /**
  * Reconstrói o que o three.js entrega ao `onBeforeCompile`: o shader do material com os
@@ -223,5 +224,89 @@ describe('um onBeforeCompile só', () => {
     applyCurvature(a);
     applyCurvature(b);
     expect(a.customProgramCacheKey!()).toBe(b.customProgramCacheKey!());
+  });
+});
+
+describe('onda da água', () => {
+  function shaderDe(ehAgua: boolean): string {
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    applyCurvature(mat, ehAgua);
+    const shader = shaderCru();
+    (mat.onBeforeCompile as any)(shader, null);
+    return shader.vertexShader;
+  }
+
+  it('a água ondula: o deslocamento chega ao shader', () => {
+    const v = shaderDe(true);
+    expect(v).toContain('uOndaTempo');
+    // Duas senoides, não uma: com uma só o período é perceptível em segundos e a superfície lê
+    // como uma esteira rolante.
+    expect(v.match(/sin\(cqWorld/g)?.length).toBe(2);
+  });
+
+  it('CRÍTICO: o deslocamento NÃO chega ao terreno', () => {
+    // Um chão que ondula é bem mais chamativo que uma água que não ondula, e sairia de graça se
+    // o padrão do parâmetro fosse trocado sem querer.
+    expect(shaderDe(false)).not.toContain('sin(cqWorld');
+  });
+
+  it('a onda entra ANTES da curvatura, para não cancelar o afundamento do horizonte', () => {
+    // As duas escrevem em `cqWorld.y`. A onda soma, a curvatura subtrai; invertendo a ordem, a
+    // água distante ondularia por cima da curvatura em vez de acompanhá-la.
+    const v = shaderDe(true);
+    expect(v.indexOf('sin(cqWorld')).toBeLessThan(v.indexOf('cqDrop * cqDrop'));
+  });
+
+  it('o relógio da onda é COMPARTILHADO — um uniform, não um por material', () => {
+    // Um relógio por material significaria atualizar N uniforms por quadro e, pior, materiais
+    // fora de fase: dois chunks de água vizinhos ondulando em tempos diferentes mostram a costura.
+    const a = new THREE.MeshLambertMaterial();
+    const b = new THREE.MeshLambertMaterial();
+    applyCurvature(a, true);
+    applyCurvature(b, true);
+    const sa = shaderCru(); const sb = shaderCru();
+    (a.onBeforeCompile as any)(sa, null);
+    (b.onBeforeCompile as any)(sb, null);
+    expect(sa.uniforms.uOndaTempo).toBe(sb.uniforms.uOndaTempo);
+    expect(sa.uniforms.uOndaTempo).toBe(ondaUniforms.tempo);
+  });
+});
+
+/**
+ * ## O teste que faltava nas cinco vezes anteriores
+ *
+ * Os testes acima provam que `applyCurvature(mat, true)` funciona. Não provam que **alguém a
+ * chama assim** — e é exatamente aí que este projeto já falhou cinco vezes: `setViewRange`,
+ * `applyCurvature`, `UndoManager.recordBatch`, as estações e os biomas eram todos código
+ * completo, correto e testado que nada invocava.
+ *
+ * A onda foi a sexta: o shader ficou escrito e `createScene` chamava `applyCurvature(waterMaterial)`
+ * sem o segundo argumento. Tudo passava; a água não ondulava.
+ *
+ * O ideal seria instanciar `createScene` e inspecionar o material — mas ela constrói um
+ * `WebGLRenderer`, que exige GPU e não existe em jsdom. Na falta disso, este teste lê o código
+ * fonte. É um teste textual, com a fragilidade que isso implica, e ainda assim vale: ele falha no
+ * dia em que alguém apagar o argumento, que é precisamente o acidente já ocorrido.
+ */
+describe('a onda está LIGADA na cena, não só implementada', () => {
+  const fonte = readFileSync(
+    new URL('../../src/render/scene.ts', import.meta.url),
+    'utf8',
+  );
+
+  it('CRÍTICO: a água da cena é criada com a onda ligada', () => {
+    expect(fonte).toMatch(/applyCurvature\(\s*waterMaterial\s*,\s*true\s*\)/);
+  });
+
+  it('CRÍTICO: a água que está APARECENDO também ondula', () => {
+    // Sem isto, o lago para de ondular durante os 0,6 s da aparição do chunk e volta sozinho —
+    // o defeito mais difícil de enxergar da família, porque é intermitente e some ao olhar.
+    expect(fonte).toMatch(/applyCurvature\(\s*m\s*,\s*qual === 'water'\s*\)/);
+  });
+
+  it('CRÍTICO: o relógio da onda é avançado a cada quadro', () => {
+    // Um uniform de tempo que ninguém incrementa deixa a água ondulada e PARADA — que é pior do
+    // que sem onda nenhuma, porque parece um erro de geometria.
+    expect(fonte).toMatch(/ondaUniforms\.tempo\.value\s*=/);
   });
 });
