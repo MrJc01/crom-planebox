@@ -16,6 +16,20 @@ import { B } from './blocks';
 import { CX, CY, CZ, SCALE, blockIndex } from './chunk';
 import { UndergroundGen } from './underground';
 import { BiomeId, biomaDominanteRapido } from './biomes';
+import { SitioDeEstrutura, SondaDeTerreno, estruturasNaRegiao } from './scatter';
+import { getStructureTemplate } from '../crafting/StructureTemplates';
+
+/**
+ * Margem de varredura de construções, em mini-voxels.
+ *
+ * Maior que a de decoração porque uma construção é maior que uma copa: uma casa ancorada logo
+ * fora do chunk ainda invade vários voxels dele, e sem esta margem apareceria cortada na
+ * fronteira — metade num chunk e nada no vizinho.
+ */
+const STRUCT_MARGIN = 14;
+
+/** Altura limpa acima da base da construção, para o terreno não atravessar a parede. */
+const ALTURA_LIMPEZA = 26;
 
 /**
  * Multiplicador de densidade de árvore por bioma.
@@ -315,7 +329,83 @@ export class WorldGen {
       }
     }
 
+    // ---- construções espalhadas ----
+    //
+    // Depois das árvores, de propósito: a construção limpa o que houver acima da base, então uma
+    // árvore que nasceu no mesmo lugar é removida em vez de atravessar o telhado.
+    const sitios = estruturasNaRegiao(
+      seed,
+      baseX - STRUCT_MARGIN, baseZ - STRUCT_MARGIN,
+      baseX + CX + STRUCT_MARGIN, baseZ + CZ + STRUCT_MARGIN,
+      this.sonda,
+    );
+    for (const sitio of sitios) {
+      this.placeStructure(data, sitio, baseX, baseZ);
+    }
+
     return data;
+  }
+
+  /**
+   * Sonda de terreno para o módulo de espalhamento.
+   *
+   * Um objeto só, criado uma vez, em vez de literal por chamada: `estruturasNaRegiao` roda uma
+   * vez por chunk gerado, e alocar quatro closures a cada uma delas dentro do Web Worker é
+   * exatamente o tipo de lixo que se acumula sem ninguém ver.
+   */
+  private readonly sonda: SondaDeTerreno = {
+    altura: (x, z) => this.column(x, z).height,
+    bioma: (x, z) => this.column(x, z).bioma,
+    rio: (x, z) => this.column(x, z).river,
+    estrada: (x, z) => this.column(x, z).path,
+  };
+
+  /**
+   * Carimba uma construção, com fundação.
+   *
+   * Duas coisas que fazem a diferença entre "construção" e "caixa jogada no terreno":
+   *
+   *  - **Limpa o volume acima da base** antes de colocar. Sem isso, o terreno que sobe dentro da
+   *    pegada atravessa a parede, e capim nasce dentro da sala.
+   *  - **Preenche o vão até o chão.** O sítio assenta no ponto mais baixo da pegada, então o
+   *    lado da descida ficaria sobre ar. A fundação é o que impede a casa de flutuar.
+   */
+  private placeStructure(data: Uint8Array, sitio: SitioDeEstrutura, baseX: number, baseZ: number): void {
+    const tpl = getStructureTemplate(sitio.template);
+    if (!tpl) return; // regra órfã: melhor não construir nada que construir errado
+
+    const lx = sitio.x - baseX;
+    const lz = sitio.z - baseZ;
+    const p = sitio.pegada;
+
+    const dentro = (bx: number, bz: number): boolean => bx >= 0 && bx < CX && bz >= 0 && bz < CZ;
+
+    // 1. Fundação e limpeza, coluna a coluna da pegada.
+    for (let dx = -p; dx <= p; dx++) {
+      for (let dz = -p; dz <= p; dz++) {
+        const bx = lx + dx, bz = lz + dz;
+        if (!dentro(bx, bz)) continue;
+
+        // Preenche do chão real até a base da construção.
+        const chao = this.column(sitio.x + dx, sitio.z + dz).height;
+        for (let y = Math.min(chao, sitio.y); y < sitio.y; y++) {
+          if (y < 1 || y >= CY) continue;
+          data[blockIndex(bx, y, bz)] = B.COBBLE;
+        }
+        // E remove o que estiver acima, para o terreno não atravessar a parede.
+        for (let y = sitio.y; y < Math.min(CY, sitio.y + ALTURA_LIMPEZA); y++) {
+          const i = blockIndex(bx, y, bz);
+          if (data[i] !== B.AIR) data[i] = B.AIR;
+        }
+      }
+    }
+
+    // 2. Os blocos do template.
+    for (const b of tpl.blocks) {
+      const bx = lx + b.dx, bz = lz + b.dz, by = sitio.y + b.dy;
+      if (!dentro(bx, bz) || by < 1 || by >= CY) continue;
+      data[blockIndex(bx, by, bz)] = b.block;
+    }
   }
 
   private placeTree(data: Uint8Array, x: number, z: number, ground: number, kind: number, r: number): void {

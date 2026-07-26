@@ -1027,10 +1027,38 @@ detalhe.
 - [ ] 678 `P1` Bioma de mod entra na seleção em igualdade com os base
 - [ ] 679 `P1` Nome do bioma atual no HUD e em `query_world_area`
 - [ ] 680 `P2` Mapa de biomas consultável pelo agente antes de construir
-- [ ] 681 `P0` **Construções espalhadas**: estruturas distribuídas proceduralmente pelo mundo
-- [ ] 682 `P0` Regra de espalhamento por bioma, raridade e espaçamento mínimo
-- [ ] 683 `P0` Uma estrutura por célula de grade, com vencedor único (como as árvores)
-- [ ] 684 `P0` Estrutura assenta no terreno (nivela a base, não flutua nem afunda)
+- [~] 681 `P0` **`src/world/scatter.ts` — construções distribuídas proceduralmente, ligadas ao `worldgen`**
+- [~] 682 `P0` **Regra por bioma e peso; espaçamento garantido pela grade única**
+- [~] 683 `P0` ****Uma estrutura por célula, vencedor único** — as regras competem pela célula**
+- [~] 684 `P0` **Assenta no ponto mais baixo da pegada, com fundação e limpeza acima**
+
+#### Um defeito de desenho que só o teste mostrou
+
+A primeira versão deu uma **grade por regra**, copiando o que as árvores fazem. A garantia de
+espaçamento valia dentro de cada regra e não entre elas: na savana, que aceita casa *e* muro, as
+duas grades tinham arestas diferentes e as estruturas nasceram sobrepostas. O teste apontou o par
+exato — `small_house@5873,5689` colidindo com `wall@5884,5690`.
+
+A correção **não** foi rejeitar colisões depois de gerar. Isso quebraria a localidade: a rejeição
+passaria a depender do que mais estivesse na janela de varredura, e uma estrutura na fronteira de
+dois chunks apareceria num e não no outro. A correção foi **uma grade só** — a célula sorteia se
+tem estrutura, e as regras válidas para aquele bioma competem por ela. O espaçamento volta a ser
+garantia por construção, e a decisão continua local.
+
+#### O que faz ser construção, e não caixa jogada no terreno
+
+- **Limpa o volume acima da base** antes de colocar. Sem isso o terreno que sobe dentro da pegada
+  atravessa a parede, e capim nasce dentro da sala.
+- **Preenche o vão até o chão.** O sítio assenta no ponto mais *baixo* da pegada — assentar no
+  mais alto deixaria a construção sobre pernas de ar no lado da descida.
+- **Rejeita encosta** antes de tentar consertar: terreno acidentado demais simplesmente não
+  recebe construção. Mais barato e mais bonito que nivelar depois.
+- **Margem de varredura maior que a das árvores** (14 contra 8): uma casa ancorada logo fora do
+  chunk invade vários voxels dele, e sem isso apareceria cortada na fronteira.
+
+E o teste que importa mais que todos: os blocos aparecem **no chunk gerado**. Sem ele, `scatter.ts`
+seria mais um módulo completo, testado e inerte.
+
 - [ ] 685 `P1` Ruínas, torres abandonadas e acampamentos como conteúdo base
 - [ ] 686 `P1` Baú de loot dentro da estrutura, com tabela por tipo
 - [ ] 687 `P1` Estruturas subterrâneas ligadas às cavernas

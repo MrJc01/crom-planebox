@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { B } from '../../src/world/blocks';
-import { SCALE } from '../../src/world/chunk';
+import { CX, CZ, SCALE } from '../../src/world/chunk';
+import { estruturasNaRegiao } from '../../src/world/scatter';
 import { WorldGen, WATER_LEVEL } from '../../src/world/worldgen';
 
 /**
@@ -149,5 +150,78 @@ describe('o mundo gerado tem biomas de verdade', () => {
     }
     // Se a amostra não pegou nenhum dos dois, o teste não provou nada — melhor saber.
     expect(leitos + estradas).toBeGreaterThan(0);
+  });
+});
+
+describe('as construções espalhadas existem no mundo gerado', () => {
+  const SEMENTE = 555777;
+  const g = new WorldGen(SEMENTE);
+
+  const sonda = {
+    altura: (x: number, z: number) => g.column(x, z).height,
+    bioma: (x: number, z: number) => g.column(x, z).bioma,
+    rio: (x: number, z: number) => g.column(x, z).river,
+    estrada: (x: number, z: number) => g.column(x, z).path,
+  };
+
+  /** Acha um sítio real neste mundo, para o teste não depender de sorte. */
+  function acharSitio() {
+    const sitios = estruturasNaRegiao(SEMENTE, -6000, -6000, 6000, 6000, sonda);
+    if (sitios.length === 0) throw new Error('nenhuma construção em 12.000 voxels — algo está errado');
+    return sitios;
+  }
+
+  it('CRÍTICO: o mundo tem construções espalhadas', () => {
+    expect(acharSitio().length).toBeGreaterThan(3);
+  });
+
+  it('CRÍTICO: os blocos da construção aparecem no chunk gerado', () => {
+    // É o teste de que o sistema está LIGADO. Sem ele, `scatter.ts` seria mais um módulo
+    // completo, testado e inerte — o padrão que já custou três funcionalidades a este projeto.
+    const sitio = acharSitio()[0];
+    const cx = Math.floor(sitio.x / CX);
+    const cz = Math.floor(sitio.z / CZ);
+    const data = g.generateChunk(cx, cz);
+
+    const lx = sitio.x - cx * CX;
+    const lz = sitio.z - cz * CZ;
+    let encontrados = 0;
+    for (let dy = 0; dy < 12; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        for (let dz = -4; dz <= 4; dz++) {
+          const bx = lx + dx, bz = lz + dz, by = sitio.y + dy;
+          if (bx < 0 || bx >= CX || bz < 0 || bz >= CZ || by < 0 || by >= 128) continue;
+          const b = data[(by * CZ + bz) * CX + bx];
+          if (b === B.PLANK || b === B.COBBLE || b === B.STONE_BRICK || b === B.LOG) encontrados++;
+        }
+      }
+    }
+    expect(encontrados, `nada construído em ${sitio.template}@${sitio.x},${sitio.z}`).toBeGreaterThan(10);
+  });
+
+  it('CRÍTICO: a construção não flutua — há chão sólido logo abaixo da base', () => {
+    for (const sitio of acharSitio().slice(0, 6)) {
+      const cx = Math.floor(sitio.x / CX);
+      const cz = Math.floor(sitio.z / CZ);
+      const data = g.generateChunk(cx, cz);
+      const lx = sitio.x - cx * CX;
+      const lz = sitio.z - cz * CZ;
+      if (lx < 1 || lx >= CX - 1 || lz < 1 || lz >= CZ - 1) continue; // corta na borda: pula
+      const abaixo = data[((sitio.y - 1) * CZ + lz) * CX + lx];
+      expect(abaixo, `vão sob ${sitio.template}@${sitio.x},${sitio.z}`).not.toBe(B.AIR);
+    }
+  });
+
+  it('a geração continua determinística com construções', () => {
+    const a = new WorldGen(SEMENTE).generateChunk(3, 7);
+    const b = new WorldGen(SEMENTE).generateChunk(3, 7);
+    expect(a).toEqual(b);
+  });
+
+  it('gerar um chunk sem construção continua funcionando', () => {
+    // O caminho comum é o de sempre: a esmagadora maioria dos chunks não tem construção nenhuma.
+    const data = g.generateChunk(999, 999);
+    expect(data.length).toBeGreaterThan(0);
+    expect(data.some((b) => b !== B.AIR)).toBe(true);
   });
 });
