@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1259 itens)
+# Checklist Mestre — Painel de Especialistas (1263 itens)
 
-> **Estado em 26/07/2026** — 586 de 1259 itens tratados (46%), com **835 testes** passando,
+> **Estado em 26/07/2026** — 591 de 1263 itens tratados (46%), com **839 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 86 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 500 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 673 | Pendente. |
+> | `[~]` | 505 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 672 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -1130,7 +1130,7 @@ malfeito. Falta fechar o cerco nas ferramentas que ainda escrevem fora do escopo
 - [~] 701 `P0` **Escrita escopada ao mod da sessão** (`targetMod` + orientação padronizada)
 - [~] 702 `P0` **Leitura ampla continua liberada** (`list_mods`, `query_world_area`, snapshots)
 - [~] 703 `P1` **Mensagem única e acionável ao tentar escrever numa sessão livre**
-- [ ] 704 `P0` `set_block`/`fill_box`/`execute_voxel_script` também atribuídos ao mod da sessão
+- [~] 704 `P0` **Toda escrita do agente passa por um caminho atribuído** ao mod da sessão
 - [~] 705 `P0` **Reversão precisa dos blocos de um mod** — o registro existia e nada revertia; e ele guardava o bloco errado
 - [ ] 706 `P1` `read_mod` para inspecionar outro mod sem poder alterá-lo
 - [ ] 707 `P1` Ferramenta de leitura do projeto (arquivos/estrutura) para o agente se situar
@@ -3121,3 +3121,24 @@ destruiria trabalho dele para desfazer o de outro.
 - [~] 1273 `P1` **Escrita dupla na mesma posição guarda o `antes` da primeira** — o estado que interessa é o do mundo antes de o mod tocar ali, não o que o próprio mod pôs no passo anterior
 - [~] 1274 `P1` **6 testes**, incluindo o caso do jogador que construiu por cima
 - [x] 430, 642 **Auditados** — o painel de mods já fazia tudo o que os itens pediam
+
+### Item 704 — a reversão que funcionava pela metade
+
+O agente altera o mundo por **dois** caminhos: o script do mod, que já registrava, e as
+ferramentas diretas `set_block`, `fill_box` e `execute_voxel_script`. As segundas escreviam no
+mundo sem atribuição nenhuma — e **o que não tem dono não pode ser revertido**.
+
+Na prática isso partia a reversão ao meio. O jogador pede "faça uma torre", o agente usa
+`fill_box`, e depois "desfaça esse mod" deixa a torre de pé. A metade vinda do script sumia, a
+metade vinda da ferramenta ficava. **Pior que não reverter nada**, porque o resultado é um mundo
+em estado intermediário que ninguém pediu.
+
+A correção não foi atribuir em cada `case` — foi **fechar o caminho**: existe um só método de
+escrita, e um teste conta as chamadas diretas a `world.setBlock` no arquivo, aceitando exatamente
+uma (a de dentro do próprio método). Sem isso, o próximo `case` nasce sem atribuição e ninguém
+percebe até alguém tentar reverter.
+
+- [~] 1275 `P0` **`escreverBloco`** — caminho único de escrita do agente, com atribuição ao mod da sessão
+- [~] 1276 `P0` **Cinco escritas diretas convertidas** (`set_block`, `fill_box`, e três dentro de `execute_voxel_script`)
+- [~] 1277 `P1` **Teste que conta as escritas diretas no fonte** e aceita exatamente uma
+- [~] 1278 `P1` **Silencioso em sessão livre** — sem mod vinculado não há a quem atribuir, e isso é modo de uso legítimo, não erro

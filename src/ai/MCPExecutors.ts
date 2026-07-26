@@ -100,6 +100,22 @@ export class MCPExecutors {
   public modService: ModService;
   /** Runtime que executa os scripts dos mods. Injetado pelo `main`. */
   public modRuntime?: ModRuntime;
+
+  /**
+   * Escreve um bloco atribuindo-o ao mod da sessão — item 704.
+   *
+   * Todo caminho de escrita do agente passa por aqui. Deixar cada `case` chamar `world.setBlock`
+   * direto é o que permitiu metade das alterações ficarem sem dono: um caminho novo nasce sem a
+   * atribuição, e ninguém percebe até alguém tentar reverter.
+   */
+  private escreverBloco(x: number, y: number, z: number, tipo: number): boolean {
+    const mod = this.modService.getModForActiveThread();
+    // Lido antes de escrever: é o valor que a reversão precisa para restaurar o terreno.
+    const antes = mod ? this.world.getBlock(x, y, z) : 0;
+    if (!this.world.setBlock(x, y, z, tipo)) return false;
+    if (mod) this.modRuntime?.registrarBlocoColocado(mod.id, x, y, z, antes, tipo);
+    return true;
+  }
   /** Log das últimas falhas de execute_voxel_script, para a IA se autocorrigir sem o usuário colar erros manualmente. */
   private recentErrors: ScriptErrorLog[] = [];
   /** Notifica blocos alterados pela IA — usado pelo host para retransmitir via PeerSync. */
@@ -194,7 +210,7 @@ export class MCPExecutors {
         const x = Number(args.x) || 0;
         const y = Number(args.y) || 0;
         const z = Number(args.z) || 0;
-        this.world.setBlock(x, y, z, type);
+        this.escreverBloco(x, y, z, type);
         await WorldRepository.saveBlockMod(this.currentWorldId, x, y, z, type);
         this.onBlocksChanged([{ x, y, z, blockType: type }]);
         return { result: `Bloco ${BLOCKS[type]?.name || type} colocado em (${x}, ${y}, ${z}).` };
@@ -219,7 +235,7 @@ export class MCPExecutors {
                 const isEdge = x === minX || x === maxX || y === minY || y === maxY || z === minZ || z === maxZ;
                 if (!isEdge) continue;
               }
-              this.world.setBlock(x, y, z, type);
+              this.escreverBloco(x, y, z, type);
               mods.push({ x, y, z, blockType: type });
             }
           }
@@ -308,7 +324,7 @@ export class MCPExecutors {
           for (let x = ox; x < ox + SCALE; x++) {
             for (let y = oy; y < oy + SCALE; y++) {
               for (let z = oz; z < oz + SCALE; z++) {
-                if (this.world.setBlock(x, y, z, b.block)) mods.push({ x, y, z, blockType: b.block });
+                if (this.escreverBloco(x, y, z, b.block)) mods.push({ x, y, z, blockType: b.block });
               }
             }
           }
@@ -414,7 +430,7 @@ export class MCPExecutors {
           if (isNaN(x) || isNaN(y) || isNaN(z)) continue;
 
           const type = parseBlockType(item.block_type || item.type || item.block);
-          this.world.setBlock(x, y, z, type);
+          this.escreverBloco(x, y, z, type);
           mods.push({ x, y, z, blockType: type });
         }
 
@@ -453,7 +469,7 @@ export class MCPExecutors {
           const type = typeof blockType === 'number' ? blockType : parseBlockType(String(blockType));
           const oldBlock = this.world.getBlock(x, y, z);
           if (oldBlock !== type) {
-            this.world.setBlock(x, y, z, type);
+            this.escreverBloco(x, y, z, type);
             mods.push({ x, y, z, blockType: type });
             undoChanges.push({ x, y, z, oldBlock, newBlock: type });
           }

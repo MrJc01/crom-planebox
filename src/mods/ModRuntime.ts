@@ -190,6 +190,31 @@ export class ModRuntime {
   }
 
   /**
+   * Atribui ao mod um bloco escrito FORA do script dele — item 704.
+   *
+   * ## Por que isto precisa existir
+   *
+   * O agente altera o mundo por dois caminhos: o script do mod (que já registrava) e as
+   * ferramentas diretas `set_block`, `fill_box` e `execute_voxel_script`. As segundas escreviam
+   * no mundo sem atribuição nenhuma — e o que não tem dono **não pode ser revertido**.
+   *
+   * Na prática isso partia a reversão ao meio: o jogador pedia "faça uma torre", o agente usava
+   * `fill_box`, e depois "desfaça esse mod" deixava a torre de pé. A metade que veio do script
+   * sumia, a metade que veio da ferramenta ficava. Pior que não reverter nada, porque o resultado
+   * é um mundo em estado intermediário que ninguém pediu.
+   *
+   * Silencioso quando não há mod de sessão: uma sessão livre não tem a quem atribuir, e isso é
+   * legítimo — não é erro, é o modo de uso em que o jogador mexe no mundo sem estar fazendo mod.
+   */
+  public registrarBlocoColocado(modId: string, x: number, y: number, z: number, antes: number, depois: number): void {
+    const ctx = this.contexts.get(modId);
+    if (!ctx) return;
+    const chave = `${x},${y},${z}`;
+    const ja = ctx.placedBlocks.get(chave);
+    ctx.placedBlocks.set(chave, { antes: ja ? ja.antes : antes, depois });
+  }
+
+  /**
    * Desfaz os blocos que um mod colocou nesta sessão — item 705.
    *
    * ## A guarda que faz isto ser seguro

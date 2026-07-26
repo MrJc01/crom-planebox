@@ -9,6 +9,7 @@
 // no lugar. O mod que trocou terra por pedra deixaria um buraco de ar.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { ModHostBridge } from '../../src/mods/ModAPI';
 import { ModRuntime } from '../../src/mods/ModRuntime';
 
@@ -93,5 +94,50 @@ describe('reverterBlocosDoMod', () => {
   it('mod que não colocou nada não reverte nada', () => {
     const { rt } = comMod('api.log("oi");');
     expect(rt.reverterBlocosDoMod('m1')).toEqual([]);
+  });
+});
+
+describe('atribuição das ferramentas diretas do agente — item 704', () => {
+  // O agente altera o mundo por dois caminhos: o script do mod, que já registrava, e as
+  // ferramentas diretas `set_block`, `fill_box` e `execute_voxel_script`. As segundas escreviam
+  // sem atribuição — e o que não tem dono não pode ser revertido.
+  //
+  // Na prática isso partia a reversão ao meio: o jogador pedia "faça uma torre", o agente usava
+  // `fill_box`, e "desfaça esse mod" deixava a torre de pé. A metade vinda do script sumia, a
+  // metade vinda da ferramenta ficava — um mundo em estado intermediário que ninguém pediu.
+
+  it('CRÍTICO: bloco registrado por fora do script também é revertido', () => {
+    const { host, rt } = comMod('');
+    rt.registrarBlocoColocado('m1', 8, 10, 8, 1, 5);
+    host.setBlock(8, 10, 8, 5); // como a ferramenta faria
+
+    rt.reverterBlocosDoMod('m1');
+    expect(host.getBlock(8, 10, 8)).toBe(1);
+  });
+
+  it('mistura os dois caminhos numa reversão só', () => {
+    const { host, rt } = comMod('api.world.setBlock(1, 10, 1, 3);');
+    rt.registrarBlocoColocado('m1', 2, 10, 2, 1, 5);
+    host.setBlock(2, 10, 2, 5);
+
+    expect(rt.reverterBlocosDoMod('m1')).toHaveLength(2);
+    expect(host.getBlock(1, 10, 1)).toBe(1);
+    expect(host.getBlock(2, 10, 2)).toBe(1);
+  });
+
+  it('registrar em mod desconhecido não estoura', () => {
+    const { rt } = comMod('');
+    expect(() => rt.registrarBlocoColocado('fantasma', 0, 0, 0, 1, 2)).not.toThrow();
+  });
+
+  it('CRÍTICO: nenhuma escrita do agente escapa do caminho atribuído', () => {
+    // Deixar cada `case` chamar `world.setBlock` direto é o que permitiu metade das alterações
+    // ficarem sem dono. Um caminho novo nasceria sem atribuição e ninguém perceberia até alguém
+    // tentar reverter.
+    const fonte = readFileSync(new URL('../../src/ai/MCPExecutors.ts', import.meta.url), 'utf8');
+    const diretas = fonte.split('\n').filter((l) => l.includes('this.world.setBlock('));
+    // A única permitida é a de dentro do próprio helper.
+    expect(diretas).toHaveLength(1);
+    expect(diretas[0]).toContain('return false');
   });
 });
