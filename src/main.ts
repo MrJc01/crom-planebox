@@ -6,6 +6,7 @@ import { WorldGen, WATER_LEVEL } from './world/worldgen';
 import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
 import { EstadoSazonal, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
+import { Precipitation, Relampago } from './render/precipitation';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
 import { VoxelPhysics } from './world/physics';
@@ -82,6 +83,9 @@ async function bootstrap() {
   let clima: ClimaAtual = climaEm(seed, 0, 'planicie');
   /** Estação vigente sob o jogador, já atenuada pelos pesos de bioma. */
   let estacao: EstadoSazonal = estadoSazonal(0, [{ id: 'planicie', peso: 1 }]);
+  const precipitacao = new Precipitation();
+  gs.scene.add(precipitacao.pontos);
+  const relampago = new Relampago();
   /** Clima imposto por um mod ou pelo anfitrião. `undefined` = segue a sequência do mundo. */
   let climaForcado: import('./world/weather').ClimaId | undefined;
   /**
@@ -1083,6 +1087,7 @@ async function bootstrap() {
     // "inverno eterno" contaminaria o próximo mundo aberto na mesma sessão — e o sintoma
     // (estações erradas) apareceria longe de qualquer coisa que o jogador tenha feito ali.
     limparPerfis();
+    relampago.reset();
     mcpExecutors.setWorldId(worldId);
     eventSystem.setWorldId(worldId);
     entitySystem.clearAll();
@@ -1629,6 +1634,28 @@ async function bootstrap() {
       misturarEscalar(pesosBioma, 'alcanceNeblina'),
       dt,
     );
+
+    // Precipitação. `clima.particulas` já vem interpolado entre o clima que sai e o que entra,
+    // então a chuva engrossa e afina junto com a transição, sem nenhum tratamento aqui.
+    profiler.begin('clima');
+    const camPos = cameraManager.getActiveCameraPosition();
+    precipitacao.update(dt, camPos, clima.particulas, clima.clima === 'neve', (x, y, z) =>
+      isSolid(world.getBlock(x, y, z)),
+    );
+
+    // Raios. O clarão soma na luz do sol por alguns quadros; o trovão vem depois, atrasado pela
+    // distância — é o atraso que faz o raio parecer longe em vez de em cima do jogador.
+    const clarao = relampago.update(dt, clima.raios ? 0.35 : 0);
+    gs.setLightningFlash(clarao);
+    for (const ganho of relampago.trovoesProntos()) {
+      audio.play(SOUNDS.trovao, { channel: 'ambient', volume: ganho });
+    }
+
+    // Som ambiente: uma fonte em laço, com o ganho seguindo a intensidade. Chuva fina é aguda e
+    // chiada; temporal é grave e cheio — daí o brilho cair quando a intensidade sobe.
+    const forcaChuva = Math.min(1, clima.particulas / 1400);
+    audio.setAmbiente(forcaChuva, 1 - forcaChuva * 0.75);
+    profiler.end('clima');
 
     hud.updateCoords(player.pos.x, player.pos.y, player.pos.z);
     hud.updateCameraMode(cameraManager.mode);

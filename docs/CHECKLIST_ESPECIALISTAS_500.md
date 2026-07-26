@@ -2180,12 +2180,12 @@ de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite 
 - [~] 1097 `P0` **Transição gradual, com duração sorteada e **determinística pela semente****
 - [~] 1098 `P0` **Clima traduzido pelo bioma dominante: não neva no deserto, chuva vira neve na tundra**
 - [~] 1099 `P0` **Relógio do mundo sincronizado do anfitrião (`world_time`); o clima é derivado dele**
-- [ ] 1100 `P1` Partículas de chuva e neve, presas à câmera como as estrelas, com orçamento fixo
-- [ ] 1101 `P1` Chuva não cai dentro de construção — teste de céu aberto por coluna
-- [ ] 1102 `P1` Som de chuva e trovão pelo sintetizador (ruído filtrado), sem arquivo de áudio
-- [ ] 1103 `P1` Raio: clarão que altera a luz global por alguns quadros, e trovão atrasado pela distância
+- [~] 1100 `P1` **Partículas de chuva e neve, presas à câmera, com orçamento fixo de 1.400**
+- [~] 1101 `P1` **Chuva para no primeiro sólido abaixo — "não chove dentro de casa" sai de graça**
+- [~] 1102 `P1` **Som de chuva e trovão pelo sintetizador, sem arquivo de áudio**
+- [~] 1103 `P1` **Clarão do relâmpago e trovão atrasado pela distância**
 - [ ] 1104 `P1` Chuva escurece e satura a cor do terreno enquanto molha
-- [ ] 1105 `P1` Neve acumulando como bloco fino, e derretendo quando o clima muda
+- [~] 1105 `P1` **Neve cai com queda e deriva próprias (acúmulo como bloco fino ainda pendente)**
 - [~] 1106 `P1` **Clima modula a névoa e a luz do céu, como multiplicadores**
 - [ ] 1107 `P2` Chuva enche recipientes e alimenta os fluidos finitos existentes
 - [ ] 1108 `P2` Raio incendeia e pode converter areia em vidro, com chance baixa
@@ -2269,6 +2269,30 @@ carregados. A estação é uma lente sobre a sequência, não parte dela.
 
 **Perfis são limpos ao trocar de mundo.** Um mundo com o mod "inverno eterno" contaminaria o
 próximo aberto na mesma sessão, e o sintoma apareceria longe de qualquer coisa feita ali.
+
+#### O que a implementação das partículas revelou
+
+**"Não chove dentro de casa" (1101) não precisou de teste de céu aberto.** A regra é "a partícula
+para no primeiro bloco sólido abaixo" — e o telhado *é* o primeiro bloco sólido. Uma varanda, uma
+caverna com entrada lateral e uma casa com claraboia funcionam sem nenhum caso especial. O teste
+de coluna com céu aberto, que era a solução planejada, teria custado mais e acertado menos.
+
+**A varredura acontece ao renascer, não por quadro.** Com 1.400 partículas vivendo ~1,5 s, são
+algumas centenas de varreduras por segundo, contra 84.000 se fosse por quadro.
+
+**O clarão não entra no `sunScale`.** Se entrasse, cada raio marcaria todos os chunks como sujos
+e o mundo inteiro seria remontado duas vezes por relâmpago. O clarão é de iluminação, não de
+geometria — e essa distinção existe porque a luz de céu está assada na cor dos vértices.
+
+**Chuva contínua não cabia no modelo de `play()`,** que é de disparo curto: para soar contínua
+seriam dezenas de disparos por segundo, e o teto de 24 vozes estouraria antes de qualquer outro
+som do jogo tocar. Foi preciso uma fonte de ruído em laço, viva o tempo todo, com ganho zero
+quando não há clima — uma voz fixa e nada mais.
+
+Um teste existente reprovou o trovão por ser mais longo que o som de morte. O invariante era
+legítimo, mas sobre **resposta a ação**: nenhum retorno de ato do jogador pode se arrastar mais
+que a própria morte. Trovão é atmosférico. O teste foi **escopado**, não afrouxado — encurtar o
+trovão para caber nele seria deixar o teste ditar o jogo.
 
 ### Ordem recomendada desta seção
 

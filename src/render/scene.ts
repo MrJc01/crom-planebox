@@ -68,6 +68,8 @@ export interface GameScene {
    * `luz` escurece o céu; `alcance` fecha a névoa.
    */
   setWeather(luz: number, alcance: number): void;
+  /** Clarão do relâmpago, 0..1. Ilumina a cena sem marcar chunk como sujo. */
+  setLightningFlash(v: number): void;
   /** Fase lunar (0 = nova, 4 = cheia). Governa a claridade da noite e o desenho da lua. */
   setMoonPhase(fase: number): void;
   getMoonPhase(): number;
@@ -162,6 +164,7 @@ export function createScene(container: HTMLElement): GameScene {
   const DAY_SKY = new THREE.Color(0x9fc7e8);
   const NIGHT_SKY = new THREE.Color(0x0a1020);
   const DUSK_SKY = new THREE.Color(0xe8956b);
+  const BRANCO = new THREE.Color(0xffffff);
   const tmpSky = new THREE.Color();
 
   /** Fase lunar atual, definida pelo `main` a cada novo dia. */
@@ -189,7 +192,6 @@ export function createScene(container: HTMLElement): GameScene {
     tmpSky.copy(elevation > 0 ? DAY_SKY : NIGHT_SKY);
     if (elevation <= 0) tmpSky.lerp(DAY_SKY, Math.max(0, (elevation + 0.35) / 0.35) * 0.5);
     tmpSky.lerp(DUSK_SKY, duskAmount * 0.55);
-    (scene.background as THREE.Color).copy(tmpSky);
     const fog = scene.fog as THREE.Fog | null;
     if (fog) {
       // A cor do bioma tinge o céu na proporção da luz do sol: de dia o deserto amarela e o
@@ -198,8 +200,7 @@ export function createScene(container: HTMLElement): GameScene {
       fog.color.copy(tmpSky).lerp(corBiomaAtual, 0.55 * sunScale);
     }
 
-    sun.intensity = 2.2 * sunScale;
-    hemi.intensity = 0.75 * Math.max(0.25, sunScale);
+    aplicarLuzes();
 
     sky.update(camera, sunAngle, elevation, fasaLunar);
   }
@@ -284,6 +285,29 @@ export function createScene(container: HTMLElement): GameScene {
   let luzClima = 1;
   let alcanceClima = 1;
 
+  /**
+   * Clarão do relâmpago, 0..1.
+   *
+   * Some na luz da cena e no céu, mas **não** entra no `sunScale` que o mesher consome: se
+   * entrasse, cada raio marcaria todos os chunks como sujos e o mundo inteiro seria remontado
+   * duas vezes por relâmpago. O clarão é de iluminação, não de geometria.
+   */
+  let clarao = 0;
+  function setLightningFlash(v: number): void {
+    clarao = Math.max(0, Math.min(1, v));
+    aplicarLuzes();
+  }
+
+  function aplicarLuzes(): void {
+    sun.intensity = 2.2 * sunScale + clarao * 3.4;
+    hemi.intensity = 0.75 * Math.max(0.25, sunScale) + clarao * 2.2;
+    if (clarao > 0) {
+      (scene.background as THREE.Color).copy(tmpSky).lerp(BRANCO, clarao * 0.7);
+    } else {
+      (scene.background as THREE.Color).copy(tmpSky);
+    }
+  }
+
   function setWeather(luz: number, alcance: number): void {
     const mudouAlcance = Math.abs(alcance - alcanceClima) > 1e-4;
     luzClima = luz;
@@ -305,5 +329,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

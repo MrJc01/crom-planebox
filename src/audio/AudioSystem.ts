@@ -232,6 +232,52 @@ export class AudioSystem {
   }
 
   /** Vozes em uso — para o painel de diagnóstico. */
+  // --- Ambiente contínuo (chuva, vento) -----------------------------------------------------
+  //
+  // Um som de chuva não cabe no modelo de `play()`, que é de disparo curto: para soar contínuo
+  // seriam dezenas de disparos por segundo, e o teto de 24 vozes estouraria antes de qualquer
+  // outro som do jogo tocar. Em vez disso, **uma** fonte de ruído em laço, viva o tempo todo,
+  // com o ganho em zero quando não há clima. Custa uma voz fixa e nada mais.
+  private ambienteFonte: AudioBufferSourceNode | null = null;
+  private ambienteGanho: GainNode | null = null;
+  private ambienteFiltro: BiquadFilterNode | null = null;
+
+  /**
+   * Ajusta o ambiente de clima.
+   *
+   * `intensidade` 0..1 é o volume; `brilho` 0..1 abre o filtro — chuva fina é aguda e chiada,
+   * temporal é grave e cheio. Interpolado em 0,4 s: um corte seco soaria como um clique.
+   */
+  public setAmbiente(intensidade: number, brilho: number): void {
+    if (!this.ligado || !this.ctx || this.ctx.state !== 'running' || !this.ruido) return;
+
+    if (!this.ambienteFonte) {
+      const ctx = this.ctx;
+      this.ambienteFiltro = ctx.createBiquadFilter();
+      this.ambienteFiltro.type = 'lowpass';
+      this.ambienteFiltro.frequency.value = 2000;
+      this.ambienteGanho = ctx.createGain();
+      this.ambienteGanho.gain.value = 0;
+      const fonte = ctx.createBufferSource();
+      fonte.buffer = this.ruido;
+      fonte.loop = true;
+      fonte.connect(this.ambienteFiltro);
+      this.ambienteFiltro.connect(this.ambienteGanho);
+      this.ambienteGanho.connect(this.channelGains.get('ambient') ?? this.masterGain!);
+      fonte.start();
+      this.ambienteFonte = fonte;
+    }
+
+    const agora = this.ctx.currentTime;
+    const alvo = Math.max(0, Math.min(1, intensidade)) * 0.22;
+    this.ambienteGanho!.gain.setTargetAtTime(alvo, agora, 0.4);
+    this.ambienteFiltro!.frequency.setTargetAtTime(
+      600 + Math.max(0, Math.min(1, brilho)) * 5200,
+      agora,
+      0.4,
+    );
+  }
+
   public get vozes(): number {
     return this.vozesAtivas;
   }

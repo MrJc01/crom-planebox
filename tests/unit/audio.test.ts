@@ -142,11 +142,28 @@ describe('catálogo de sons de evento', () => {
     }
   });
 
-  it('morte é o som mais longo — precisa ter peso', () => {
+  it('morte é o som de evento mais longo — precisa ter peso', () => {
+    // O invariante é sobre RESPOSTA A AÇÃO: nenhum retorno de ato do jogador pode se arrastar
+    // mais que a própria morte, senão o som atrapalha o ato seguinte. Sons atmosféricos são
+    // outra categoria — o trovão dura 1,6 s de propósito, e encurtá-lo para caber aqui seria
+    // deixar o teste ditar o jogo.
+    const ATMOSFERICOS = new Set(['trovao', 'raio']);
     for (const [nome, spec] of Object.entries(SOUNDS)) {
-      if (nome === 'morte') continue;
+      if (nome === 'morte' || ATMOSFERICOS.has(nome)) continue;
       expect(spec.duration, `${nome} não pode durar mais que a morte`).toBeLessThanOrEqual(SOUNDS.morte.duration);
     }
+  });
+
+  it('os sons atmosféricos são longos de propósito, e continuam sendo sons válidos', () => {
+    for (const nome of ['trovao', 'raio']) {
+      const spec = SOUNDS[nome];
+      expect(spec.duration).toBeGreaterThan(0.2);
+      expect(spec.duration).toBeLessThan(4);
+      expect(spec.gain).toBeGreaterThan(0);
+      expect(spec.gain).toBeLessThanOrEqual(1);
+    }
+    // Trovão é grave; o agudo é o primeiro a se perder no ar.
+    expect(SOUNDS.trovao.filterHz).toBeLessThan(SOUNDS.raio.filterHz);
   });
 
   it('sons de UI são discretos', () => {

@@ -138,6 +138,10 @@ export function soundForFootstep(blockType: number, semente = 0): SoundSpec {
 
 /** Sons de evento, que não dependem de material. */
 export const SOUNDS: Record<string, SoundSpec> = {
+  // Trovão: grave, longo e quase todo ruído. `filterHz` baixo é o que faz soar distante — o agudo
+  // é o primeiro a se perder no ar, e é por isso que trovão perto estala e trovão longe ronca.
+  trovao:      { freq: 90,  freqEnd: 38,  duration: 1.6,  noise: 0.92, filterHz: 420,  gain: 0.55, attack: 0.02 },
+  raio:        { freq: 1600, freqEnd: 240, duration: 0.35, noise: 0.88, filterHz: 5200, gain: 0.45, attack: 0.001 },
   dano:        { freq: 220, freqEnd: 110, duration: 0.26, noise: 0.55, filterHz: 1500, gain: 0.55, attack: 0.001 },
   morte:       { freq: 300, freqEnd: 70,  duration: 0.95, noise: 0.35, filterHz: 1100, gain: 0.60, attack: 0.004 },
   acerto:      { freq: 520, freqEnd: 300, duration: 0.12, noise: 0.40, filterHz: 3400, gain: 0.45, attack: 0.001 },
