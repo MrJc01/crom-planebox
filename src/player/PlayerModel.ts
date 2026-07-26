@@ -54,6 +54,8 @@ export class PlayerModel {
   private build(): void {
     this.clear();
     const a = this.appearance;
+    // `build` recria os pivôs, então a visibilidade precisa ser reaplicada depois — senão trocar
+    // de aparência em primeira pessoa faria a cabeça reaparecer na frente da câmera.
 
     for (const name of Object.keys(PIVOTS) as LimbName[]) {
       const pivot = new THREE.Group();
@@ -94,6 +96,8 @@ export class PlayerModel {
       }
       parent.add(mesh);
     }
+
+    this.aplicarVisibilidade();
   }
 
   /**
@@ -141,7 +145,36 @@ export class PlayerModel {
     this.group.position.y = moving ? Math.abs(Math.sin(this.walkCycle * 2)) * 0.02 : 0;
   }
 
+  /**
+   * Primeira pessoa: esconde **só a cabeça**, não o boneco inteiro.
+   *
+   * O motivo de existir esta distinção: a câmera fica dentro da cabeça, e o modelo inteiro
+   * visível apareceria como uma parede de textura ocupando a tela. Mas esconder tudo custa o
+   * corpo — olhar para baixo e não ver as próprias pernas é o que faz um jogo em primeira pessoa
+   * parecer uma câmera flutuante em vez de um corpo no mundo.
+   *
+   * A cabeça oculta não deixa buraco no pescoço porque o tronco já termina acima da linha do
+   * pescoço: o que se vê de dentro é o topo do tronco, não o vazio.
+   */
+  public setPrimeiraPessoa(ativo: boolean): void {
+    this.primeiraPessoa = ativo;
+    this.aplicarVisibilidade();
+  }
+
+  private primeiraPessoa = false;
+  private visivel = true;
+
+  private aplicarVisibilidade(): void {
+    this.group.visible = this.visivel;
+    const cabeca = this.limbs.get('head');
+    // Só a cabeça some. Braços, tronco e pernas continuam desenhados — e continuam projetando
+    // sombra, que é parte do que faz o corpo parecer estar mesmo ali.
+    if (cabeca) cabeca.visible = !this.primeiraPessoa;
+  }
+
   public setVisible(visible: boolean): void {
+    this.visivel = visible;
+    this.aplicarVisibilidade();
     this.group.visible = visible;
   }
 

@@ -1,20 +1,53 @@
-# Checklist Mestre — Painel de Especialistas (520 itens)
+# Checklist Mestre — Painel de Especialistas (1130 itens)
 
-> **Como este documento foi produzido.** Simulamos uma banca de 22 especialistas, cada um
-> auditando o Crom Planebox sob a sua própria lente e emitindo um parecer com ~24 tarefas
-> acionáveis. Todos os itens foram escritos **depois** de ler o código real deste repositório
-> (`src/world/blocks.ts`, `src/ai/MCPExecutors.ts`, `src/storage/`, `src/entities/`, …), por isso
-> muitos apontam arquivo e função concretos.
+> **Estado em 26/07/2026** — 471 de 1130 itens tratados (41%), com **659 testes** passando,
+> `tsc --noEmit` limpo e build funcionando.
 >
-> **Legenda de status**
-> - `[x]` — já existe no repositório e foi verificado no código.
-> - `[~]` — entregue **nesta rodada** (sistema de mods persistente + testes).
-> - `[ ]` — pendente / backlog priorizado.
+> | Status | Itens | Significado |
+> |---|---|---|
+> | `[x]` | 81 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 390 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 659 | Pendente. |
+>
+> **Como este documento foi produzido.** Simulamos uma banca de especialistas, cada um auditando o
+> Crom Planebox sob a sua própria lente. Todos os itens foram escritos **depois** de ler o código
+> real deste repositório, por isso muitos apontam arquivo e função concretos. As seções cresceram
+> conforme o trabalho revelou o que faltava — daí o número final ser mais que o dobro do inicial.
 >
 > **Prioridade**: `P0` bloqueia o objetivo declarado (jogo completo + IA que modifica tudo com
 > save), `P1` é essencial para a experiência, `P2` é refinamento, `P3` é ambição de longo prazo.
 
 ---
+
+## A ressalva que vale mais que qualquer marcação
+
+**Nada do que foi entregue foi visto rodando numa tela.** Os testes provam lógica, não aparência.
+Três sistemas injetam GLSL que nenhum teste compila (curvatura, tingimento sazonal, aparição de
+chunk) — se a injeção estiver malformada, o sintoma é o terreno sumir, e só aparece abrindo o jogo.
+Dois sistemas alteram o terreno em si (biomas no worldgen, construções espalhadas).
+
+Um item marcado `[~]` significa "escrito, ligado e coberto por teste". **Não** significa
+"conferido visualmente".
+
+## O padrão que mais custou a este projeto
+
+**Código presente não é código ativo.** Cinco vezes encontramos funcionalidade completa,
+comentada e cuidadosa que **nada chamava**:
+
+| O que | Como se descobriu |
+|---|---|
+| `setViewRange` | `scene.fog` era `null`; o `if (f)` falhava em silêncio |
+| `applyCurvature` | `invR: 0` e `start: 500`, além da distância desenhada |
+| `UndoManager.recordBatch` | Nenhum chamador — nenhuma construção da IA era desfazível |
+| Estações do ano | Mudavam clima e painel F3, e nada que o jogador visse |
+| Biomas no worldgen | O gerador decidia superfície por limiares paralelos e ignorava o módulo |
+
+A resposta foi passar a escrever **testes de "está ligado?"**, não só de unidade: os blocos da
+construção aparecem no chunk gerado, a injeção chega ao shader, o diamante não existe no deserto
+*no terreno varrido*, o pacote do mod **não tem onde guardar** um segredo.
+
+---
+
 
 ## Índice
 
@@ -42,6 +75,13 @@
 | 20 | Engenheiro de Áudio | 477–494 | Som posicional, ambiência |
 | 21 | Designer de Conteúdo Terraria-like | 495–512 | Camadas verticais, eventos |
 | 22 | DevOps & Build | 513–520 | CI, versionamento, distribuição |
+| 36 | Auditoria de Desempenho | 883–906 | Correção do travamento relatado |
+| 37 | Interface e Controle de Câmera | 907–948 | Telas separadas, pointer lock, voz |
+| 38 | Aparição de Chunk (*fade in*) | 1001–1011 | Como o Minecraft moderno faz |
+| 39 | Céu Noturno | 1012–1031 | Lua, fases, estrelas, claridade variável |
+| 40 | Curvatura do Mundo | 1032–1042 | *Curvature Shader* |
+| 41 | Estado de Interface | 1043–1062 | O bug do "clique não volta ao jogo" |
+| 42 | Atmosfera, Clima e Estações | 1063–1130 | *Biome Blending*, *Color Grading*, *Fog Interpolation* |
 
 ---
 
@@ -1903,9 +1943,21 @@ tronco, pernas e pés — que é o que dá presença física. Braços e ferramen
 um problema separado, porque em primeira pessoa eles usam poses exageradas que não correspondem
 ao esqueleto real.*
 
-- [ ] 946 `P0` Em primeira pessoa, ocultar **apenas a cabeça** em vez do modelo inteiro
-- [ ] 947 `P0` Olhar para baixo mostra tronco, pernas e botas do próprio personagem
-- [ ] 948 `P0` A cabeça oculta não deixa buraco visível no pescoço
+- [~] 946 `P0` **Em primeira pessoa some **apenas a cabeça** — `setPrimeiraPessoa`**
+- [~] 947 `P0` **Olhar para baixo mostra tronco, pernas e botas do próprio personagem**
+- [~] 948 `P0` **Sem buraco no pescoço: o tronco já termina acima da linha do pescoço**
+
+Dois detalhes que só aparecem implementando:
+
+- **O corpo não gira com o olhar vertical em primeira pessoa.** O `pitch` move a cabeça, que está
+  oculta; passá-lo adiante giraria o tronco inteiro e o jogador veria o próprio peito ao olhar
+  para cima. Em primeira pessoa o modelo recebe `pitch = 0`.
+- **`build()` recria os pivôs**, então a visibilidade precisa ser reaplicada depois. Sem isso,
+  trocar de cor na tela de customização faria a cabeça reaparecer na frente da câmera — há teste.
+
+No modo fantasma o corpo some por inteiro, de propósito: ali o jogador atravessa parede, e ver o
+próprio corpo passando por dentro de blocos entregaria a ilusão.
+
 - [ ] 949 `P1` Braços em primeira pessoa com pose própria, não a do esqueleto de terceira pessoa
 - [ ] 950 `P1` Ferramenta equipada visível na mão, acompanhando a hotbar
 - [ ] 951 `P1` Animação de golpe e de quebrar bloco na visão de primeira pessoa

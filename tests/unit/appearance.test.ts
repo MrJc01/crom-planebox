@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { PlayerModel } from '../../src/player/PlayerModel';
 import {
   Appearance,
   COLOR_SLOTS,
@@ -160,5 +161,55 @@ describe('buildBodyParts — anatomia estilo Hytale', () => {
   it('peças de membro declaram a qual membro pertencem, para animar juntas', () => {
     const armParts = parts.filter((p) => p.limb === 'armLeft');
     expect(armParts.map((p) => p.id)).toEqual(expect.arrayContaining(['armLeft', 'handLeft']));
+  });
+});
+
+describe('PlayerModel — o corpo em primeira pessoa', () => {
+  it('CRÍTICO: em primeira pessoa some SÓ a cabeça, não o corpo', () => {
+    // Esconder o modelo inteiro é o que fazia olhar para baixo mostrar o chão através do próprio
+    // corpo. Um jogo em primeira pessoa sem corpo parece uma câmera flutuante.
+    const m = new PlayerModel();
+    m.setVisible(true);
+    m.setPrimeiraPessoa(true);
+
+    expect(m.group.visible).toBe(true);
+
+    // Exatamente um pivô fica invisível — e o resto do corpo continua desenhado. Contar é o que
+    // prova a afirmação: "some só a cabeça" é uma frase sobre quantidade.
+    const invisiveis = m.group.children.filter((c) => !c.visible);
+    const visiveis = m.group.children.filter((c) => c.visible);
+    expect(invisiveis.length).toBe(1);
+    expect(visiveis.length).toBeGreaterThan(2); // braços, pernas e tronco continuam lá
+
+    // E o que sobrou visível tem geometria: um pivô vazio passaria na contagem sem mostrar nada.
+    expect(visiveis.some((c) => c.children.length > 0 || (c as any).isMesh)).toBe(true);
+  });
+
+  it('em terceira pessoa a cabeça volta', () => {
+    const m = new PlayerModel();
+    m.setVisible(true);
+    m.setPrimeiraPessoa(true);
+    m.setPrimeiraPessoa(false);
+    expect(m.group.children.every((c) => c.visible)).toBe(true);
+  });
+
+  it('CRÍTICO: trocar de aparência em primeira pessoa não faz a cabeça reaparecer', () => {
+    // `build()` recria os pivôs. Sem reaplicar a visibilidade, a cabeça voltaria na frente da
+    // câmera assim que o jogador mudasse de cor na tela de customização.
+    const m = new PlayerModel();
+    m.setVisible(true);
+    m.setPrimeiraPessoa(true);
+    m.setAppearance({ ...m.getAppearance(), skin: '#ff0000' });
+    expect(m.group.children.filter((c) => !c.visible).length).toBe(1);
+  });
+
+  it('oculto por inteiro continua oculto, seja qual for o modo', () => {
+    const m = new PlayerModel();
+    m.setPrimeiraPessoa(true);
+    m.setVisible(false);
+    expect(m.group.visible).toBe(false);
+    m.setPrimeiraPessoa(false);
+    m.setVisible(false);
+    expect(m.group.visible).toBe(false);
   });
 });

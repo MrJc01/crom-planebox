@@ -1597,13 +1597,26 @@ async function bootstrap() {
     if (rules.hasSurvival) survivalSystem.update(dt);
     itemDropSystem.update(dt);
 
-    // O boneco só aparece em terceira pessoa; nos outros modos fica na cena, porém oculto.
-    const showModel = cameraManager.mode === 'thirdperson';
+    // O boneco aparece em terceira pessoa E em primeira — nesta, sem a cabeça.
+    //
+    // Antes ele sumia inteiro em primeira pessoa, e olhar para baixo mostrava o chão através do
+    // próprio corpo. Um jogo em primeira pessoa sem corpo parece uma câmera flutuante; com
+    // corpo, o jogador tem onde se localizar. A cabeça continua oculta porque a câmera está
+    // dentro dela e o modelo apareceria como uma parede de textura.
+    //
+    // No modo fantasma o corpo some por inteiro, de propósito: ali o jogador atravessa parede, e
+    // ver o próprio corpo passando por dentro de blocos entregaria a ilusão.
+    const primeiraPessoa = cameraManager.mode === 'fps';
+    const showModel = cameraManager.mode === 'thirdperson' || primeiraPessoa;
+    playerModel.setPrimeiraPessoa(primeiraPessoa);
     playerModel.setVisible(showModel);
     if (showModel) {
       playerModel.group.position.set(player.pos.x, player.pos.y, player.pos.z);
       const speed = Math.hypot(player.vel.x, player.vel.z);
-      playerModel.update(dt, speed, player.onGround ?? true, player.yaw, player.pitch);
+      // Em primeira pessoa o corpo NÃO gira com o olhar vertical: só a cabeça faria isso, e ela
+      // está oculta. Passar o pitch giraria o tronco inteiro e o jogador veria o próprio peito
+      // ao olhar para cima.
+      playerModel.update(dt, speed, player.onGround ?? true, player.yaw, primeiraPessoa ? 0 : player.pitch);
     }
     avatars.update(dt);
 
