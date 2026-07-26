@@ -55,6 +55,7 @@ import { GameModeManager } from './game/GameModeManager';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
+import { idDeSala, relayDeLink } from './net/convite';
 import { PeerSync } from './net/PeerSync';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
@@ -1336,27 +1337,43 @@ async function bootstrap() {
     }
   }
 
-  function extractRoomId(link: string): string {
-    try {
-      const url = new URL(link, location.href);
-      return url.searchParams.get('join') || link;
-    } catch {
-      return link;
-    }
-  }
-  function extractRelayFromLink(link: string): string | null {
-    try {
-      const url = new URL(link, location.href);
-      const relay = url.searchParams.get('relay');
-      return relay ? decodeURIComponent(relay) : null;
-    } catch {
-      return null;
-    }
-  }
-
+  /**
+   * Entra numa sala a partir de um link ou id colado.
+   *
+   * ## A ordem importa, e estava invertida
+   *
+   * Antes: criava o mundo de visitante, **salvava no banco**, iniciava o jogo, e só então tentava
+   * conectar. Quando a conexão falhava — relay fora do ar, id errado — o jogador já estava dentro
+   * de um mundo vazio, e ficava com um registro permanente na lista de mundos para cada tentativa
+   * frustrada. Foi assim que nasceu o "Visitante de ws://localhost:8787" do relato.
+   *
+   * Agora: valida, conecta, e **só cria o mundo depois que a conexão de fato abriu**. Uma
+   * tentativa que falha não deixa rastro nenhum — que é o comportamento certo, porque um mundo de
+   * visitante não tem conteúdo próprio: ele só existe para receber o que o anfitrião manda.
+   */
   async function handleJoinLink(link: string): Promise<void> {
-    const roomId = extractRoomId(link);
-    const relayUrl = extractRelayFromLink(link);
+    const roomId = idDeSala(link, location.href);
+    if (!roomId) {
+      mainMenu.mostrarErroEntrada?.(
+        'Isso não parece um convite. Cole o link inteiro que o anfitrião gerou (contém "?join="), ' +
+        'ou apenas o código da sala.',
+      );
+      return;
+    }
+
+    const relayUrl = relayDeLink(link, location.href);
+    if (relayUrl) signaling.configure(relayUrl);
+
+    const ok = await peerSync.joinRoom(roomId);
+    if (!ok) {
+      mainMenu.mostrarErroEntrada?.(
+        signaling.lastError ??
+        'Não foi possível entrar na sala. Confira se o anfitrião ainda está com o mundo aberto.',
+      );
+      return;
+    }
+
+    // Conectado: agora sim vale criar o mundo local que vai receber o estado do anfitrião.
     const guestWorld: WorldRecord = {
       id: `guest-${roomId}`,
       name: `Visitante de ${roomId}`,
@@ -1367,15 +1384,9 @@ async function bootstrap() {
       createdAt: Date.now(), updatedAt: Date.now(),
     };
     await WorldRepository.saveWorld(guestWorld);
+    mainMenu.close();
     await startGame(guestWorld.id);
-
-    if (relayUrl) signaling.configure(relayUrl);
-    if (!signaling.isConfigured()) {
-      hud.showToast('Link sem relay configurado — não é possível conectar automaticamente.');
-      return;
-    }
-    const ok = await peerSync.joinRoom(roomId);
-    hud.showToast(ok ? 'Conectando ao anfitrião...' : 'Não foi possível conectar ao relay.');
+    hud.showToast('Conectando ao anfitrião...');
   }
 
   const wizard = new WorldCreationWizard((worldRecord) => startGame(worldRecord.id));
@@ -1530,7 +1541,10 @@ async function bootstrap() {
   });
 
   // Main Render Loop (só inicia depois que o jogador escolhe algo no MainMenu/Wizard)
-  const clock = new THREE.Clock();
+  // `THREE.Clock` foi depreciado em favor de `THREE.Timer`. A diferença de uso é que o Timer
+  // precisa de um `update()` explícito por quadro antes de ler o delta — em troca, o delta é o
+  // mesmo para todos que o consultarem dentro do quadro, em vez de zerar no primeiro leitor.
+  const clock = new THREE.Timer();
   let streamAccum = 0;
   let saveAccum = 0;
   let netAccum = 0;
@@ -1541,6 +1555,7 @@ async function bootstrap() {
 
   function tick(): void {
     requestAnimationFrame(tick);
+    clock.update();
     const dt = Math.min(clock.getDelta(), 0.08);
 
     // Na tela inicial o quadro é devolvido imediatamente. O `requestAnimationFrame` continua

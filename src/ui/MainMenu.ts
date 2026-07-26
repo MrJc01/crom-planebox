@@ -198,6 +198,27 @@ export class MainMenu {
     }
   }
 
+  /** Parágrafo de erro da aba Online, e o botão que precisa voltar ao normal depois da falha. */
+  private erroEntrada: HTMLElement | null = null;
+  private botaoEntrar: HTMLButtonElement | null = null;
+
+  /**
+   * Mostra por que a entrada na sala falhou, sem fechar o menu.
+   *
+   * Chamar com string vazia limpa. O botão volta a "Conectar" nos dois casos: deixá-lo em
+   * "Conectando…" para sempre depois de uma falha é o tipo de detalhe que faz o jogador achar
+   * que o jogo travou e recarregar a página.
+   */
+  public mostrarErroEntrada(mensagem: string): void {
+    if (this.botaoEntrar) {
+      this.botaoEntrar.disabled = false;
+      this.botaoEntrar.textContent = 'Conectar';
+    }
+    if (!this.erroEntrada) return;
+    this.erroEntrada.textContent = mensagem;
+    this.erroEntrada.style.display = mensagem ? 'block' : 'none';
+  }
+
   private async renderOnlineTab(container: HTMLElement): Promise<void> {
     const joinRow = document.createElement('div');
     joinRow.style.cssText = 'display:flex; gap:10px; margin-bottom:8px;';
@@ -210,14 +231,27 @@ export class MainMenu {
     joinBtn.style.cssText = 'background:#10b981; color:white; border:none; border-radius:8px; padding:0 18px; font-weight:700; cursor:pointer;';
     joinBtn.onclick = () => {
       const val = joinInput.value.trim();
-      if (val) {
-        this.close();
-        this.cb.onJoinLink(val);
-      }
+      if (!val) return;
+      // **Não fecha o menu aqui.** Fechava antes de tentar conectar, e quando a conexão falhava
+      // o jogador ficava olhando para o jogo sem nenhuma explicação do que deu errado — a tela
+      // que deveria contar já não existia mais. Quem fecha agora é o `handleJoinLink`, e só
+      // depois que a conexão abriu de fato.
+      this.mostrarErroEntrada('');
+      joinBtn.disabled = true;
+      joinBtn.textContent = 'Conectando…';
+      this.cb.onJoinLink(val);
     };
     joinRow.appendChild(joinInput);
     joinRow.appendChild(joinBtn);
     container.appendChild(joinRow);
+
+    // Onde a falha aparece. Fica logo abaixo do campo porque é ali que o jogador está olhando —
+    // um toast sobre o jogo não serve, já que o menu continua aberto quando a tentativa falha.
+    const erro = document.createElement('p');
+    erro.style.cssText = 'display:none; margin:0; font-size:12px; line-height:1.5; color:#fca5a5;';
+    container.appendChild(erro);
+    this.erroEntrada = erro;
+    this.botaoEntrar = joinBtn;
 
     const listTitle = document.createElement('div');
     listTitle.style.cssText = 'font-size:12px; font-weight:700; color:#94a3b8; margin-top:4px;';
@@ -239,7 +273,9 @@ export class MainMenu {
         joinBtn2.textContent = '▶ Entrar na Sala';
         joinBtn2.style.cssText = 'background:#0284c7; color:white; border:none; padding:7px 12px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;';
         joinBtn2.onclick = () => {
-          this.close();
+          // Mesma regra do botão de cima: quem fecha o menu é o `handleJoinLink`, e só depois
+          // que a conexão abriu. A sala listada pode ter acabado de fechar.
+          this.mostrarErroEntrada('');
           this.cb.onJoinLink(r.roomId);
         };
         row.appendChild(joinBtn2);

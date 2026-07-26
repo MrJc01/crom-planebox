@@ -255,7 +255,10 @@ export function createScene(container: HTMLElement): GameScene {
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // `PCFSoftShadowMap` foi depreciado e o three.js já o rebaixava para `PCFShadowMap` sozinho,
+  // avisando no console a cada abertura. Pedir o que de fato se recebe cala o aviso e deixa
+  // explícito qual filtro está em uso.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   container.appendChild(renderer.domElement);

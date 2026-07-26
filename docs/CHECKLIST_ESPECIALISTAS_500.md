@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1192 itens)
+# Checklist Mestre — Painel de Especialistas (1201 itens)
 
-> **Estado em 26/07/2026** — 512 de 1192 itens tratados (42%), com **731 testes** passando,
+> **Estado em 26/07/2026** — 522 de 1201 itens tratados (43%), com **757 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 81 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 431 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 680 | Pendente. |
+> | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 439 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 679 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -2712,3 +2712,38 @@ tela em branco.
 Estes já estavam numerados nas seções anteriores e foram apenas **reconferidos** aqui, não recriados: 1147 e 1149 (telas no componente `Tabs`), 1170, 1172 e 1173 (multijogador local, mensagens de erro e sinalização manual).
 - [~] 1207 `P1` **A tela de mods lembra a aba aberta** entre redesenhos (item 1155, para esta tela)
 - [~] 1208 `P1` **Três testes da memória de aba**, inclusive o caso de uma aba gravada que não existe mais numa versão nova
+
+### O console do jogo, lido em 26/07/2026 — o mundo lixo
+
+Você colou o log do navegador, e ele entregou um defeito que nenhum teste pegaria:
+
+```
+Carregando mundo ID: "guest-ws://localhost:8787"
+Mundo "Visitante de ws://localhost:8787" carregado do zero com sucesso!
+```
+
+**A URL do relay virou o id de uma sala.** A causa era uma linha em `main.ts`:
+`url.searchParams.get('join') || link`. O `|| link` faz **qualquer texto virar id de sala**.
+
+E havia um segundo defeito, de ordem, empilhado no primeiro: `handleJoinLink` criava o mundo de
+visitante, **salvava no banco** e iniciava o jogo — para só então tentar conectar. Cada tentativa
+frustrada deixava um mundo vazio permanente na lista, e o jogador caía dentro dele em vez de ler
+uma mensagem de erro.
+
+O terceiro: o botão "Conectar" do menu chamava `this.close()` **antes** de tentar. Quando falhava,
+a tela que deveria contar o porquê já não existia.
+
+- [~] 1209 `P0` **`idDeSala` recusa o que não é convite** — endereço sem `?join=`, frase colada, id curto. Em módulo próprio (`src/net/convite.ts`), porque virou validação de verdade e uma função dentro de `bootstrap()` não se testa sem subir o jogo
+- [~] 1210 `P0` **Conectar primeiro, criar o mundo depois** — tentativa falha não deixa rastro
+- [~] 1211 `P0` **O menu só fecha quando a conexão abre**, e a falha aparece embaixo do campo
+- [~] 1212 `P1` **`relayDeLink` não decodifica duas vezes** — corromperia um relay com `%` legítimo
+- [~] 1213 `P1` **11 testes de convite**, incluindo o caso exato do log
+- [~] 1214 `P1` **Armadilha de foco** no `UIManager`: o Tab não escapa da tela aberta, painéis de aba escondidos ficam fora da ordem, e o foco volta ao lugar quando a tela fecha
+- [~] 1215 `P1` **13 testes de foco e navegação por abas** (item 1195)
+- [x] 1216 `P1` ~~Hub lembra a última aba~~ (1194) — **auditado**: `PauseMenu` guarda o `Tabs` num campo e `iniciar()` sem argumento já reusa a aba ativa. Coberto por teste em vez de reescrito
+- [~] 1217 `P2` **Depreciações do three.js**: `Clock` → `Timer`, `PCFSoftShadowMap` → `PCFShadowMap` (o three.js já rebaixava sozinho e avisava a cada abertura)
+
+> **O que o log ensinou.** Três defeitos numa única funcionalidade, e os três invisíveis para a
+> suíte: um de validação ausente, um de **ordem** de operações, um de ciclo de vida de tela.
+> Nenhum é lógica errada — são todos "a coisa certa na hora errada". Vale mais um log de console
+> real do que uma rodada inteira de auditoria de código.
