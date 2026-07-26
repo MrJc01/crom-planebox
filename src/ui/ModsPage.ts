@@ -22,6 +22,25 @@ export class ModsPage implements UIScreen {
   public onOpenEditor: (modId: string, scriptKey?: string) => void = () => {};
   public onChanged: () => void = () => {};
 
+  /**
+   * Aba do painel de detalhes que o jogador escolheu por último.
+   *
+   * ## Por que isto precisa existir
+   *
+   * `renderDetalhe` constrói um `Tabs` novo a cada chamada, e `render()` é chamado por sete
+   * ações diferentes — ligar um mod, apagar, recarregar, trocar de mod. Sem guardar a escolha
+   * fora do componente, cada uma dessas ações jogava o jogador de volta na primeira aba: ele
+   * abria "Versões", clicava em qualquer coisa, e estava em "Geral" de novo. Era isso o
+   * "menus confusos" do relato.
+   *
+   * A alternativa seria manter um `Tabs` vivo e só trocar o conteúdo. Fica pior: os painéis
+   * guardam estado do mod anterior, e a montagem preguiçosa passaria a mostrar dados de outro
+   * mod até a aba ser reativada.
+   *
+   * Um id desconhecido é seguro: `Tabs.ir` cai na primeira aba em vez de deixar a tela em branco.
+   */
+  private abaDetalhe = 'general';
+
   constructor(private mods: ModService, private runtime: ModRuntime) {
     const { root, lista, detalhe } = this.montarDom();
     this.root = root;
@@ -230,8 +249,10 @@ export class ModsPage implements UIScreen {
       },
     });
 
+    modTabs.onTrocou = (id) => { this.abaDetalhe = id; };
     this.detalhe.appendChild(modTabs.raiz);
-    modTabs.iniciar();
+    // Reabre onde o jogador estava, e não sempre na primeira.
+    modTabs.iniciar(this.abaDetalhe);
   }
 
   private blocoCabecalho(mod: ModPackage): HTMLElement {

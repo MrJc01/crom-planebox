@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1194 itens)
+# Checklist Mestre — Painel de Especialistas (1197 itens)
 
-> **Estado em 26/07/2026** — 513 de 1194 itens tratados (42%), com **728 testes** passando,
+> **Estado em 26/07/2026** — 517 de 1197 itens tratados (43%), com **731 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 84 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 429 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 681 | Pendente. |
+> | `[x]` | 86 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 431 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 680 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -2685,8 +2685,28 @@ sinalização **manual por token** e o seletor de modo no `PauseMenu`. Isso cobr
 
 ### Pendente
 
-- [ ] 1186 `P0` Migrar `InventoryModal` e `ModsPage` para `Tabs` (1147/1149 seguem abertos)
 - [ ] 1187 `P1` Layout do inventário em duas colunas, como a referência (1150)
 - [ ] 1188 `P1` `npm run relay` e URL padrão preenchida (1171 segue aberto)
 - [ ] 1189 `P1` Sombra das nuvens no chão
 - [ ] 1190 `P2` Teste que compile o GLSL de verdade, com WebGL headless — hoje nada compila os shaders, e o sintoma de um erro é o terreno sumir
+
+### Rodada seguinte — a aba que o jogador perdia
+
+Ao migrar as telas encontrei que **você já tinha migrado as duas**: `InventoryModal` e `ModsPage`
+usam o componente `Tabs`. Os itens 1147 e 1149 estavam feitos. O que sobrou foi um defeito
+adjacente, e é de novo um que só aparece usando:
+
+`renderDetalhe` da `ModsPage` constrói um `Tabs` **novo a cada chamada**, e `render()` é chamado
+por sete ações diferentes — ligar um mod, apagar, recarregar, trocar de mod. Como a escolha de aba
+morava dentro do componente, cada uma dessas ações jogava o jogador de volta na primeira aba: ele
+abria "Versões", clicava em qualquer coisa e estava em "Geral" de novo.
+
+Manter um `Tabs` vivo e só trocar o conteúdo seria pior — os painéis guardam estado do mod
+anterior, e a montagem preguiçosa passaria a mostrar dados de outro mod até a aba ser reativada.
+A escolha mora fora do componente, e um id desconhecido cai na primeira aba em vez de deixar a
+tela em branco.
+
+- [x] 1147 `InventoryModal` no componente `Tabs` — já estava feito
+- [x] 1149 `ModsPage` no componente `Tabs` — já estava feito
+- [~] 1191 `P1` **A tela de mods lembra a aba aberta** entre redesenhos (item 1155, para esta tela)
+- [~] 1192 `P1` **Três testes da memória de aba**, inclusive o caso de uma aba gravada que não existe mais numa versão nova

@@ -208,3 +208,39 @@ describe('Tabs — estado visual e acessibilidade', () => {
     }
   });
 });
+
+describe('Tabs — a tela lembra onde o jogador estava', () => {
+  it('CRÍTICO: `iniciar(id)` reabre na aba pedida, não na primeira', () => {
+    // É o contrato de que a `ModsPage` depende. Ela reconstrói o `Tabs` a cada `render()`, e
+    // `render()` é chamado por sete ações diferentes — ligar um mod, apagar, recarregar, trocar
+    // de mod. Sem isto, cada uma jogava o jogador de volta em "Geral": ele abria "Versões",
+    // clicava em qualquer coisa, e tinha perdido o lugar. Era isso o "menus confusos" do relato.
+    const { t } = montarTres();
+    t.iniciar('c');
+    expect(visiveis(t)).toEqual(['c']);
+  });
+
+  it('a escolha sobrevive a reconstruir o componente do zero', () => {
+    // Simula o ciclo real da ModsPage: o jogador troca de aba, a tela é redesenhada, e um Tabs
+    // novo nasce recebendo a escolha guardada por fora.
+    let lembrada = 'a';
+    const primeiro = montarTres().t;
+    primeiro.onTrocou = (id) => { lembrada = id; };
+    primeiro.iniciar(lembrada);
+    primeiro.ir('b');
+    expect(lembrada).toBe('b');
+
+    const segundo = montarTres().t;
+    segundo.iniciar(lembrada);
+    expect(visiveis(segundo)).toEqual(['b']);
+  });
+
+  it('uma aba lembrada que não existe mais cai na primeira, sem tela em branco', () => {
+    // Acontece de verdade: a escolha fica guardada e uma versão nova do jogo renomeia as abas.
+    const t = new Tabs();
+    t.adicionar({ id: 'nova', titulo: 'Nova', icone: 'mods', montar: (d) => { d.textContent = 'x'; } });
+    t.iniciar('aba-de-uma-versao-antiga');
+    expect(t.ativaId).toBe('nova');
+    expect(t.painelDe('nova')!.style.display).not.toBe('none');
+  });
+});
