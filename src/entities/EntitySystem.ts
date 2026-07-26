@@ -28,6 +28,12 @@ export interface EntityRecord {
   // --- Combate (só preenchido em hostis) ---
   /** Perfil do mob. Presença deste campo é o que define "é hostil". */
   profile?: MobProfile;
+  /**
+   * Espécie do mob. Guardada porque o perfil sozinho não a identifica de volta, e o retrato
+   * enviado aos convidados precisa dizer O QUE nasceu — sem isso o convidado desenharia todo
+   * mundo como zumbi.
+   */
+  mobKind?: MobKind;
   timers?: CombatTimers;
   /** Velocidade própria: recuo ao levar dano e queda. */
   vel?: THREE.Vector3;
@@ -49,6 +55,21 @@ export class EntitySystem {
   private world: World;
   private scene: THREE.Scene;
   private entities: Map<string, EntityRecord> = new Map();
+
+  /**
+   * Este cliente manda nas criaturas?
+   *
+   * `true` offline e no anfitrião; `false` no convidado. Com `false`, a IA hostil não roda: as
+   * criaturas são **desenhadas onde o anfitrião disser** e mais nada.
+   *
+   * Sem isto, os dois lados simulavam a mesma criatura de forma independente e ela divergia em
+   * segundos — perseguindo alvos diferentes, atacando em momentos diferentes. Duas simulações
+   * autônomas do mesmo objeto nunca convergem; só uma pode decidir.
+   */
+  public autoridade = true;
+
+  /** id do anfitrião → id local. Só o convidado usa. */
+  private idsRemotos = new Map<string, string>();
 
   constructor(world: World, scene: THREE.Scene) {
     this.world = world;
@@ -263,6 +284,7 @@ export class EntitySystem {
     const record = this.spawnEntity('orc', profile.name, x, y, z, 'Hostil', kind);
 
     record.profile = profile;
+    record.mobKind = kind;
     record.timers = new CombatTimers();
     record.vel = new THREE.Vector3();
     record.state = 'ocioso';
@@ -330,6 +352,74 @@ export class EntitySystem {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Retrato das criaturas para enviar aos convidados. Só o anfitrião chama.
+   *
+   * `Math.round` de uma casa: a posição não precisa de precisão de ponto flutuante para desenhar
+   * um boneco, e arredondar corta o tamanho da mensagem quase pela metade.
+   */
+  public retratoDeHostis(): { id: string; kind: string; x: number; y: number; z: number; health: number }[] {
+    const saida = [];
+    for (const e of this.entities.values()) {
+      if (!e.profile) continue;
+      saida.push({
+        id: e.id,
+        kind: e.mobKind ?? 'zumbi',
+        x: Math.round(e.pos.x * 10) / 10,
+        y: Math.round(e.pos.y * 10) / 10,
+        z: Math.round(e.pos.z * 10) / 10,
+        health: Math.round(e.health),
+      });
+    }
+    return saida;
+  }
+
+  /**
+   * Aplica o retrato recebido do anfitrião. Só o convidado chama.
+   *
+   * A regra é uma só, e é o que torna isto auto-corretivo: **o que está na lista existe, o que
+   * não está deixou de existir**. Uma mensagem perdida se conserta no retrato seguinte, em vez
+   * de deixar um zumbi fantasma parado para sempre na tela.
+   *
+   * Os ids do anfitrião não podem ser usados direto — `spawnHostile` gera o seu — então um mapa
+   * traduz de um para o outro.
+   */
+  public aplicarRetratoDeHostis(
+    mobs: { id: string; kind: string; x: number; y: number; z: number; health: number }[],
+  ): void {
+    const vistos = new Set<string>();
+
+    for (const m of mobs) {
+      vistos.add(m.id);
+      const localId = this.idsRemotos.get(m.id);
+      let rec = localId ? this.entities.get(localId) : undefined;
+
+      if (!rec) {
+        rec = this.spawnHostile(m.kind as MobKind, m.x, m.y, m.z);
+        this.idsRemotos.set(m.id, rec.id);
+      }
+
+      rec.pos.set(m.x, m.y, m.z);
+      rec.mesh.position.set(m.x, m.y, m.z);
+      rec.health = m.health;
+      // O convidado não decide nada sobre a criatura: sem alvo e sem estado de IA, para o caso
+      // de alguém religar a autoridade no meio da partida.
+      rec.targetPos = undefined;
+      rec.state = 'ocioso';
+      this.updateHealthBar(rec);
+    }
+
+    for (const [remoto, local] of this.idsRemotos) {
+      if (vistos.has(remoto)) continue;
+      const e = this.entities.get(local);
+      if (e) {
+        this.scene.remove(e.mesh);
+        this.entities.delete(local);
+      }
+      this.idsRemotos.delete(remoto);
+    }
   }
 
   /** Notifica a morte de um hostil, para o chamador conceder loot. */
@@ -529,7 +619,14 @@ export class EntitySystem {
     for (const entity of this.entities.values()) {
       // Hostis têm IA própria (perceber/perseguir/atacar) e colisão com o mundo; o vagar
       // aleatório abaixo continua valendo só para os NPCs decorativos.
-      if (entity.profile && playerPos) {
+      if (entity.profile) {
+        // No convidado a criatura não pensa nem cai: a posição vem do anfitrião pelo `mob_sync`.
+        // Rodar a IA aqui faria a mesma criatura andar para dois lugares diferentes.
+        if (!this.autoridade) {
+          entity.mesh.position.copy(entity.pos);
+          continue;
+        }
+        if (!playerPos) continue;
         damageToPlayer += this.updateHostile(entity, dt, playerPos);
         this.snapToGround(entity, dt);
         entity.mesh.position.copy(entity.pos);

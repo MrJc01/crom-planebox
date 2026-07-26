@@ -82,6 +82,29 @@ export interface WorldInfoMsg {
   name: string;
 }
 
+/**
+ * Retrato das criaturas do anfitrião. Enviado periodicamente, só por ele.
+ *
+ * ## Por que um retrato inteiro, e não um evento por criatura
+ *
+ * Já existia `EntityUpdateMsg` (id, x, y, z) no protocolo — **definida e nunca enviada nem
+ * recebida por ninguém**. Ela também não bastaria: com só posições, o convidado nunca fica
+ * sabendo que uma criatura **nasceu** (não sabe o tipo) nem que **morreu** (não chega mensagem
+ * nenhuma; a ausência não é um evento). Um zumbi morto pelo anfitrião ficaria parado para
+ * sempre na tela do convidado.
+ *
+ * Um retrato resolve os três casos com uma regra só: o que está na lista existe, o que não está
+ * deixou de existir. E é auto-corretivo — uma mensagem perdida some no retrato seguinte, em vez
+ * de deixar estado divergente para sempre.
+ *
+ * O custo é enviar tudo sempre; com dezenas de criaturas e poucos envios por segundo, é
+ * irrelevante perto da robustez que compra.
+ */
+export interface MobSyncMsg {
+  type: 'mob_sync';
+  mobs: { id: string; kind: string; x: number; y: number; z: number; health: number }[];
+}
+
 export interface FullSyncMsg {
   type: 'full_sync';
   blockMods: { x: number; y: number; z: number; blockType: number }[];
@@ -138,6 +161,7 @@ export type NetMessage =
   | ChatMessageMsg
   | CommandMsg
   | WorldInfoMsg
+  | MobSyncMsg
   | FullSyncMsg
   | ModSyncMsg
   | WorldTimeMsg

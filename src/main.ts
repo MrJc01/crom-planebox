@@ -755,6 +755,12 @@ async function bootstrap() {
         }
         break;
       }
+      case 'mob_sync': {
+        // Só o convidado obedece; o anfitrião é a autoridade sobre as criaturas.
+        if (peerSync.role !== 'guest') break;
+        entitySystem.aplicarRetratoDeHostis(msg.mobs);
+        break;
+      }
       case 'world_time': {
         // Só o convidado obedece; o anfitrião é o relógio.
         if (peerSync.role !== 'guest') break;
@@ -1603,6 +1609,8 @@ async function bootstrap() {
   let streamAccum = 0;
   let saveAccum = 0;
   let netAccum = 0;
+  /** Acumulador do retrato de criaturas enviado aos convidados. */
+  let mobSyncAccum = 0;
   /** Hash da última aparência enviada, para reenviá-la só quando muda (item 923). */
   let ultimoHashAparencia = -1;
   /** Última posição em que um passo soou, para a cadência seguir a distância andada. */
@@ -1718,7 +1726,15 @@ async function bootstrap() {
     profiler.begin('física'); physics.update(dt); profiler.end('física');
 
     // Hostis só existem onde a sobrevivência está ligada; no criativo o mundo é seguro.
-    mobSpawner.enabled = rules.hasSurvival;
+    // O CONVIDADO não gera criaturas nem simula a IA delas.
+    //
+    // Antes rodava o próprio `MobSpawner` sem checar o papel: cada lado criava as suas, em
+    // lugares diferentes, e simulava as mesmas de forma independente. Duas simulações autônomas
+    // do mesmo objeto nunca convergem. É a segunda metade do relato "o mundo não é o mesmo no
+    // multiplayer" — a primeira era a semente.
+    const souAutoridade = peerSync.role !== 'guest';
+    entitySystem.autoridade = souAutoridade;
+    mobSpawner.enabled = rules.hasSurvival && souAutoridade;
     const ponto = mobSpawner.update(dt, world, player.pos, {
       timeOfDay,
       sunScale,
@@ -1729,6 +1745,18 @@ async function bootstrap() {
       maxY: CY,
     });
     if (ponto) entitySystem.spawnHostile(ponto.kind, ponto.x, ponto.y, ponto.z);
+
+    // Retrato das criaturas para os convidados, a 6 Hz.
+    //
+    // Não a cada quadro: criatura anda devagar e o convidado interpola visualmente de qualquer
+    // forma. A 60 Hz seria dez vezes a banda para nenhum ganho perceptível.
+    if (peerSync.role === 'host' && peerSync.peerCount > 0) {
+      mobSyncAccum += dt;
+      if (mobSyncAccum >= 1 / 6) {
+        mobSyncAccum = 0;
+        peerSync.broadcast({ type: 'mob_sync', mobs: entitySystem.retratoDeHostis() });
+      }
+    }
 
     playerCombat.tick(dt);
     profiler.begin('entidades');

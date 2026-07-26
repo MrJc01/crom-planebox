@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1224 itens)
+# Checklist Mestre — Painel de Especialistas (1230 itens)
 
-> **Estado em 26/07/2026** — 545 de 1224 itens tratados (44%), com **789 testes** passando,
+> **Estado em 26/07/2026** — 553 de 1230 itens tratados (44%), com **799 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 462 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 679 | Pendente. |
+> | `[~]` | 470 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 677 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -553,7 +553,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 379 `P1` Sync completo de blocos ao entrar (`full_sync`)
 - [x] 380 `P1` Retransmissão de blocos alterados pela IA (`onBlocksChanged`)
 - [~] 381 `P0` **Sincronizar mods com os convidados** (`full_sync.mods` + `mod_sync`)
-- [ ] 382 `P0` Sincronizar entidades e seu estado
+- [~] 382 `P0` **Criaturas sincronizadas** por retrato a 6 Hz, com o anfitrião como autoridade única
 - [ ] 383 `P1` Interpolação de posição de jogadores remotos
 - [ ] 384 `P1` Reconexão automática com re-sync incremental
 - [ ] 385 `P1` Delta sync em vez de mundo inteiro ao reconectar
@@ -2910,4 +2910,42 @@ fronteira real ser outro reino de execução.
 ### Continua pendente, e agora com o tamanho certo
 
 - [ ] 1239 `P0` **Item 358 é a correção de verdade**: rodar o script em Web Worker sem `fetch`, ou iframe com `sandbox`. Só outro reino de execução fecha a saída pelo construtor
-- [ ] 1240 `P0` Item 382 (**sincronizar entidades**) — em aberto e confirmado no código: o convidado roda o próprio `MobSpawner` sem checar o papel, e `EntityUpdateMsg` está **definida no protocolo e nunca enviada nem recebida**. É o nono caso de código dormente, e a continuação direta do "o mundo não é o mesmo no multiplayer"
+- [~] 1240 `P0` ~~Item 382~~ **FEITO nesta rodada** — item 382 (**sincronizar entidades**) — em aberto e confirmado no código: o convidado roda o próprio `MobSpawner` sem checar o papel, e `EntityUpdateMsg` está **definida no protocolo e nunca enviada nem recebida**. É o nono caso de código dormente, e a continuação direta do "o mundo não é o mesmo no multiplayer"
+
+## 50. As criaturas — a segunda metade de "o mundo não é o mesmo"
+
+A semente resolveu o terreno. Faltava o que se mexe em cima dele: **o convidado rodava o próprio
+`MobSpawner`, sem checar o papel**. Cada lado criava as suas criaturas, em lugares diferentes, e
+simulava as mesmas de forma independente.
+
+**Duas simulações autônomas do mesmo objeto nunca convergem.** Não é imprecisão que uma correção
+periódica conserta — é falta de autoridade. Só um lado pode decidir.
+
+### O nono caso de código dormente
+
+`EntityUpdateMsg` (`id, x, y, z`) estava no protocolo, na união de tipos, e **nunca era enviada
+nem recebida**. Nenhuma referência em `main.ts`.
+
+E ela não bastaria. Com só posições, o convidado nunca sabe que uma criatura **nasceu** — não vem
+o tipo — nem que **morreu**: a ausência não é um evento, não chega mensagem nenhuma. Um zumbi
+morto pelo anfitrião ficaria parado para sempre na tela do convidado.
+
+### Retrato, e não evento por criatura
+
+`MobSyncMsg` leva a lista inteira, seis vezes por segundo. Uma regra só resolve os três casos:
+**o que está na lista existe, o que não está deixou de existir.** E é auto-corretivo — uma
+mensagem perdida some no retrato seguinte, em vez de deixar estado divergente preso para sempre.
+
+O custo é mandar tudo sempre; com dezenas de criaturas e seis envios por segundo, é irrelevante
+perto da robustez que compra.
+
+- [~] 1241 `P0` **`entitySystem.autoridade`** — com `false`, a IA hostil não roda: o convidado desenha onde o anfitrião disser, e nada mais
+- [~] 1242 `P0` **O convidado não gera criaturas** (`mobSpawner.enabled` passou a checar o papel)
+- [~] 1243 `P0` **`MobSyncMsg`**: retrato a 6 Hz, não por quadro — criatura anda devagar, e 60 Hz seria dez vezes a banda para nenhum ganho visível
+- [~] 1244 `P0` **`aplicarRetratoDeHostis`** com mapa id-do-anfitrião → id local. Sem ele cada mensagem criaria criaturas novas, e em segundos haveria centenas
+- [~] 1245 `P1` **`mobKind` guardado no registro** — o perfil sozinho não identifica a espécie de volta, e sem isso o convidado desenharia todo mundo como zumbi
+- [~] 1246 `P1` **10 testes**, incluindo um que prova que a IA **continua funcionando** no anfitrião: sem ele, "consertar" seria trivial e inútil — bastaria nunca mover ninguém
+
+> **O padrão dos dois relatos de multijogador.** Em ambos, a parte tinha teste e passava. O que
+> faltava era a pergunta de cima: *"os dois jogadores estão vendo a mesma coisa?"*. Testar bem
+> cada peça não diz nada sobre o todo quando o que falta é a peça que liga as peças.
