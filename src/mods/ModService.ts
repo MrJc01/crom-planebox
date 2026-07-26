@@ -23,6 +23,8 @@ import {
   emptyModPackage,
   stripLocalState,
 } from './ModTypes';
+import { esquemaPadrao, resolverEnv, validarEsquema } from './ModEnv';
+import { SecretVault } from './SecretVault';
 import {
   allocateBlockIds,
   applyModBlocks,
@@ -40,6 +42,11 @@ export interface ModApplyResult {
 }
 
 export class ModService {
+  /**
+   * Cofre dos valores de `mod.env`. Vive aqui, e não no pacote do mod, para que exportação e
+   * `mod_sync` não tenham o que filtrar — ver `ModSecretRecord`.
+   */
+  public readonly vault = new SecretVault();
   private world: World;
   private entitySystem?: EntitySystem;
   private worldId: string;
@@ -133,6 +140,10 @@ export class ModService {
    */
   public async loadForWorld(worldId: string): Promise<{ mods: number; blocks: number; entities: number }> {
     this.worldId = worldId;
+    // O cofre antes dos mods: `applyIsolated` consulta as chaves para decidir quarentena, e
+    // carregá-lo depois faria todo mod com chave obrigatória ser isolado por engano no primeiro
+    // carregamento do mundo.
+    await this.vault.setWorldId(worldId);
     this.mods = await WorldRepository.getMods(worldId);
 
     // Aplicação mod a mod, com isolamento: um pacote corrompido é posto em quarentena e o
@@ -186,6 +197,22 @@ export class ModService {
       if (errors.length > 0) {
         this.markQuarantined(mod, `pacote inválido: ${errors.join(' ')}`);
         continue;
+      }
+
+      // Chave obrigatória faltando é motivo de quarentena, não de erro silencioso mais tarde.
+      // Um mod que precisa de uma API e não a tem vai falhar de qualquer jeito; falhar aqui diz
+      // ao jogador exatamente qual chave preencher, em vez de dar um erro de rede sem contexto.
+      if (mod.env) {
+        const problemas = validarEsquema(mod.env);
+        if (problemas.length > 0) {
+          this.markQuarantined(mod, `mod.env inválido: ${problemas.map((p) => `${p.chave}: ${p.motivo}`).join('; ')}`);
+          continue;
+        }
+        const { faltando } = resolverEnv(mod.env, this.vault.valoresDe(mod.id), this.vault.globais());
+        if (faltando.length > 0) {
+          this.markQuarantined(mod, `faltam chaves obrigatórias em mod.env: ${faltando.join(', ')}`);
+          continue;
+        }
       }
 
       try {
@@ -295,6 +322,9 @@ export class ModService {
     }
 
     const pkg = emptyModPackage(id, name, description, this.activeThreadId);
+    // Todo mod nasce com `mod.env` (item 721). Vazio seria pior que ausente: o autor teria de
+    // descobrir a convenção sozinho, e a sintaxe de herança nunca seria usada.
+    pkg.env = esquemaPadrao();
     const errors = validateModPackage(pkg);
     if (errors.length > 0) return { ok: false, message: `Mod inválido: ${errors.join(' ')}` };
 

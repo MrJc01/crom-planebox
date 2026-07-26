@@ -60,6 +60,10 @@ export const MOD_API_REFERENCE = {
     'api.weather.current()': "{ current, next, progress, lightning, wet } — clima já traduzido pelo bioma local",
     'api.weather.isRaining()': 'true em chuva ou tempestade',
     'api.weather.isStorm()': 'true só em tempestade (tem raios)',
+    'api.env.get(NOME)': "valor de uma chave do mod.env, com a herança de $GLOBAL já resolvida",
+    'api.env.has(NOME)': 'a chave está preenchida? Use antes de tentar uma chamada externa',
+    'api.env.missing()': 'chaves obrigatórias ainda vazias (o mod nem carrega se houver alguma)',
+
     'api.season.current()': '{ current, next, transition, strength, effect } — estação sob o jogador, já atenuada pelo bioma',
     'api.season.is(nome)': "true se a estação é essa: 'primavera','verao','outono','inverno'",
     'api.season.growth()': 'multiplicador de crescimento de planta agora (0 = parado, no inverno)',

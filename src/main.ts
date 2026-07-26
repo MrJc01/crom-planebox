@@ -8,6 +8,7 @@ import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
 import { EstadoSazonal, corDaFolhagem, corDaGrama, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
 import { Precipitation, Relampago } from './render/precipitation';
 import { FadeAgenda } from './render/chunkFade';
+import { resolverEnv } from './mods/ModEnv';
 import { PredefinicaoId, gradacaoEm } from './render/grading';
 import { ChunkGeometryRaw } from './world/mesher';
 import { geometryFromRaw } from './world/meshGeometry';
@@ -497,6 +498,15 @@ async function bootstrap() {
       lightning: clima.raios,
       wet: clima.molha,
     }),
+    modEnv: (modId) => {
+      const mod = mcpExecutors.modService.getMod(modId);
+      if (!mod?.env) return { valores: {}, faltando: [] };
+      return resolverEnv(
+        mod.env,
+        mcpExecutors.modService.vault.valoresDe(modId),
+        mcpExecutors.modService.vault.globais(),
+      );
+    },
     season: () => ({
       current: estacao.estacao,
       next: estacao.proxima,

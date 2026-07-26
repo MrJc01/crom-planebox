@@ -1145,14 +1145,50 @@ CITY_SIM_UNITS=metric
 O `$` marca a herança. Sem ele é literal — e todo literal é tratado como público, porque é
 exatamente isso que ele será no momento em que alguém exportar o mod.
 
-- [ ] 721 `P0` Arquivo `mod.env` criado por padrão em todo mod novo, com cabeçalho explicativo
-- [ ] 722 `P0` Sintaxe de herança `CHAVE=$CHAVE_GLOBAL` resolvida em tempo de execução
-- [ ] 723 `P0` Valores literais para configuração não sensível (modelo, idioma, unidades)
-- [ ] 724 `P0` **`export_mod` exporta o esquema, nunca os valores** — segue `stripLocalState`
-- [ ] 725 `P0` **`mod_sync` no P2P nunca transporta valores de `mod.env`**
-- [ ] 726 `P0` Cofre global de segredos separado do pacote do mod (tabela própria, não em `mods`)
-- [ ] 727 `P0` Declaração de chaves obrigatórias vs opcionais, com descrição de cada uma
-- [ ] 728 `P0` Mod não carrega se faltar chave obrigatória — vai para quarentena com o motivo
+- [~] 721 `P0` **`mod.env` criado por padrão em todo mod novo, com cabeçalho explicativo**
+- [~] 722 `P0` **Herança `CHAVE=$GLOBAL` resolvida **em tempo de execução**, nunca na gravação**
+- [~] 723 `P0` **Valores literais para configuração não sensível (modelo, idioma, cidade)**
+- [~] 724 `P0` **`export_mod` leva o **esquema** e nunca os valores — não há o que filtrar**
+- [~] 725 `P0` **`mod_sync` idem: os valores nunca estiveram no `ModPackage`**
+- [~] 726 `P0` **Cofre em tabela própria (`modSecrets`, schema v8), fora de `mods`**
+- [~] 727 `P0` **Chaves obrigatórias vs opcionais, com descrição de cada uma**
+- [~] 728 `P0` **Mod não carrega se faltar chave obrigatória — quarentena com o motivo**
+
+#### A separação é estrutural, não uma regra a lembrar
+
+Um `mod.env` tem duas metades: o **esquema** (quais chaves existem, para que servem) e os
+**valores** (o que está preenchido nesta instalação). O esquema é parte do mod e viaja; os valores
+vivem num cofre à parte e nunca viajam.
+
+A razão de a separação ser **estrutural**: se os valores morassem no `ModPackage`, `export_mod` e
+`mod_sync` teriam de *filtrar* algo sensível a cada vez — e bastaria um caminho novo esquecer o
+filtro para a chave de API do jogador sair pela rede. Estando fora, não há o que filtrar. O teste
+que fixa isso não verifica um filtro; verifica que **o pacote não tem onde guardar um valor**.
+
+Defesa em profundidade, para o caso de alguém tentar: **chave sensível não pode ter valor padrão
+literal**. Um padrão viaja com o esquema, e um segredo com valor padrão é um segredo publicado —
+o tipo de erro que se comete uma vez, por conveniência, e que não dá sintoma até vazar.
+
+#### Onde a fronteira NÃO está, para não haver ilusão
+
+O script do mod roda no mesmo cliente, com os mesmos privilégios do jogo. Esconder o valor **dele**
+não seria segurança, seria teatro: um script que precisa da chave para chamar uma API precisa da
+chave. A fronteira real é o que **sai da máquina** — exportação, `mod_sync` e histórico de conversa.
+O agente é remoto, e por isso vê `descreverEnv` (metadados e se está preenchida) e não os valores.
+
+#### Dois detalhes de uso que o teste pegou
+
+- **Salvar sem mexer não apaga o segredo.** O texto mostra `********`; se o parse gravasse isso, o
+  jogador que abrisse a tela e clicasse em salvar destruiria a chave — por uma ação que ele leu
+  como "não fiz nada".
+- **Referência para global inexistente vira ausência**, não a string `"$AI_ROUTER"`. Passar o
+  literal adiante faria o mod mandar isso como token e receber um erro de autenticação, com o
+  sintoma longe da causa.
+
+Sem armazenamento (navegação privada, IndexedDB bloqueado) o cofre fica em memória e o mundo
+carrega assim mesmo: derrubar o carregamento porque não há onde guardar chaves seria trocar um
+problema pequeno por um total.
+
 - [ ] 729 `P1` UI pede a chave que falta ao ativar o mod, explicando para que serve
 - [ ] 730 `P1` Importar um mod lista as chaves que ele exige antes de instalar
 - [ ] 731 `P1` Validação de formato por chave (URL, token, enum de modelos)
@@ -2269,7 +2305,7 @@ de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite 
 - [ ] 1107 `P2` Chuva enche recipientes e alimenta os fluidos finitos existentes
 - [ ] 1108 `P2` Raio incendeia e pode converter areia em vidro, com chance baixa
 - [ ] 1109 `P2` Clima afeta o surgimento de criaturas e a agressividade
-- [~] 1110 `P2` **`api.weather.current/isRaining/isStorm/set` e o evento `weatherChange`**
+- [~] 1110 `P2` **`api.env.get/has/missing` documentado na referência do agente**
 - [ ] 1111 `P2` Ferramenta MCP `set_weather` / `get_weather`
 - [~] 1112 `P2` **Teste de que a máquina nunca fica presa e sempre termina numa transição válida**
 

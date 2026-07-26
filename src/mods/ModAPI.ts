@@ -54,6 +54,11 @@ export interface ModHostBridge {
   weather(): { current: string; next: string; progress: number; lightning: boolean; wet: number };
   /** Impõe um clima, ou devolve o mundo à sequência natural com `null`. */
   setWeather(clima: string | null): boolean;
+  /**
+   * Ambiente do mod: `mod.env` resolvido, com herança já aplicada.
+   * O `main` injeta; o cofre nunca é acessado direto pelo script.
+   */
+  modEnv(modId: string): { valores: Record<string, string>; faltando: string[] };
   /** Estação vigente sob o jogador, já atenuada pelos pesos de bioma. */
   season(): { current: string; next: string; transition: number; strength: number; effect: Record<string, number> };
   /** Declara como um bioma responde às estações. Ver `api.season.defineProfile`. */
@@ -309,6 +314,24 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
        */
       defineProfile: (bioma: string, perfis: Record<string, Record<string, number>>) =>
         host.defineSeasonProfile(bioma, perfis),
+    },
+
+    /**
+     * `mod.env` deste mod, com a herança de `$GLOBAL` já resolvida.
+     *
+     * Sobre o alcance disto: o script roda no mesmo cliente, com os mesmos privilégios do jogo —
+     * esconder o valor **dele** não seria segurança, seria teatro, porque um script que precisa
+     * da chave para chamar uma API precisa da chave. A fronteira que este sistema garante é
+     * outra, e é real: os valores **não saem da máquina** — nem na exportação, nem no `mod_sync`,
+     * nem no histórico da conversa que o agente lê.
+     */
+    env: {
+      /** Valor de uma chave, ou `undefined`. */
+      get: (nome: string) => host.modEnv(ctx.mod.id).valores[String(nome)],
+      /** A chave está preenchida? Use antes de tentar a chamada externa. */
+      has: (nome: string) => host.modEnv(ctx.mod.id).valores[String(nome)] !== undefined,
+      /** Chaves obrigatórias ainda vazias. Mod com isto não deveria nem ter carregado. */
+      missing: () => host.modEnv(ctx.mod.id).faltando,
     },
 
     /** Chave-valor do mod, isolado dos demais. Dura a sessão. */

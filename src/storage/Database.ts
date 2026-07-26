@@ -152,6 +152,27 @@ export interface ModEntityInstanceRecord {
   z: number;
 }
 
+/**
+ * Cofre de segredos: os **valores** do `mod.env`.
+ *
+ * Tabela própria, e não um campo em `ModRecord`, por uma razão estrutural: `export_mod` e
+ * `mod_sync` serializam o `ModPackage`. Se os valores morassem lá, cada um desses caminhos
+ * precisaria lembrar de filtrar algo sensível — e bastaria um caminho novo esquecer para a chave
+ * de API do jogador sair pela rede. Estando aqui, não há o que filtrar.
+ *
+ * `modId` vazio (`''`) guarda as **globais** do jogador, que os mods referenciam com `$NOME`.
+ */
+export interface ModSecretRecord {
+  /** Chave composta `${worldId}:${modId}:${nome}` — Dexie não indexa três campos como PK simples. */
+  key: string;
+  worldId: string;
+  /** `''` = global do jogador, compartilhada por todos os mods. */
+  modId: string;
+  nome: string;
+  valor: string;
+  updatedAt: number;
+}
+
 export class VoxelDatabase extends Dexie {
   worlds!: Table<WorldRecord, string>;
   blockMods!: Table<BlockModRecord, number>;
@@ -164,6 +185,7 @@ export class VoxelDatabase extends Dexie {
   modEntities!: Table<ModEntityInstanceRecord, [string, string]>;
   profiles!: Table<PlayerProfileRecord, string>;
   modRevisions!: Table<ModRevisionRecord, [string, string]>;
+  modSecrets!: Table<ModSecretRecord, string>;
 
   constructor() {
     super('CromPlaneboxDB');
@@ -200,6 +222,10 @@ export class VoxelDatabase extends Dexie {
     // v7: índice de autoria dos blocos, para reverter exatamente o que um mod colocou.
     this.version(7).stores({
       blockMods: '++id, [worldId+key], worldId, [worldId+modId]'
+    });
+    // v8: cofre de segredos do `mod.env`. Tabela separada de propósito — ver `ModSecretRecord`.
+    this.version(8).stores({
+      modSecrets: 'key, worldId, [worldId+modId]'
     });
   }
 }

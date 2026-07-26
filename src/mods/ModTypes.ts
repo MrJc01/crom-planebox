@@ -1,3 +1,4 @@
+import { EsquemaEnv } from './ModEnv';
 // Formato do "pacote de mod" — a unidade que a IA cria, o mundo salva e o jogo reaplica.
 //
 // Um mod é declarativo de propósito: são dados serializáveis (blocos, espécies de entidade,
@@ -113,6 +114,17 @@ export interface ModPackage {
   structures: ModStructureDef[];
   /** Ausente em mods criados antes do runtime — tratado como lista vazia. */
   scripts?: ModScript[];
+
+  /**
+   * **Esquema** do `mod.env`: quais chaves existem e para que servem. Parte do mod, viaja na
+   * exportação e no P2P.
+   *
+   * Os **valores** não estão aqui, e essa ausência é estrutural, não uma regra a lembrar: se
+   * estivessem, `export_mod` e `mod_sync` teriam de filtrar algo sensível a cada vez, e bastaria
+   * um caminho novo esquecer o filtro para a chave da API do jogador sair pela rede. Eles vivem
+   * no cofre (`modSecrets`, em `src/storage/Database.ts`).
+   */
+  env?: EsquemaEnv;
   createdAt: number;
   updatedAt: number;
 
@@ -186,6 +198,12 @@ export function emptyModPackage(id: string, name: string, description = '', orig
  * É o que o usuário quer ao exportar: o conteúdo (blocos, criaturas, estruturas), não a
  * conversa que levou até ele nem o vínculo com uma thread que não existe em outro mundo.
  * Os `blockId` também saem — quem importa realoca no mundo de destino.
+ */
+/**
+ * Remove o que é local desta instalação antes de exportar ou enviar pela rede.
+ *
+ * Repare que **não há nada de `env` a remover**: o esquema deve viajar (é parte do mod) e os
+ * valores nunca estiveram no pacote. Há teste fixando isso.
  */
 export function stripLocalState(pkg: ModPackage): ModPackage {
   const clone: ModPackage = JSON.parse(JSON.stringify(pkg));
