@@ -55,6 +55,33 @@ export interface CommandMsg {
   playerId: string; raw: string;
 }
 
+/**
+ * Identidade do TERRENO do anfitrião. Enviada assim que um convidado conecta, antes de tudo.
+ *
+ * ## Por que esta mensagem precisou existir
+ *
+ * O relato foi "o mundo não é o mesmo no multiplayer", e a causa era simples e total: o mundo do
+ * convidado era criado com `seed: Math.floor(Math.random() * 1000000)`. **Uma semente aleatória.**
+ * O terreno é gerado a partir dela, então cada jogador via um mundo inteiramente diferente.
+ *
+ * O `full_sync` mandava blocos, jogadores e mods — ou seja, só o que foi EDITADO à mão. Sobre um
+ * terreno gerado diferente, essas edições caem no vazio: uma casa construída num morro do
+ * anfitrião aparece flutuando, ou enterrada, no mundo do convidado.
+ *
+ * A semente não podia ir no `full_sync` porque este chega tarde demais: quando ele chega, o
+ * convidado já gerou terreno. Esta mensagem é a primeira coisa que o anfitrião envia, e o
+ * convidado espera por ela **antes de criar o mundo**.
+ */
+export interface WorldInfoMsg {
+  type: 'world_info';
+  /** A semente do anfitrião. É o que faz os dois gerarem exatamente o mesmo terreno. */
+  seed: number;
+  /** Altura base do terreno — o outro parâmetro que muda a geração. */
+  groundHeight: number;
+  /** Nome do mundo do anfitrião, para o convidado não ficar com "Visitante de room-xyz". */
+  name: string;
+}
+
 export interface FullSyncMsg {
   type: 'full_sync';
   blockMods: { x: number; y: number; z: number; blockType: number }[];
@@ -110,6 +137,7 @@ export type NetMessage =
   | PlayerStateMsg
   | ChatMessageMsg
   | CommandMsg
+  | WorldInfoMsg
   | FullSyncMsg
   | ModSyncMsg
   | WorldTimeMsg

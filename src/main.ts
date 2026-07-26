@@ -701,7 +701,25 @@ async function bootstrap() {
     else if (peerSync.role === 'guest') peerSync.sendToHost(msg);
   };
 
+  /**
+   * Promessa aguardando a identidade do terreno do anfitrião.
+   *
+   * `handleJoinLink` a instala antes de entrar na sala e espera por ela antes de criar o mundo
+   * local — é o que garante que o convidado gere o terreno com a semente CERTA, em vez de gerar
+   * o errado e tentar corrigir depois.
+   */
+  let resolverInfoDoMundo: ((info: { seed: number; groundHeight: number; name: string }) => void) | null = null;
+
   peerSync.onMessage = (msg, fromPeerId) => {
+    // Tratado fora do `switch` porque chega ANTES do jogo existir: neste instante não há `world`,
+    // nem HUD, nem chat, e qualquer outro ramo do tratador tocaria em algo ainda não construído.
+    if (msg.type === 'world_info') {
+      if (peerSync.role !== 'guest') return;
+      resolverInfoDoMundo?.({ seed: msg.seed, groundHeight: msg.groundHeight, name: msg.name });
+      resolverInfoDoMundo = null;
+      return;
+    }
+
     switch (msg.type) {
       case 'chat_message':
         chatOverlay.receiveWorldChatMessage(msg.name, msg.text);
@@ -794,6 +812,18 @@ async function bootstrap() {
     if (peerSync.role !== 'host') return;
     const name = `Jogador-${peerId.slice(-4)}`;
     remotePlayers.set(peerId, { name, isOp: false });
+
+    // PRIMEIRA mensagem, antes do `full_sync` e do relógio: a identidade do terreno.
+    //
+    // O `full_sync` só carrega o que foi EDITADO à mão. Sobre um terreno gerado de outra semente
+    // essas edições caem no vazio — uma casa construída num morro do anfitrião aparece flutuando,
+    // ou enterrada, no mundo do convidado. Sem esta mensagem os dois jogam mundos diferentes.
+    peerSync.sendTo(peerId, {
+      type: 'world_info',
+      seed: currentWorld.seed,
+      groundHeight: currentWorld.groundHeight,
+      name: currentWorld.name,
+    });
     WorldRepository.getBlockModsForWorld(currentWorld.id).then((mods) => {
       const blockMods = Array.from(mods.entries()).map(([key, blockType]) => {
         const [x, y, z] = key.split(',').map(Number);
@@ -1373,12 +1403,37 @@ async function bootstrap() {
       return;
     }
 
-    // Conectado: agora sim vale criar o mundo local que vai receber o estado do anfitrião.
+    // Conectado. Falta a peça que faltava: a identidade do TERRENO.
+    //
+    // Sem ela o mundo do convidado era criado com `Math.random()` como semente, e cada jogador
+    // via um mundo inteiramente diferente — o relato "o mundo não é o mesmo no multiplayer". O
+    // `full_sync` não resolvia porque só carrega o que foi editado à mão, e chega depois de o
+    // convidado já ter gerado terreno.
+    //
+    // Esperar aqui, e não corrigir depois, é o que evita gerar o mundo errado e ter de descartá-lo.
+    const info = await new Promise<{ seed: number; groundHeight: number; name: string } | null>((resolve) => {
+      resolverInfoDoMundo = resolve;
+      // Um anfitrião de versão antiga não conhece `world_info` e nunca responderia. Desistir com
+      // uma mensagem clara é melhor que entrar num mundo que não é o dele.
+      setTimeout(() => { if (resolverInfoDoMundo) { resolverInfoDoMundo = null; resolve(null); } }, 8000);
+    });
+
+    if (!info) {
+      peerSync.stop();
+      mainMenu.mostrarErroEntrada(
+        'Conectado, mas o anfitrião não enviou os dados do mundo. Ele pode estar numa versão ' +
+        'antiga do jogo — peça para atualizar a página e tentar de novo.',
+      );
+      return;
+    }
+
     const guestWorld: WorldRecord = {
-      id: `guest-${roomId}`,
-      name: `Visitante de ${roomId}`,
-      seed: Math.floor(Math.random() * 1000000),
-      groundHeight: 4, fov: 75, cameraMode: 'fps',
+      // O id inclui a semente: entrar em dois mundos diferentes do mesmo anfitrião não pode
+      // reaproveitar o cache de blocos de um no outro.
+      id: `guest-${roomId}-${info.seed}`,
+      name: `${info.name} (visitante)`,
+      seed: info.seed,
+      groundHeight: info.groundHeight, fov: 75, cameraMode: 'fps',
       defaultGameMode: 'adventure', onlineEnabled: false,
       saveVersion: CURRENT_SAVE_VERSION,
       createdAt: Date.now(), updatedAt: Date.now(),

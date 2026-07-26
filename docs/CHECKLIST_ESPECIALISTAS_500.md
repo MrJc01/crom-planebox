@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1212 itens)
+# Checklist Mestre — Painel de Especialistas (1219 itens)
 
-> **Estado em 26/07/2026** — 533 de 1212 itens tratados (43%), com **775 testes** passando,
+> **Estado em 26/07/2026** — 540 de 1219 itens tratados (44%), com **779 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 450 | **Entregue** ao longo das rodadas, com teste. |
+> | `[~]` | 457 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 679 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -2821,3 +2821,47 @@ O erro morava no espaço entre os dois arquivos, que é exatamente onde não há
 > correto**. Um teste por arquivo não os encontra: só encontra quem olha para a costura. O teste
 > que agora existe mede o avatar *no mundo* — caixa envolvente contra a altura da colisão — em vez
 > de conferir números dentro de um arquivo só.
+
+## 48. "O mundo não é o mesmo no multiplayer" — 26/07/2026
+
+A causa era total, não sutil. O mundo do convidado era criado assim:
+
+```ts
+seed: Math.floor(Math.random() * 1000000),
+```
+
+**Uma semente aleatória.** O terreno inteiro é gerado a partir dela — relevo, biomas, cavernas,
+minérios, árvores. Cada jogador via um mundo completamente diferente.
+
+### Por que o `full_sync` não salvava
+
+Porque ele carrega apenas o que foi **editado à mão**: `blockMods`, jogadores e mods. Sobre um
+terreno gerado de outra semente, essas edições caem no vazio — uma casa construída num morro do
+anfitrião aparece flutuando, ou enterrada, no mundo do convidado. Pior que nada: dá a impressão
+de que a sincronização "quase funciona".
+
+E a semente não podia simplesmente entrar no `full_sync`: quando ele chega, o convidado **já
+gerou terreno**. A informação chegaria tarde.
+
+### A correção
+
+Uma mensagem nova, `world_info`, é a **primeira** coisa que o anfitrião envia a quem conecta — à
+frente do `full_sync` e do relógio. Ela leva semente, altura base e nome. E o convidado **espera
+por ela antes de criar o mundo**, em vez de gerar o errado e tentar corrigir depois.
+
+O tratamento dela fica **fora** do `switch` do tratador de mensagens, e isso é deliberado: ela
+chega antes de o jogo existir, num instante em que não há `world`, nem HUD, nem chat. Qualquer
+outro ramo do tratador tocaria em algo ainda não construído.
+
+- [~] 1229 `P0` **`WorldInfoMsg`** no protocolo: semente, altura base e nome do mundo do anfitrião
+- [~] 1230 `P0` **O convidado adota a semente do anfitrião** — os dois geram exatamente o mesmo terreno
+- [~] 1231 `P0` **A espera acontece antes de criar o mundo**, não depois
+- [~] 1232 `P1` **Prazo de 8 s na espera**, com mensagem clara: um anfitrião de versão antiga não conhece `world_info` e travaria a entrada para sempre
+- [~] 1233 `P1` **O id do mundo de visitante inclui a semente** — entrar em dois mundos diferentes do mesmo anfitrião não pode reaproveitar o cache de blocos de um no outro
+- [~] 1234 `P1` **O convidado herda o NOME do mundo**, em vez de "Visitante de room-xyz"
+- [~] 1235 `P1` **4 testes**, incluindo um que reprova a volta de `Math.random()` na semente do convidado e um que verifica a **ordem** (esperar antes de criar)
+
+> **Por que nenhum teste pegou.** A sincronização de blocos tinha testes, e passavam: ela de fato
+> transmite os blocos corretamente. O que faltava era uma camada acima — a pergunta "os dois
+> jogadores estão no mesmo mundo?" nunca tinha sido feita. Testar bem a parte não diz nada sobre
+> o todo quando a peça que falta é a que liga as partes.

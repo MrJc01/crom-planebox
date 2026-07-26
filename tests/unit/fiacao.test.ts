@@ -131,3 +131,46 @@ describe('o próprio varredor é confiável', () => {
     expect(temChamador(/funcaoQueNaoExisteEmLugarNenhum\s*\(/, [])).toEqual([]);
   });
 });
+
+describe('multijogador — os dois jogadores no MESMO mundo', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+  const protocolo = FONTE.find((f) => f.arquivo.endsWith('net/protocol.ts'))!.texto;
+
+  it('CRÍTICO: o mundo do convidado NÃO nasce de uma semente aleatória', () => {
+    // O relato foi "o mundo não é o mesmo no multiplayer", e a causa era total: o mundo do
+    // convidado era criado com `seed: Math.floor(Math.random() * 1000000)`. O terreno é gerado a
+    // partir da semente, então cada jogador via um mundo inteiramente diferente.
+    //
+    // O `full_sync` não resolvia: ele carrega só o que foi EDITADO à mão. Sobre um terreno gerado
+    // diferente, uma casa construída num morro do anfitrião aparece flutuando — ou enterrada.
+    const criacaoConvidado = main.slice(
+      main.indexOf('const guestWorld: WorldRecord'),
+      main.indexOf('await WorldRepository.saveWorld(guestWorld)'),
+    );
+    expect(criacaoConvidado.length).toBeGreaterThan(50);
+    expect(criacaoConvidado).not.toMatch(/seed:\s*Math\.random|seed:\s*Math\.floor\(Math\.random/);
+    expect(criacaoConvidado).toMatch(/seed:\s*info\.seed/);
+    expect(criacaoConvidado).toMatch(/groundHeight:\s*info\.groundHeight/);
+  });
+
+  it('CRÍTICO: o anfitrião anuncia a identidade do terreno', () => {
+    expect(protocolo).toContain('WorldInfoMsg');
+    expect(protocolo).toMatch(/type:\s*'world_info'/);
+    // Semente E altura base: as duas entram na geração. Mandar só uma ainda daria mundos
+    // diferentes, e o defeito voltaria pela metade — que é pior, porque parece quase certo.
+    expect(protocolo).toMatch(/seed:\s*number/);
+    expect(protocolo).toMatch(/groundHeight:\s*number/);
+  });
+
+  it('CRÍTICO: o convidado ESPERA a identidade antes de criar o mundo', () => {
+    // Se criasse antes e corrigisse depois, o terreno errado já teria sido gerado e gravado.
+    const espera = main.indexOf('resolverInfoDoMundo = resolve');
+    const criacao = main.indexOf('const guestWorld: WorldRecord');
+    expect(espera).toBeGreaterThan(-1);
+    expect(espera).toBeLessThan(criacao);
+  });
+
+  it('a espera tem prazo — anfitrião de versão antiga não trava a entrada', () => {
+    expect(main).toMatch(/resolverInfoDoMundo = null; resolve\(null\)/);
+  });
+});
