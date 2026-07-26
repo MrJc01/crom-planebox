@@ -36,6 +36,9 @@ export class CodeEditorPage implements UIScreen {
   public isOpen = false;
 
   private root: HTMLDivElement;
+
+  /** Raiz no DOM, para a armadilha de foco do `UIManager` prender o Tab aqui dentro. */
+  public get raiz(): HTMLElement { return this.root; }
   private arvore: HTMLDivElement;
   private area: HTMLDivElement;
   private console: HTMLDivElement;

@@ -27,7 +27,8 @@ export class GameMenu implements UIScreen {
   readonly id = 'game-menu';
   public isOpen = false;
 
-  private raiz: HTMLDivElement;
+  /** Raiz no DOM, para a armadilha de foco do `UIManager` prender o Tab aqui dentro. */
+  public raiz: HTMLDivElement;
   private corpo: HTMLDivElement;
   private destinos: DestinoMenu[] = [];
 

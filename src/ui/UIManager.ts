@@ -19,6 +19,14 @@ export interface UIScreen {
   open(): void;
   close(): void;
   isOpen: boolean;
+  /**
+   * Raiz da tela no DOM, para a armadilha de foco saber onde prender o Tab.
+   *
+   * Opcional de propósito: uma tela que não a fornece continua funcionando, só não prende o
+   * foco. Torná-la obrigatória exigiria mexer em todas as telas de uma vez para ganhar o
+   * benefício em uma — e o `UIScreen` é implementado também por dublês nos testes.
+   */
+  raiz?: HTMLElement;
 }
 
 export class UIManager {
@@ -139,7 +147,11 @@ export class UIManager {
     }
     this.blockingStack = this.blockingStack.filter((x) => x !== id);
     this.blockingStack.push(id);
+    // Guardado ANTES de abrir: depois que a tela aparece, o foco pode já ter mudado, e o que
+    // interessa é para onde devolvê-lo quando ela fechar.
+    this.lembrarFoco();
     target.open();
+    this.focarPrimeiro(target);
   }
 
   public closeBlocking(id: string): void {
@@ -148,7 +160,119 @@ export class UIManager {
     const target = this.blocking.get(id);
     if (target?.isOpen) target.close();
     this.podarPilha();
+    if (!this.isAnyBlockingOpen()) this.restaurarFoco();
     this.tryRelock();
+  }
+
+  // --- Armadilha de foco --------------------------------------------------------------------
+  //
+  // ## O que ela resolve
+  //
+  // Sem ela, o Tab sai da tela aberta e vai para o que está por baixo: o foco vai parar num botão
+  // da hotbar ou num campo do chat que o jogador não consegue ver. Ele aperta Enter e algo
+  // acontece em outro lugar da tela — que é a mesma família do relato "clico numa coisa e abre
+  // outra", só que pelo teclado e pior, porque não há nem para onde olhar.
+  //
+  // ## Por que mora aqui, e não em cada tela
+  //
+  // O `UIManager` é o único que sabe **qual** tela está no topo. Uma armadilha por tela precisaria
+  // que cada uma soubesse se é a ativa — e telas que não soubessem competiriam pelo Tab, que é
+  // exatamente o problema de vários donos que o registro de atalhos já resolveu uma vez.
+
+  private focoAnterior: HTMLElement | null = null;
+
+  /**
+   * Elementos que podem receber foco dentro de um container.
+   *
+   * `tabindex="-1"` fica de fora: é o valor que marca "focável por código, não pelo Tab" — é o
+   * que o próprio componente `Tabs` usa nas abas inativas, que devem ser alcançadas pelas setas
+   * e não pelo Tab.
+   */
+  private focaveisDe(raiz: HTMLElement): HTMLElement[] {
+    const sel = 'a[href], button, input, select, textarea, [tabindex]';
+    return Array.from(raiz.querySelectorAll<HTMLElement>(sel)).filter((el) => {
+      if (el.hasAttribute('disabled') || el.getAttribute('aria-hidden') === 'true') return false;
+      if (el.tabIndex < 0) return false;
+      // Painel de aba escondido: `offsetParent` nulo cobre `display: none` em qualquer ancestral,
+      // que é justamente como o `Tabs` esconde os painéis inativos. Sem esta checagem o Tab
+      // passearia pelos controles das abas que não estão à vista.
+      return el.offsetParent !== null || el === document.activeElement;
+    });
+  }
+
+  /** Raiz da tela bloqueante no topo, se ela tiver fornecido uma. */
+  private raizAtiva(): HTMLElement | null {
+    for (let i = this.blockingStack.length - 1; i >= 0; i--) {
+      const tela = this.blocking.get(this.blockingStack[i]);
+      if (tela?.isOpen && tela.raiz) return tela.raiz;
+    }
+    return null;
+  }
+
+  private lembrarFoco(): void {
+    if (typeof document === 'undefined') return;
+    const ativo = document.activeElement as HTMLElement | null;
+    // O `body` não é um destino de foco útil — devolver para ele é o mesmo que não devolver.
+    this.focoAnterior = ativo && ativo !== document.body ? ativo : null;
+  }
+
+  private restaurarFoco(): void {
+    const alvo = this.focoAnterior;
+    this.focoAnterior = null;
+    // `isConnected` porque a tela que tinha o foco pode ter sido removida do DOM enquanto a
+    // outra estava aberta; focar um nó órfão não faz nada e ainda esconde o motivo.
+    if (alvo?.isConnected) alvo.focus?.();
+  }
+
+  private focarPrimeiro(tela: UIScreen): void {
+    if (!tela.raiz) return;
+    const focaveis = this.focaveisDe(tela.raiz);
+    focaveis[0]?.focus?.();
+  }
+
+  /**
+   * Liga a armadilha. Chamada uma vez pelo `main`, como `configureRelockOnClick`.
+   *
+   * Na captura, e não na bolha: um handler de Tab dentro de uma tela — um editor de código, por
+   * exemplo — chamaria `stopPropagation` e a armadilha nunca veria a tecla.
+   */
+  public configurarArmadilhaDeFoco(): void {
+    if (typeof document === 'undefined') return;
+    document.addEventListener('keydown', (e) => this.tratarTab(e), true);
+  }
+
+  /** Exposto para teste: o efeito é observável, mas o evento real exige um navegador. */
+  public tratarTab(e: KeyboardEvent): void {
+    if (e.key !== 'Tab') return;
+    const raiz = this.raizAtiva();
+    if (!raiz) return;
+
+    const focaveis = this.focaveisDe(raiz);
+    if (focaveis.length === 0) {
+      // Tela sem nada focável: engolir o Tab é melhor que deixá-lo cair no que está por baixo,
+      // onde o jogador não consegue ver o que ganhou foco.
+      e.preventDefault();
+      return;
+    }
+
+    const primeiro = focaveis[0];
+    const ultimo = focaveis[focaveis.length - 1];
+    const atual = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+
+    // O foco estava fora da tela: traz para dentro em vez de continuar de onde estava.
+    if (!atual || !raiz.contains(atual)) {
+      e.preventDefault();
+      (e.shiftKey ? ultimo : primeiro).focus?.();
+      return;
+    }
+
+    if (e.shiftKey && atual === primeiro) {
+      e.preventDefault();
+      ultimo.focus?.();
+    } else if (!e.shiftKey && atual === ultimo) {
+      e.preventDefault();
+      primeiro.focus?.();
+    }
   }
 
   public isAnyBlockingOpen(): boolean {

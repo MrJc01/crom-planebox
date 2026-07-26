@@ -244,3 +244,26 @@ describe('Tabs — a tela lembra onde o jogador estava', () => {
     expect(t.painelDe('nova')!.style.display).not.toBe('none');
   });
 });
+
+describe('Tabs — o hub lembra a aba entre abrir e fechar', () => {
+  it('CRÍTICO: `iniciar()` sem argumento reabre na última aba, não na primeira', () => {
+    // É o contrato de que o `PauseMenu` depende: ele guarda o `Tabs` num campo e chama
+    // `iniciar()` a cada `open()`. Se isso caísse na primeira aba, fechar e reabrir o hub para
+    // conferir uma coisa no jogo devolveria o jogador ao começo toda vez.
+    const { t } = montarTres();
+    t.iniciar();
+    t.ir('c');
+    t.iniciar(); // simula fechar e reabrir a tela
+    expect(visiveis(t)).toEqual(['c']);
+  });
+
+  it('reabrir REATIVA a aba, para o conteúdo não ficar velho', () => {
+    // A diferença entre montar (uma vez) e ativar (sempre). Sem a reativação, o hub reabriria
+    // mostrando o número de jogadores conectados de dez minutos atrás.
+    const { t, ativacoes, montagens } = montarTres();
+    t.iniciar();
+    t.iniciar();
+    expect(ativacoes).toEqual(['a', 'a']);
+    expect(montagens.a).toBe(1);
+  });
+});

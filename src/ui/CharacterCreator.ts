@@ -27,6 +27,9 @@ export class CharacterCreator implements UIScreen {
   public isOpen = false;
 
   private root: HTMLDivElement;
+
+  /** Raiz no DOM, para a armadilha de foco do `UIManager` prender o Tab aqui dentro. */
+  public get raiz(): HTMLElement { return this.root; }
   private previewHost: HTMLDivElement;
   private slotsHost: HTMLDivElement;
 

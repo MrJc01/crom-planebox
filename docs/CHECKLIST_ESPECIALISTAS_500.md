@@ -1,11 +1,11 @@
-# Checklist Mestre — Painel de Especialistas (1197 itens)
+# Checklist Mestre — Painel de Especialistas (1192 itens)
 
-> **Estado em 26/07/2026** — 517 de 1197 itens tratados (43%), com **731 testes** passando,
+> **Estado em 26/07/2026** — 512 de 1192 itens tratados (42%), com **731 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 86 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[x]` | 81 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
 > | `[~]` | 431 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 680 | Pendente. |
 >
@@ -2638,7 +2638,12 @@ Um detalhe que só aparece medindo: a luminância usa os c### Entregue nesta rod
 
 ---
 
-## 45. Segunda rodada do relato — 26/07/2026 (o padrão se repetiu duas vezes)
+## 46. Segunda rodada do relato — 26/07/2026 (o padrão se repetiu duas vezes)
+
+> **Correção de integridade deste documento.** Numerei esta seção sem conferir o maior número já
+> usado e colidi com a seção 45: treze itens ficaram duplicados (1147, 1149, 1170, 1172, 1173 e
+> 1179–1185, 1187–1192). Renumerei os meus para 1196–1208 e transformei em prosa as cinco linhas
+> que eram só releitura de itens já numerados. A contagem do cabeçalho estava inflada por isso.
 
 > Esta rodada encontrou **mais dois casos do mesmo defeito estrutural** que a seção 44 já
 > documentava, elevando a contagem de cinco para sete. Vale registrar porque o padrão agora é
@@ -2665,13 +2670,13 @@ Duas causas, e a segunda é a grave:
 
 ### Entregue
 
-- [~] 1179 `P0` **Onda da água ligada** — `applyCurvature(waterMaterial, true)`, e também na água em aparição, senão o lago pararia de ondular durante os 0,6 s do surgimento do chunk
-- [~] 1180 `P0` **Três testes de fiação da onda**, que leem o código fonte de `scene.ts`. Textuais, com a fragilidade que isso implica, e ainda assim válidos: falham exatamente no acidente ocorrido. O ideal seria instanciar `createScene`, mas ela constrói um `WebGLRenderer` e jsdom não tem GPU.
-- [~] 1181 `P0` **Todo `z-index` passou a sair de `CAMADA`** — nenhum literal em `src/`
-- [~] 1182 `P0` **Regra codificada: bloqueante sempre acima de flutuante**
-- [~] 1183 `P1` **Teste que varre `src/ui/` e `main.ts` e reprova `z-index` literal** — a tabela existir nunca impediu ninguém de ignorá-la (item 1157, antecipado)
-- [~] 1184 `P1` **Camadas para toast e para a dica de retomada**, que antes eram números soltos
-- [~] 1185 `P1` **Uma branch só.** `main` recebeu os 39 commits de `feat/mods-fluidos-personagem`; a branch de trabalho e a `claude/game-system-ai-mods-3f30f7` (worktree órfã) foram removidas local e remotamente, depois de conferido que nenhuma tinha commit exclusivo.
+- [~] 1196 `P0` **Onda da água ligada** — `applyCurvature(waterMaterial, true)`, e também na água em aparição, senão o lago pararia de ondular durante os 0,6 s do surgimento do chunk
+- [~] 1197 `P0` **Três testes de fiação da onda**, que leem o código fonte de `scene.ts`. Textuais, com a fragilidade que isso implica, e ainda assim válidos: falham exatamente no acidente ocorrido. O ideal seria instanciar `createScene`, mas ela constrói um `WebGLRenderer` e jsdom não tem GPU.
+- [~] 1198 `P0` **Todo `z-index` passou a sair de `CAMADA`** — nenhum literal em `src/`
+- [~] 1199 `P0` **Regra codificada: bloqueante sempre acima de flutuante**
+- [~] 1200 `P1` **Teste que varre `src/ui/` e `main.ts` e reprova `z-index` literal** — a tabela existir nunca impediu ninguém de ignorá-la (item 1157, antecipado)
+- [~] 1201 `P1` **Camadas para toast e para a dica de retomada**, que antes eram números soltos
+- [~] 1202 `P1` **Uma branch só.** `main` recebeu os 39 commits de `feat/mods-fluidos-personagem`; a branch de trabalho e a `claude/game-system-ai-mods-3f30f7` (worktree órfã) foram removidas local e remotamente, depois de conferido que nenhuma tinha commit exclusivo.
 
 ### O que já veio pronto do seu lado
 
@@ -2679,16 +2684,14 @@ Ao retomar, encontrei no `SignalingClient` e no `PeerSync` o que a seção 44 li
 em multijogador: **`BroadcastChannel`** para abas do mesmo navegador (o caminho 100% cliente),
 sinalização **manual por token** e o seletor de modo no `PauseMenu`. Isso cobre 1170, 1172 e 1173.
 
-- [x] 1170 Multijogador local sem servidor, via `BroadcastChannel`
-- [x] 1172 Mensagem de erro do online dizendo o que fazer (`lastError`)
-- [x] 1173 Sinalização manual por copiar/colar
+Estes já estavam numerados nas seções anteriores e foram apenas **reconferidos** aqui, não recriados: 1147 e 1149 (telas no componente `Tabs`), 1170, 1172 e 1173 (multijogador local, mensagens de erro e sinalização manual).
 
 ### Pendente
 
-- [ ] 1187 `P1` Layout do inventário em duas colunas, como a referência (1150)
-- [ ] 1188 `P1` `npm run relay` e URL padrão preenchida (1171 segue aberto)
-- [ ] 1189 `P1` Sombra das nuvens no chão
-- [ ] 1190 `P2` Teste que compile o GLSL de verdade, com WebGL headless — hoje nada compila os shaders, e o sintoma de um erro é o terreno sumir
+- [ ] 1203 `P1` Layout do inventário em duas colunas, como a referência (1150)
+- [x] 1204 `P1` ~~`npm run relay` e URL padrão~~ — **auditado e já feito**: o script existe em `package.json` e o campo abre com `ws://localhost:8787`. Eu tinha escrito "1171 segue aberto" sem conferir.
+- [ ] 1205 `P1` Sombra das nuvens no chão
+- [ ] 1206 `P2` Teste que compile o GLSL de verdade, com WebGL headless — hoje nada compila os shaders, e o sintoma de um erro é o terreno sumir
 
 ### Rodada seguinte — a aba que o jogador perdia
 
@@ -2706,7 +2709,6 @@ anterior, e a montagem preguiçosa passaria a mostrar dados de outro mod até a 
 A escolha mora fora do componente, e um id desconhecido cai na primeira aba em vez de deixar a
 tela em branco.
 
-- [x] 1147 `InventoryModal` no componente `Tabs` — já estava feito
-- [x] 1149 `ModsPage` no componente `Tabs` — já estava feito
-- [~] 1191 `P1` **A tela de mods lembra a aba aberta** entre redesenhos (item 1155, para esta tela)
-- [~] 1192 `P1` **Três testes da memória de aba**, inclusive o caso de uma aba gravada que não existe mais numa versão nova
+Estes já estavam numerados nas seções anteriores e foram apenas **reconferidos** aqui, não recriados: 1147 e 1149 (telas no componente `Tabs`), 1170, 1172 e 1173 (multijogador local, mensagens de erro e sinalização manual).
+- [~] 1207 `P1` **A tela de mods lembra a aba aberta** entre redesenhos (item 1155, para esta tela)
+- [~] 1208 `P1` **Três testes da memória de aba**, inclusive o caso de uma aba gravada que não existe mais numa versão nova

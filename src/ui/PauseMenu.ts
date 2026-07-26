@@ -46,6 +46,9 @@ export interface PauseMenuDeps {
 export class PauseMenu {
   public readonly id = 'pause';
   private overlay: HTMLDivElement;
+
+  /** Raiz no DOM, para a armadilha de foco do `UIManager` prender o Tab aqui dentro. */
+  public get raiz(): HTMLElement { return this.overlay; }
   private tabsComponent: Tabs;
   public isOpen = false;
   private lastRelayUrl = '';

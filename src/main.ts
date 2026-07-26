@@ -1242,6 +1242,12 @@ async function bootstrap() {
   // o pedido automático. O clique no canvas é esse gesto.
   uiManager.configureRelockOnClick(gs.renderer.domElement);
 
+  // Prende o Tab dentro da tela aberta. Sem isto o foco sai por baixo: vai parar num botão da
+  // hotbar ou num campo do chat que o jogador não vê, ele aperta Enter e algo acontece em outro
+  // lugar. É a mesma família do "clico numa coisa e abre outra", só que pelo teclado — e pior,
+  // porque não há nem para onde olhar.
+  uiManager.configurarArmadilhaDeFoco();
+
   // A dica é o **botão** de retomada, não um aviso.
   //
   // Antes ela era um `div` com `pointer-events: none` e z-index baixo: dizia "clique para voltar"

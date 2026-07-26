@@ -12,6 +12,9 @@ type PaletteTab = 'blocks' | 'interactive' | 'items';
 export class InventoryModal {
   public readonly id = 'inventory';
   private overlay: HTMLDivElement;
+
+  /** Raiz no DOM, para a armadilha de foco do `UIManager` prender o Tab aqui dentro. */
+  public get raiz(): HTMLElement { return this.overlay; }
   private hotbarContainer: HTMLDivElement;
   private modalHotbarContainer: HTMLDivElement;
   private statsPanelContainer: HTMLDivElement;
