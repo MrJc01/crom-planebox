@@ -11,6 +11,7 @@
 // Salvar gera uma revisão do mod e recarrega o script na hora. Recarregar dispara `unload` antes,
 // para o mod limpar o que criou; sem isso, cada salvamento acumularia handlers duplicados.
 
+import { CAMADA } from './theme';
 import { UIScreen } from './UIManager';
 import { ModService } from '../mods/ModService';
 import { ModRuntime } from '../mods/ModRuntime';
@@ -63,7 +64,7 @@ export class CodeEditorPage implements UIScreen {
     const root = document.createElement('div');
     root.id = 'code-editor';
     root.style.cssText = `
-      position: fixed; inset: 0; z-index: 63; display: none;
+      position: fixed; inset: 0; z-index: ${CAMADA.tela}; display: none;
       background: rgba(2,6,23,0.96); color:#e2e8f0;
       font-family: system-ui, sans-serif; padding: 20px; box-sizing: border-box;
     `;

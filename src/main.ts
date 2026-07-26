@@ -1,3 +1,4 @@
+import { CAMADA } from './ui/theme';
 import * as THREE from 'three';
 import { createScene } from './render/scene';
 import { World } from './world/world';
@@ -1253,7 +1254,7 @@ async function bootstrap() {
     position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
     background: rgba(2,6,23,0.9); color: #e2e8f0; font-family: system-ui, sans-serif;
     font-size: 15px; line-height: 1.5; padding: 14px 26px; border-radius: 10px;
-    border: 1px solid #334155; cursor: pointer; z-index: 2147483000; display: none;
+    border: 1px solid #334155; cursor: pointer; z-index: ${CAMADA.retomada}; display: none;
   `;
   dicaClique.onclick = (e) => {
     e.stopPropagation();

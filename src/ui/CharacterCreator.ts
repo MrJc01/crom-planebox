@@ -7,6 +7,7 @@
 // O que é salvo aqui vale para todos os mundos e é o que os outros jogadores enxergam na
 // sessão P2P, porque a aparência viaja no `player_state` (ver `src/net/protocol.ts`).
 
+import { CAMADA } from './theme';
 import * as THREE from 'three';
 import { UIScreen } from './UIManager';
 import {
@@ -71,7 +72,7 @@ export class CharacterCreator implements UIScreen {
     const root = document.createElement('div');
     root.id = 'character-creator';
     root.style.cssText = `
-      position: fixed; inset: 0; z-index: 60; display: none;
+      position: fixed; inset: 0; z-index: ${CAMADA.tela}; display: none;
       background: rgba(2, 6, 23, 0.92); backdrop-filter: blur(6px);
       color: #e2e8f0; font-family: system-ui, sans-serif;
       align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;

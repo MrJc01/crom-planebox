@@ -1,5 +1,6 @@
 // Assistente de criação de mundo: configura tudo ANTES de gerar (nome, seed, terreno,
 // modo de jogo padrão, se conecta à Crom) — em vez do antigo prompt() simplório de nome.
+import { CAMADA } from './theme';
 import { WorldRepository } from '../storage/WorldRepository';
 import { WorldRecord, GameMode, CURRENT_SAVE_VERSION } from '../storage/Database';
 import { BLOCKS, B } from '../world/blocks';
@@ -16,7 +17,7 @@ export class WorldCreationWizard {
     this.overlay = document.createElement('div');
     this.overlay.id = 'world-wizard';
     this.overlay.style.cssText = `
-      position: fixed; inset: 0; z-index: 1900;
+      position: fixed; inset: 0; z-index: ${CAMADA.assistente};
       background: rgba(6,10,20,0.9); backdrop-filter: blur(8px);
       display: none; align-items: center; justify-content: center;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #f8fafc;

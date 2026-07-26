@@ -4,7 +4,7 @@ import { Interaction } from '../player/interaction';
 import { CraftingSystem, CraftCell, CraftingRecipe } from '../crafting/CraftingSystem';
 import { STRUCTURE_TEMPLATES } from '../crafting/StructureTemplates';
 import { Tabs } from './Tabs';
-import { CORES, RAIO } from './theme';
+import { CAMADA, CORES, RAIO } from './theme';
 import { icone } from './icons';
 
 type PaletteTab = 'blocks' | 'interactive' | 'items';
@@ -47,7 +47,7 @@ export class InventoryModal {
       padding: 6px;
       border-radius: 12px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      z-index: 20;
+      z-index: ${CAMADA.hotbar};
       user-select: none;
     `;
     document.body.appendChild(this.hotbarContainer);
@@ -60,7 +60,7 @@ export class InventoryModal {
       background: rgba(6, 10, 20, 0.82);
       backdrop-filter: blur(10px);
       display: flex; flex-direction: column;
-      z-index: 100;
+      z-index: ${CAMADA.tela};
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s ease;

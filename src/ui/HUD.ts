@@ -1,3 +1,4 @@
+import { CAMADA } from './theme';
 import { CameraManager, CameraMode } from '../engine/CameraManager';
 import { icone_svg } from './icons';
 
@@ -25,7 +26,7 @@ export class HUD {
       pointer-events: none;
       user-select: none;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      z-index: 10;
+      z-index: ${CAMADA.hud};
     `;
 
     // Crosshair in screen center
@@ -265,7 +266,7 @@ export class HUD {
       font-weight: 600;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
       pointer-events: none;
-      z-index: 100;
+      z-index: ${CAMADA.aviso};
       transition: opacity 0.3s ease;
     `;
     toast.textContent = msg;

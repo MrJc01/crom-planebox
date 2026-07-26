@@ -1,3 +1,4 @@
+import { CAMADA } from './theme';
 import { OpenRouterClient } from '../ai/OpenRouterClient';
 import { WorldRepository } from '../storage/WorldRepository';
 import { ChatMessageRecord, ChatThreadRecord } from '../storage/Database';
@@ -60,7 +61,7 @@ export class ChatOverlay {
       display: flex;
       flex-direction: column;
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-      z-index: 100;
+      z-index: ${CAMADA.flutuante};
       overflow: hidden;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       pointer-events: auto;
@@ -238,7 +239,7 @@ export class ChatOverlay {
       flex-direction: column;
       gap: 4px;
       pointer-events: none;
-      z-index: 90;
+      z-index: ${CAMADA.flutuanteFundo};
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     `;
     document.body.appendChild(this.floatingLog);

@@ -8,7 +8,7 @@ import { GameModeManager, GAME_MODE_RULES } from '../game/GameModeManager';
 import { PeerSync } from '../net/PeerSync';
 import { SignalingClient } from '../net/SignalingClient';
 import type { GameMode } from '../storage/Database';
-import { CORES, RAIO, botao, cartao, deslizante, rotulo } from './theme';
+import { CAMADA, CORES, RAIO, botao, cartao, deslizante, rotulo } from './theme';
 import { NomeIcone, icone } from './icons';
 import type { KnownPlayer } from '../commands/CommandSystem';
 import { Tabs } from './Tabs';
@@ -55,7 +55,7 @@ export class PauseMenu {
     this.overlay.id = 'pause-menu';
     this.overlay.style.cssText = `
       position: fixed; inset: 0; background: rgba(6,10,20,0.82); backdrop-filter: blur(10px);
-      z-index: 1000; display: flex; flex-direction: column;
+      z-index: ${CAMADA.pausa}; display: flex; flex-direction: column;
       opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #f8fafc;
     `;

@@ -7,7 +7,7 @@
 // O painel só mede quando está aberto: instrumentar custa, e ninguém deve pagar por uma
 // medição que não pediu.
 
-import { CORES, FONTE_MONO } from './theme';
+import { CAMADA, CORES, FONTE_MONO } from './theme';
 import { profiler } from '../core/profiler';
 
 export interface FontesDiagnostico {
@@ -35,7 +35,7 @@ export class DebugPanel {
     this.raiz = document.createElement('div');
     this.raiz.id = 'debug-panel';
     this.raiz.style.cssText = `
-      position: fixed; top: 10px; left: 10px; z-index: 45; display: none;
+      position: fixed; top: 10px; left: 10px; z-index: ${CAMADA.depuracao}; display: none;
       background: rgba(2,6,23,0.86); border: 1px solid ${CORES.borda}; border-radius: 8px;
       padding: 10px 13px; color: ${CORES.texto}; font-family: ${FONTE_MONO};
       font-size: 11.5px; line-height: 1.55; pointer-events: none;

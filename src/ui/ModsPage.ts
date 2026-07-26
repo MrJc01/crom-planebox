@@ -1,6 +1,7 @@
 // Página de Mods: ver, ativar, versionar e exportar as modificações do mundo.
 // Migrada para o componente Tabs (Item 1149).
 
+import { CAMADA } from './theme';
 import { UIScreen } from './UIManager';
 import { ModService } from '../mods/ModService';
 import { ModRuntime } from '../mods/ModRuntime';
@@ -33,7 +34,7 @@ export class ModsPage implements UIScreen {
     const root = document.createElement('div');
     root.id = 'mods-page';
     root.style.cssText = `
-      position: fixed; inset: 0; z-index: 62; display: none;
+      position: fixed; inset: 0; z-index: ${CAMADA.tela}; display: none;
       background: rgba(2,6,23,0.94); backdrop-filter: blur(6px);
       color: #e2e8f0; font-family: system-ui, sans-serif;
       align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;

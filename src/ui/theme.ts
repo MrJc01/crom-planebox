@@ -55,14 +55,53 @@ export const ESTREITO = '(max-width: 860px)';
 export const FONTE = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 export const FONTE_MONO = "ui-monospace, 'SF Mono', Menlo, monospace";
 
-/** Camadas de empilhamento. Concentradas aqui para não haver disputa de z-index entre telas. */
+/**
+ * Camadas de empilhamento.
+ *
+ * ## O defeito que esta tabela corrige
+ *
+ * Ela já existia e **quase ninguém a usava**: sete das nove telas escreviam `z-index` literal.
+ * O resultado foi o relato "às vezes os menus ficam sobrepostos", e havia duas causas distintas:
+ *
+ *  1. **Empate.** HUD (aviso), `InventoryModal` e `ChatOverlay` estavam todos em `100`. Quando o
+ *     `z-index` empata, quem vence é a ordem no DOM — que depende de qual tela foi construída
+ *     primeiro. Daí o "às vezes": o mesmo par de telas trocava de ordem entre sessões.
+ *  2. **Ordem invertida.** As telas bloqueantes estavam em 60–63 e o chat, que é flutuante, em
+ *     90–100. Ou seja: o chat desenhava **por cima** da página de mods, que é a tela que deveria
+ *     estar bloqueando tudo.
+ *
+ * A regra que a tabela codifica é: **bloqueante sempre acima de flutuante**. Uma tela bloqueante
+ * é a única coisa com que o jogador pode interagir enquanto está aberta; se algo a cobre, ela
+ * deixou de bloquear.
+ *
+ * Telas bloqueantes irmãs compartilham `tela` de propósito — o `UIManager` garante que só uma
+ * fica aberta por vez, então não há empate possível entre elas.
+ */
 export const CAMADA = {
   hud: 10,
+  hotbar: 20,
+  depuracao: 30,
   dica: 40,
+  /** Painéis que convivem com o jogo: registro do chat. */
+  flutuanteFundo: 49,
+  /** Painéis que convivem com o jogo: entrada do chat, acima do próprio registro. */
   flutuante: 50,
+  /** Telas bloqueantes: inventário, personagem, mods, editor de código. */
   tela: 60,
   hub: 70,
+  pausa: 80,
+  assistente: 90,
   menuInicial: 2000,
+  /** Avisos passageiros. Acima de tudo: avisam justamente sobre o que está por baixo. */
+  aviso: 2100,
+  /**
+   * A dica "clique para voltar ao jogo".
+   *
+   * O topo absoluto, e não uma camada a mais na escala, porque ela é o caminho de recuperação:
+   * se qualquer coisa ficar por cima dela, o jogador perde o controle da câmera sem saída — que
+   * foi exatamente o bug relatado antes.
+   */
+  retomada: 2147483000,
 } as const;
 
 /**
