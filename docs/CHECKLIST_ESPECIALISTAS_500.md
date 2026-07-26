@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1263 itens)
+# Checklist Mestre — Painel de Especialistas (1265 itens)
 
-> **Estado em 26/07/2026** — 591 de 1263 itens tratados (46%), com **839 testes** passando,
+> **Estado em 26/07/2026** — 594 de 1265 itens tratados (46%), com **846 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 86 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 505 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 672 | Pendente. |
+> | `[~]` | 508 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 671 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -577,7 +577,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 
 - [x] 401 `P0` Geração de chunk fora da thread principal
 - [x] 401b `P0` Save de blocos em lote (era 2N round-trips, virou 2 escritas)
-- [ ] 402 `P0` Orçamento de frame: limitar chunks re-meshados por frame
+- [~] 402 `P0` **Orçamento de quadro adaptativo** — havia um limite por contagem; faltava reagir ao custo real
 - [~] 403 `P0` **Mesh em Web Worker — `src/world/meshWorker.ts`, com buffers transferidos nos dois sentidos**
 - [~] 404 `P1` **Pool de buffers reaproveitados em vez de realocar 300 KB por re-mesh**
 - [~] 405 `P1` **`dispose()` do chunk anterior ao aplicar a malha nova**
@@ -3142,3 +3142,29 @@ percebe até alguém tentar reverter.
 - [~] 1276 `P0` **Cinco escritas diretas convertidas** (`set_block`, `fill_box`, e três dentro de `execute_voxel_script`)
 - [~] 1277 `P1` **Teste que conta as escritas diretas no fonte** e aceita exatamente uma
 - [~] 1278 `P1` **Silencioso em sessão livre** — sem mod vinculado não há a quem atribuir, e isso é modo de uso legítimo, não erro
+
+### Item 402 — orçamento que reage ao custo real
+
+Já existia um limite por **contagem**, derivado do alcance de visão: `Math.max(2, viewRadius / 2)`.
+É metade do problema, e a metade fácil.
+
+O que faltava é o que dá nome ao item. Numa máquina lenta, ou num momento caro (tempestade com
+partículas, muitas criaturas em volta), gerar o mesmo número de malhas transforma um quadro pesado
+numa **engasgada visível**. O orçamento agora encolhe quando o quadro passa do alvo e volta a
+crescer quando sobra tempo.
+
+A troca é deliberada: **atraso se percebe menos que solavanco.** O mundo carrega um pouco mais
+devagar em vez de travar.
+
+Três decisões que os testes fixaram:
+
+- **Desce depressa, sobe devagar.** Um solavanco precisa de resposta imediata; recuperar o ritmo
+  pode levar quadros. Simétrico produziria vaivém — um controle que corrige demais passa a causar
+  o problema que deveria resolver.
+- **Nunca chega a zero.** O custo alto não vem só das malhas, então parar de gerá-las não conserta
+  o quadro e ainda congelaria o carregamento para sempre.
+- **Zona morta entre 1,1× e 1,5× do alvo**, senão um quadro parado no limite alternaria subir e
+  descer indefinidamente.
+
+- [~] 1279 `P0` **`OrcamentoDeQuadro`** em módulo próprio — dentro de `bootstrap()` não seria testável sem subir o jogo
+- [~] 1280 `P1` **7 testes**, incluindo a assimetria subida/descida e o piso que impede o congelamento

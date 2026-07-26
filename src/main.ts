@@ -1,4 +1,5 @@
 import { CAMADA } from './ui/theme';
+import { OrcamentoDeQuadro } from './render/orcamentoQuadro';
 import * as THREE from 'three';
 import { createScene } from './render/scene';
 import { World } from './world/world';
@@ -219,13 +220,27 @@ async function bootstrap() {
     meshes.delete(key);
   }
 
-  function streamChunks(): void {
+  /** `dt` é o tempo do último quadro, em segundos — entra só no orçamento de malhas. */
+  const orcamentoQuadro = new OrcamentoDeQuadro();
+
+  function streamChunks(dt = 0.016): void {
     const pcx = Math.floor(player.pos.x / CX);
     const pcz = Math.floor(player.pos.z / CZ);
 
     const viewRadius = cameraManager.renderDistance;
     const unloadRadius = viewRadius + 3;
-    const meshBudget = Math.max(2, Math.floor(viewRadius / 2));
+    // Orçamento de malhas por quadro — item 402.
+    //
+    // A base vem do alcance de visão: quanto mais longe se enxerga, mais chunks precisam ficar
+    // prontos para o mundo não aparecer aos pedaços. Mas base fixa é só metade do problema, e a
+    // metade fácil.
+    //
+    // O que faltava é reagir ao custo REAL. Numa máquina lenta, ou num momento caro (tempestade
+    // com partículas, muitas criaturas), gerar o mesmo número de malhas transforma um quadro
+    // pesado numa engasgada visível. `orcamentoDeMalhas` encolhe quando o quadro passa do alvo e
+    // volta a crescer quando sobra tempo — o mundo carrega um pouco mais devagar em vez de
+    // travar, que é a troca certa: atraso se percebe menos que solavanco.
+    const meshBudget = orcamentoQuadro.paraEste(Math.max(2, Math.floor(viewRadius / 2)), dt);
 
     if (inflight < MAX_INFLIGHT) {
       const wanted: [number, number, number][] = [];
@@ -1629,7 +1644,7 @@ async function bootstrap() {
     streamAccum += dt;
     if (streamAccum > 0.05) {
       streamAccum = 0;
-      profiler.begin('chunks'); streamChunks(); profiler.end('chunks');
+      profiler.begin('chunks'); streamChunks(dt); profiler.end('chunks');
     }
 
     // A dica do cursor precisa sumir na mesma hora em que um menu abre, senão fica por cima
