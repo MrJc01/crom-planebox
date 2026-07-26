@@ -10,6 +10,7 @@
 import { Value3 } from '../core/noise';
 import { hash3 } from '../core/rng';
 import { B } from './blocks';
+import { BiomeId, abundanciaDeMinerio } from './biomes';
 import { SCALE } from './chunk';
 
 /** Nenhuma caverna abre buraco a menos que isto de voxels da superfície. */
@@ -28,6 +29,8 @@ export interface OreTier {
   rarity: number;
   /** Raio aproximado do veio, em mini-voxels. */
   veinRadius: number;
+  /** Nome simbólico, para o bioma poder ajustar a abundância sem conhecer ids de bloco. */
+  chave: 'carvao' | 'ferro' | 'ouro' | 'diamante';
 }
 
 /**
@@ -35,10 +38,10 @@ export interface OreTier {
  * sobrepõem de propósito — descer é sempre um pouco mais lucrativo, sem zonas mortas.
  */
 export const ORE_TIERS: OreTier[] = [
-  { block: B.COAL_ORE, minDepth: 2, maxDepth: 40, rarity: 0.42, veinRadius: 2.4 },
-  { block: B.IRON_ORE, minDepth: 6, maxDepth: 30, rarity: 0.26, veinRadius: 2.0 },
-  { block: B.GOLD_ORE, minDepth: 14, maxDepth: 24, rarity: 0.12, veinRadius: 1.6 },
-  { block: B.DIAMOND_ORE, minDepth: 20, maxDepth: 26, rarity: 0.05, veinRadius: 1.3 },
+  { block: B.COAL_ORE, minDepth: 2, maxDepth: 40, rarity: 0.42, veinRadius: 2.4, chave: 'carvao' },
+  { block: B.IRON_ORE, minDepth: 6, maxDepth: 30, rarity: 0.26, veinRadius: 2.0, chave: 'ferro' },
+  { block: B.GOLD_ORE, minDepth: 14, maxDepth: 24, rarity: 0.12, veinRadius: 1.6, chave: 'ouro' },
+  { block: B.DIAMOND_ORE, minDepth: 20, maxDepth: 26, rarity: 0.05, veinRadius: 1.3, chave: 'diamante' },
 ];
 
 /** Aresta da célula de veio, em mini-voxels. Cada célula sorteia no máximo um veio. */
@@ -95,7 +98,14 @@ export class UndergroundGen {
    * e os voxels dentro do raio viram minério. Isso agrupa o minério em bolsões — procurar tem
    * recompensa —, ao contrário de salpicar voxels isolados pela rocha.
    */
-  oreAt(vx: number, vy: number, vz: number, surfaceY: number): number {
+  /**
+   * Minério nesta posição, ou 0.
+   *
+   * `bioma` ajusta a abundância de cada tipo, e **pode zerá-la**: não há diamante no deserto por
+   * mais fundo que se cave, e é isso que dá razão para atravessar o mundo. Ausente = abundância
+   * uniforme, que preserva o comportamento anterior e mantém os testes de subsolo válidos.
+   */
+  oreAt(vx: number, vy: number, vz: number, surfaceY: number, bioma?: BiomeId): number {
     if (vy <= BEDROCK) return 0;
     const depthMeters = (surfaceY - vy) / SCALE;
     if (depthMeters < ORE_TIERS[0].minDepth) return 0;
@@ -111,7 +121,9 @@ export class UndergroundGen {
     for (let i = ORE_TIERS.length - 1; i >= 0; i--) {
       const tier = ORE_TIERS[i];
       if (depthMeters < tier.minDepth || depthMeters > tier.maxDepth) continue;
-      if (roll >= tier.rarity) continue;
+      const abundancia = bioma ? abundanciaDeMinerio(bioma, tier.chave) : 1;
+      if (abundancia <= 0) continue; // não existe neste bioma
+      if (roll >= tier.rarity * abundancia) continue;
 
       // Centro do veio dentro da célula, para os bolsões não ficarem alinhados na grade.
       const ox = cx * VEIN_CELL + hash3(cx, cy, cz, this.seed ^ 0x1111) * VEIN_CELL;

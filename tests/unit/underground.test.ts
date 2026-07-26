@@ -220,3 +220,63 @@ describe('UndergroundGen — veios de minério', () => {
     }
   });
 });
+
+describe('minério por bioma — a expedição é real no mundo gerado', () => {
+  it('CRÍTICO: varrer o deserto inteiro não produz um diamante', () => {
+    // O item 668 do checklist ("recurso exclusivo — o que obriga a expedição") só é verdade se
+    // for verdade no MUNDO, não só na tabela de abundância. Este teste varre o volume inteiro
+    // em que o diamante poderia aparecer.
+    const g = new UndergroundGen(4242);
+    const superficie = 34 * SCALE;
+    let achou = 0;
+    for (let x = 0; x < 90; x += 1) {
+      for (let z = 0; z < 90; z += 1) {
+        for (let y = superficie - 26 * SCALE; y < superficie - 19 * SCALE; y++) {
+          if (g.oreAt(x, y, z, superficie, 'deserto') === B.DIAMOND_ORE) achou++;
+        }
+      }
+    }
+    expect(achou).toBe(0);
+  });
+
+  it('CRÍTICO: o mesmo volume na tundra produz diamante', () => {
+    // Sem este par, o teste acima passaria também se `oreAt` estivesse simplesmente quebrado.
+    const g = new UndergroundGen(4242);
+    const superficie = 34 * SCALE;
+    let achou = 0;
+    for (let x = 0; x < 90; x += 1) {
+      for (let z = 0; z < 90; z += 1) {
+        for (let y = superficie - 26 * SCALE; y < superficie - 19 * SCALE; y++) {
+          if (g.oreAt(x, y, z, superficie, 'tundra') === B.DIAMOND_ORE) achou++;
+        }
+      }
+    }
+    expect(achou).toBeGreaterThan(0);
+  });
+
+  it('sem bioma informado, o comportamento é o de antes', () => {
+    // Chamadores antigos e testes de subsolo continuam valendo: a abundância padrão é uniforme.
+    const g = new UndergroundGen(99);
+    const superficie = 34 * SCALE;
+    for (let y = superficie - 30 * SCALE; y < superficie; y += 3) {
+      expect(g.oreAt(11, y, 13, superficie)).toBe(g.oreAt(11, y, 13, superficie, 'planicie'));
+    }
+  });
+
+  it('o ouro é mais abundante no deserto que na tundra, no mesmo volume', () => {
+    const g = new UndergroundGen(777);
+    const superficie = 34 * SCALE;
+    const contar = (bioma: 'deserto' | 'tundra'): number => {
+      let n = 0;
+      for (let x = 0; x < 70; x++) {
+        for (let z = 0; z < 70; z++) {
+          for (let y = superficie - 24 * SCALE; y < superficie - 13 * SCALE; y += 2) {
+            if (g.oreAt(x, y, z, superficie, bioma) === B.GOLD_ORE) n++;
+          }
+        }
+      }
+      return n;
+    };
+    expect(contar('deserto')).toBeGreaterThan(contar('tundra'));
+  });
+});

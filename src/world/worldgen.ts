@@ -15,6 +15,27 @@ import { hash2, clamp, smoothstep, lerp } from '../core/rng';
 import { B } from './blocks';
 import { CX, CY, CZ, SCALE, blockIndex } from './chunk';
 import { UndergroundGen } from './underground';
+import { BiomeId, biomaDominanteRapido } from './biomes';
+
+/**
+ * Multiplicador de densidade de árvore por bioma.
+ *
+ * Zero é uma decisão de leitura, não de realismo: uma árvore isolada no meio da areia destrói o
+ * reconhecimento do bioma mais do que qualquer outro detalhe. Biomas ausentes valem 1.
+ */
+const DENSIDADE_DE_ARVORE: Partial<Record<BiomeId, number>> = {
+  deserto: 0,
+  tundra: 0,
+  oceano: 0,
+  praia: 0,
+  savana: 0.18,
+  planicie: 0.5,
+  montanha: 0.35,
+  pantano: 0.7,
+  floresta: 1.35,
+  taiga: 1.25,
+  selva: 1.6,
+};
 
 /** nível do mar em mini-voxels (20 m) */
 export const WATER_LEVEL = 20 * SCALE;
@@ -30,6 +51,15 @@ export interface ColumnInfo {
   temp: number;       // -1..1
   moist: number;      // -1..1
   forest: number;     // 0..1 densidade de floresta (colore o LOD distante)
+  /**
+   * Bioma dominante da coluna.
+   *
+   * Antes desta rodada o gerador decidia superfície e vegetação por limiares próprios, e o
+   * módulo de biomas só alimentava névoa e cor — o mundo tinha atmosfera de bioma e nenhum
+   * bioma. Agora é a mesma fonte que decide as duas coisas, e o que o jogador vê no horizonte
+   * corresponde ao que ele pisa.
+   */
+  bioma: BiomeId;
 }
 
 export class WorldGen {
@@ -116,19 +146,46 @@ export class WorldGen {
     // metros → mini-voxels
     const hi = clamp(Math.round(h * SCALE), 1, CY - 10);
 
-    // bloco de superfície
+    // Bioma dominante — a mesma função que governa névoa, cor e estação.
+    const bioma = biomaDominanteRapido({
+      temp, moist, montanha: mMask, acimaDoMar: hi - WATER_LEVEL,
+    });
+
+    // Bloco de superfície, agora decidido pelo BIOMA e não por limiares paralelos.
     let surface: number = B.GRASS;
     let under: number = B.DIRT;
-    if (hi <= WATER_LEVEL + 1) {
-      const deep = WATER_LEVEL - hi;
-      surface = deep > 4 * SCALE ? (hash2(vx, vz, this.seed ^ 77) < 0.5 ? B.GRAVEL : B.SAND) : B.SAND;
-      under = B.SAND;
-    } else if (hi <= WATER_LEVEL + 1.5 * SCALE && mMask < 0.5) {
-      surface = B.SAND; under = B.SAND; // praia
-    }
-    if (mMask > 0.45 && hi > 30 * SCALE) {
-      surface = B.STONE; under = B.STONE;
-      if (hi > 35 * SCALE) surface = B.SNOW;
+    switch (bioma) {
+      case 'oceano': {
+        const deep = WATER_LEVEL - hi;
+        surface = deep > 4 * SCALE ? (hash2(vx, vz, this.seed ^ 77) < 0.5 ? B.GRAVEL : B.SAND) : B.SAND;
+        under = B.SAND;
+        break;
+      }
+      case 'praia':
+        surface = B.SAND; under = B.SAND;
+        break;
+      case 'deserto':
+        surface = B.SAND; under = B.SAND;
+        break;
+      case 'savana':
+        // Areia esparsa sobre grama: a savana é a transição, e mostrar isso no chão é o que faz
+        // a fronteira com o deserto ler como travessia em vez de linha.
+        surface = hash2(vx, vz, this.seed ^ 0x5a7) < 0.28 ? B.SAND : B.GRASS;
+        under = B.DIRT;
+        break;
+      case 'tundra':
+        surface = B.SNOW; under = B.DIRT;
+        break;
+      case 'montanha':
+        surface = hi > 35 * SCALE ? B.SNOW : B.STONE;
+        under = B.STONE;
+        break;
+      case 'pantano':
+        surface = hash2(vx, vz, this.seed ^ 0x9a9) < 0.3 ? B.GRAVEL : B.GRASS;
+        under = B.DIRT;
+        break;
+      default:
+        surface = B.GRASS; under = B.DIRT;
     }
     if (river > 0.55 && hi <= WATER_LEVEL) {
       surface = hash2(vx, vz, this.seed ^ 91) < 0.35 ? B.GRAVEL : B.SAND;
@@ -140,7 +197,7 @@ export class WorldGen {
       under = B.DIRT;
     }
 
-    return { height: hi, surface, under, mountain: mMask, river, path, temp, moist, forest };
+    return { height: hi, surface, under, mountain: mMask, river, path, temp, moist, forest, bioma };
   }
 
   /** Árvore nesta coluna? 0 = não; 1 = carvalho; 2 = pinheiro. Célula 9×9 com vencedor único. */
@@ -151,10 +208,17 @@ export class WorldGen {
     const px = gx * 9 + Math.floor(hash2(gx, gz, this.seed ^ 0xace) * 9);
     const pz = gz * 9 + Math.floor(hash2(gx, gz, this.seed ^ 0xbdf) * 9);
     if (px !== vx || pz !== vz) return 0;
-    const density = 0.05 + col.forest * 0.6; // probabilidade por célula 9×9
+
+    // Densidade por bioma. O deserto e a tundra ficam em zero: uma árvore isolada no meio da
+    // areia destrói a leitura do bioma mais do que qualquer outra coisa.
+    const porBioma = DENSIDADE_DE_ARVORE[col.bioma] ?? 1;
+    if (porBioma <= 0) return 0;
+    const density = (0.05 + col.forest * 0.6) * porBioma;
     if (hash2(gx, gz, this.seed ^ 0x7ee) >= density) return 0;
-    const cold = col.temp < -0.12 || (col.mountain > 0.5 && col.height > 27 * SCALE);
-    return cold ? 2 : 1;
+
+    // Pinheiro no frio e na altitude; carvalho no resto.
+    const frio = col.bioma === 'taiga' || col.bioma === 'tundra' || col.bioma === 'montanha';
+    return frio ? 2 : 1;
   }
 
   /** Gera o chunk completo (terreno + água + decoração + árvores com margem). */

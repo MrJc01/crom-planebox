@@ -983,11 +983,39 @@ não tem nenhuma construção espalhada — nada para encontrar explorando.*
 própria**; seleção por pontuação contínua (`biomeScore`) em vez de teste booleano, para as
 fronteiras serem graduais e para um bioma de mod competir em igualdade com os base.
 
-- [ ] 665 `P0` `BiomeDef` declarativo: clima, superfície, vegetação, recursos
-- [ ] 666 `P0` Seleção por pontuação contínua, com fronteiras graduais
-- [ ] 667 `P0` Recursos com abundância por bioma (ouro no deserto, diamante na tundra)
-- [ ] 668 `P0` Recurso exclusivo de bioma — o que obriga a expedição
-- [ ] 669 `P0` Oito biomas base: planície, floresta, taiga, tundra, deserto, savana, pântano, montanha
+- [~] 665 `P0` **`BiomeDef` declarativo: clima, cor, névoa, saturação, estação e minérios**
+- [~] 666 `P0` **Seleção por pontuação contínua — `pesosDeBioma`, fronteiras graduais por construção**
+- [~] 667 `P0` **Abundância por bioma: ouro no deserto, diamante na tundra**
+- [~] 668 `P0` ****Recurso exclusivo**: não há diamante no deserto, por mais fundo que se cave**
+- [~] 669 `P0` **Oito biomas de clima + três de relevo (oceano, praia, montanha)**
+
+#### O mundo não tinha biomas — só atmosfera de bioma
+
+Ao voltar para esta seção encontrei o mesmo padrão que já tinha pegado nas estações: o módulo de
+biomas existia, alimentava névoa, cor, clima e estação, e **o gerador de terreno o ignorava**. A
+superfície e a vegetação saíam de limiares próprios, paralelos e independentes.
+
+O sintoma disso é invisível até alguém reparar: o horizonte podia dizer "deserto" enquanto o chão
+sob os pés dizia outra coisa. Duas fontes para a mesma decisão divergem em silêncio.
+
+Agora `ColumnInfo.bioma` sai da mesma função que governa tudo o mais, e decide superfície,
+espécie de árvore, densidade de vegetação e abundância de minério.
+
+**Uma função a mais, e a razão dela.** `pesosDeBioma` monta e ordena um vetor — certo para
+misturar cor, errado para chamar uma vez por coluna: a geração de um chunk faria mais de mil
+vetores curtos, e o custo real não é a aritmética, é a pressão de coleta de lixo dentro do Web
+Worker. `biomaDominanteRapido` faz o mesmo sem alocar, e há um teste que varre o domínio inteiro
+fixando a equivalência entre as duas — duas implementações da mesma regra é precisamente o que
+diverge sem avisar.
+
+**Precedência descoberta por teste:** rio e estrada mandam mais que o bioma. Um leito de rio é
+feito de leito de rio, atravesse ele o bioma que atravessar. O teste acusou areia numa coluna de
+montanha e a causa era essa; virou uma asserção explícita em vez de uma exceção silenciosa.
+
+**Densidade de árvore zero no deserto e na tundra** é decisão de leitura, não de realismo: uma
+árvore isolada no meio da areia destrói o reconhecimento do bioma mais do que qualquer outro
+detalhe.
+
 - [ ] 670 `P1` Vegetação por bioma (densidade de árvore, capim, decoração característica)
 - [ ] 671 `P1` Bioma influencia a paleta de superfície e subsolo
 - [ ] 672 `P1` Bioma de montanha condicionado à altura, não só ao clima
@@ -2158,8 +2186,8 @@ clássico — misturar a *cor* é barato, misturar a *altura do terreno* muda a 
 - [ ] 1067 `P1` Mistura só na cor por padrão; mistura de altura como opção, por custo de geração
 - [ ] 1068 `P1` Ruído na fronteira, para a transição não ser um círculo perfeito
 - [~] 1069 `P1` **Amostrado a cada 6 quadros, com interpolação temporal cobrindo o intervalo**
-- [~] 1070 `P1` **`biomaDominante` para as decisões sem meio-termo (bloco, árvore)**
-- [ ] 1071 `P1` Fauna e flora seguem o dominante, com chance proporcional ao peso na faixa de transição
+- [~] 1070 `P1` **O `worldgen` decide superfície e árvore pelo bioma dominante — não mais por limiares paralelos**
+- [~] 1071 `P1` **Densidade de árvore por bioma; deserto e tundra em zero**
 - [ ] 1072 `P2` Bioma de transição explícito (praia, orla de floresta) como caso especial
 - [~] 1073 `P2` **Teste de continuidade: salto máximo 0,0104 por passo de 0,01, uniforme**
 - [~] 1074 `P2` **Teste de que a soma dos pesos é sempre 1, em todo o domínio**

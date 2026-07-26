@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   BIOMAS_CLIMA,
   ContextoBioma,
+  abundanciaDeMinerio,
   biomaDominante,
+  biomaDominanteRapido,
   descreverBioma,
   fatorSazonal,
   misturarCor,
@@ -176,5 +178,69 @@ describe('misturas derivadas', () => {
     expect(descreverBioma(pesosDeBioma(ctx({ temp: 1.4, moist: -1.4 })))).toBe('Deserto');
     const meio = descreverBioma(pesosDeBioma(ctx({ temp: 0.75, moist: -0.55 })));
     expect(meio).toContain('/');
+  });
+});
+
+describe('biomaDominanteRapido — a versão sem alocação', () => {
+  it('CRÍTICO: concorda com a versão que aloca, em todo o domínio', () => {
+    // Duas implementações da mesma regra é exatamente o tipo de coisa que diverge em silêncio:
+    // a névoa mostraria um bioma e o chão seria de outro. Este teste é a única coisa que impede.
+    for (let t = -1.2; t <= 1.2; t += 0.07) {
+      for (let m = -1.2; m <= 1.2; m += 0.07) {
+        for (const montanha of [0, 0.3, 0.5, 0.62, 0.8, 1]) {
+          for (const acimaDoMar of [-30, -8, -3, 0, 2, 5, 12, 60]) {
+            const c = ctx({ temp: t, moist: m, montanha, acimaDoMar });
+            expect(biomaDominanteRapido(c), JSON.stringify(c)).toBe(biomaDominante(pesosDeBioma(c)));
+          }
+        }
+      }
+    }
+  });
+
+  it('não aloca vetor nenhum — devolve o id direto', () => {
+    expect(typeof biomaDominanteRapido(ctx({}))).toBe('string');
+  });
+});
+
+describe('minérios por bioma — o que obriga a expedição', () => {
+  it('CRÍTICO: não há diamante no deserto, por mais fundo que se cave', () => {
+    expect(abundanciaDeMinerio('deserto', 'diamante')).toBe(0);
+    expect(abundanciaDeMinerio('savana', 'diamante')).toBe(0);
+  });
+
+  it('CRÍTICO: o diamante é do frio e o ouro é do deserto', () => {
+    expect(abundanciaDeMinerio('tundra', 'diamante')).toBeGreaterThan(
+      abundanciaDeMinerio('planicie', 'diamante'),
+    );
+    expect(abundanciaDeMinerio('deserto', 'ouro')).toBeGreaterThan(
+      abundanciaDeMinerio('planicie', 'ouro'),
+    );
+  });
+
+  it('a planície é a referência: tudo em abundância normal', () => {
+    for (const k of ['carvao', 'ferro', 'ouro', 'diamante'] as const) {
+      expect(abundanciaDeMinerio('planicie', k)).toBe(1);
+    }
+  });
+
+  it('nenhum minério é inencontrável no mundo inteiro', () => {
+    // Se um minério tivesse 0 em todo bioma, a progressão de ferramentas travaria sem aviso.
+    const biomas = ['tundra', 'taiga', 'planicie', 'floresta', 'selva', 'savana', 'deserto', 'pantano', 'montanha', 'praia', 'oceano'] as const;
+    for (const k of ['carvao', 'ferro', 'ouro', 'diamante'] as const) {
+      const maior = Math.max(...biomas.map((b) => abundanciaDeMinerio(b, k)));
+      expect(maior, `minério ${k} não existe em lugar nenhum`).toBeGreaterThan(0.5);
+    }
+  });
+
+  it('toda abundância é finita e não negativa', () => {
+    const biomas = ['tundra', 'taiga', 'planicie', 'floresta', 'selva', 'savana', 'deserto', 'pantano', 'montanha', 'praia', 'oceano'] as const;
+    for (const b of biomas) {
+      for (const k of ['carvao', 'ferro', 'ouro', 'diamante'] as const) {
+        const v = abundanciaDeMinerio(b, k);
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThan(10);
+      }
+    }
   });
 });

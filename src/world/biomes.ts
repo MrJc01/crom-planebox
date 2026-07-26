@@ -49,6 +49,16 @@ export interface BiomeDef {
   saturacao: number;
   /** Este bioma responde às estações do ano? Selva e deserto não. */
   sazonal: boolean;
+  /**
+   * Abundância de cada minério neste bioma, como multiplicador da raridade base.
+   *
+   * `0` significa **não existe aqui** — e é isso que obriga a expedição: quem quer diamante
+   * precisa ir ao frio, quem quer ouro precisa atravessar o deserto. Um mundo onde tudo está
+   * embaixo da primeira base não tem por que ter biomas.
+   *
+   * Ausente = 1 (abundância normal).
+   */
+  minerios?: Partial<Record<'carvao' | 'ferro' | 'ouro' | 'diamante', number>>;
 }
 
 /**
@@ -63,41 +73,51 @@ export const BIOMAS_CLIMA: BiomeDef[] = [
     id: 'tundra', nome: 'Tundra', temp: -0.75, moist: -0.2,
     grama: [0.72, 0.76, 0.72], folhagem: [0.60, 0.68, 0.62],
     neblina: [0.78, 0.83, 0.88], alcanceNeblina: 0.85, saturacao: 0.55, sazonal: true,
+    // O diamante é do frio. É o recurso que obriga a expedição mais longa.
+    minerios: { diamante: 2.6, ouro: 0.15, carvao: 0.7 },
   },
   {
     id: 'taiga', nome: 'Taiga', temp: -0.42, moist: 0.45,
     grama: [0.45, 0.60, 0.45], folhagem: [0.30, 0.45, 0.34],
     neblina: [0.66, 0.72, 0.74], alcanceNeblina: 0.75, saturacao: 0.70, sazonal: true,
+    minerios: { diamante: 1.4, carvao: 1.3, ouro: 0.3 },
   },
   {
     id: 'planicie', nome: 'Planície', temp: 0.05, moist: -0.05,
     grama: [0.56, 0.72, 0.36], folhagem: [0.42, 0.62, 0.30],
     neblina: [0.74, 0.80, 0.85], alcanceNeblina: 1.0, saturacao: 0.85, sazonal: true,
+    // A planície é o padrão de referência: tudo em abundância normal, nada em excesso.
   },
   {
     id: 'floresta', nome: 'Floresta', temp: 0.1, moist: 0.55,
     grama: [0.42, 0.64, 0.32], folhagem: [0.30, 0.52, 0.26],
     neblina: [0.68, 0.75, 0.76], alcanceNeblina: 0.8, saturacao: 0.9, sazonal: true,
+    minerios: { carvao: 1.4, diamante: 0.4 },
   },
   {
     id: 'pantano', nome: 'Pântano', temp: 0.3, moist: 0.9,
     grama: [0.40, 0.52, 0.30], folhagem: [0.34, 0.44, 0.24],
     neblina: [0.60, 0.66, 0.58], alcanceNeblina: 0.5, saturacao: 0.65, sazonal: true,
+    minerios: { ferro: 1.5, ouro: 0.4, diamante: 0 },
   },
   {
     id: 'selva', nome: 'Selva', temp: 0.75, moist: 0.8,
     grama: [0.30, 0.66, 0.24], folhagem: [0.22, 0.55, 0.20],
     neblina: [0.66, 0.78, 0.68], alcanceNeblina: 0.6, saturacao: 1.15, sazonal: false,
+    minerios: { ouro: 1.6, carvao: 1.1, diamante: 0.3 },
   },
   {
     id: 'savana', nome: 'Savana', temp: 0.6, moist: -0.25,
     grama: [0.72, 0.70, 0.34], folhagem: [0.60, 0.60, 0.28],
     neblina: [0.86, 0.82, 0.68], alcanceNeblina: 1.15, saturacao: 0.8, sazonal: false,
+    minerios: { ouro: 2.0, ferro: 1.2, diamante: 0 },
   },
   {
     id: 'deserto', nome: 'Deserto', temp: 0.9, moist: -0.85,
     grama: [0.82, 0.76, 0.50], folhagem: [0.66, 0.64, 0.40],
     neblina: [0.92, 0.86, 0.70], alcanceNeblina: 1.3, saturacao: 0.6, sazonal: false,
+    // O ouro é do deserto — e o diamante não existe aqui, por mais fundo que se cave.
+    minerios: { ouro: 3.0, diamante: 0, carvao: 0.6 },
   },
 ];
 
@@ -107,6 +127,7 @@ export const BIOMAS_RELEVO: Record<'montanha' | 'praia' | 'oceano', BiomeDef> = 
     id: 'montanha', nome: 'Montanha', temp: 0, moist: 0,
     grama: [0.60, 0.64, 0.58], folhagem: [0.42, 0.50, 0.42],
     neblina: [0.82, 0.86, 0.92], alcanceNeblina: 1.4, saturacao: 0.7, sazonal: true,
+    minerios: { ferro: 1.8, carvao: 1.5, diamante: 1.6 },
   },
   praia: {
     id: 'praia', nome: 'Praia', temp: 0, moist: 0,
@@ -214,6 +235,58 @@ export function pesosDeBioma(ctx: ContextoBioma): PesoBioma[] {
 
   saida.sort((a, b) => b.peso - a.peso);
   return saida;
+}
+
+/**
+ * Bioma dominante **sem alocar nada**.
+ *
+ * `pesosDeBioma` monta e ordena um vetor, o que é certo para misturar cor mas errado para chamar
+ * uma vez por coluna de terreno: a geração de um chunk faria mais de mil vetores curtos, e o
+ * custo real não é a aritmética, é a pressão de coleta de lixo dentro do Web Worker.
+ *
+ * Devolve o mesmo que `biomaDominante(pesosDeBioma(ctx))` — há teste fixando essa equivalência,
+ * porque duas implementações da mesma regra é exatamente o tipo de coisa que diverge em silêncio.
+ */
+export function biomaDominanteRapido(ctx: ContextoBioma): BiomeId {
+  const oceano = smoothstep(0, -6, ctx.acimaDoMar);
+  const praia = (1 - oceano) * smoothstep(5, 0, Math.abs(ctx.acimaDoMar));
+  const montanha = smoothstep(0.45, 0.8, ctx.montanha) * (1 - oceano);
+
+  const relevo = clamp(oceano + praia + montanha, 0, 1);
+  const fracaoClima = 1 - relevo;
+
+  let melhorId: BiomeId = 'planicie';
+  let melhorPeso = -1;
+
+  if (fracaoClima > 0) {
+    let soma = 0;
+    let topo = 0;
+    let topoId: BiomeId = 'planicie';
+    for (const b of BIOMAS_CLIMA) {
+      const dt = ctx.temp - b.temp;
+      const dm = ctx.moist - b.moist;
+      const d = Math.sqrt(dt * dt + dm * dm);
+      if (d >= RAIO_CLIMA) continue;
+      const t = 1 - d / RAIO_CLIMA;
+      const w = t * t * t;
+      soma += w;
+      if (w > topo) { topo = w; topoId = b.id; }
+    }
+    if (soma > 0) { melhorPeso = (topo / soma) * fracaoClima; melhorId = topoId; }
+  }
+
+  if (oceano > melhorPeso) { melhorPeso = oceano; melhorId = 'oceano'; }
+  if (praia > melhorPeso) { melhorPeso = praia; melhorId = 'praia'; }
+  if (montanha > melhorPeso) { melhorPeso = montanha; melhorId = 'montanha'; }
+  return melhorId;
+}
+
+/**
+ * Abundância de um minério no bioma. `0` = não existe ali.
+ * `chave` é o nome simbólico do minério, não o id do bloco — o mapeamento fica em `underground`.
+ */
+export function abundanciaDeMinerio(bioma: BiomeId, chave: 'carvao' | 'ferro' | 'ouro' | 'diamante'): number {
+  return definicaoDeBioma(bioma).minerios?.[chave] ?? 1;
 }
 
 /** O bioma que manda nas decisões sem meio-termo (bloco de superfície, espécie de árvore). */
