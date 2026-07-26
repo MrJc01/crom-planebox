@@ -2,7 +2,7 @@ import { CAMADA } from './ui/theme';
 import * as THREE from 'three';
 import { createScene } from './render/scene';
 import { World } from './world/world';
-import { Chunk, chunkKey, CX, CY, CZ } from './world/chunk';
+import { Chunk, chunkKey, CX, CY, CZ, TOPO_VARREDURA } from './world/chunk';
 import { WorldGen, WATER_LEVEL } from './world/worldgen';
 import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
@@ -170,7 +170,7 @@ async function bootstrap() {
         }
       }
     }
-    return new THREE.Vector3(0.5, 120, 0.5);
+    return new THREE.Vector3(0.5, TOPO_VARREDURA, 0.5);
   }
 
   player.pos.copy(findSpawn());
@@ -1075,7 +1075,7 @@ async function bootstrap() {
     const pz = Math.round(p.z);
 
     let groundY = 4;
-    for (let y = 120; y >= 0; y--) {
+    for (let y = TOPO_VARREDURA; y >= 0; y--) {
       const b = world.getBlock(px, y, pz);
       if (b !== 0 && b !== 6) {
         groundY = y + 1;

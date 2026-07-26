@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TOPO_VARREDURA, WORLD_MAX_Y } from '../world/chunk';
 import { World } from '../world/world';
 import { PlayerController } from '../player/controller';
 import { B, BLOCKS, registerCustomBlock } from '../world/blocks';
@@ -167,7 +168,7 @@ export class MCPExecutors {
 
   /** Altura da primeira superfície sólida em (x, z) — para spawnar sem enterrar nem flutuar. */
   private groundYAt(x: number, z: number): number {
-    for (let y = 120; y >= 0; y--) {
+    for (let y = TOPO_VARREDURA; y >= 0; y--) {
       const b = this.world.getBlock(Math.floor(x), y, Math.floor(z));
       if (b !== B.AIR && b !== B.WATER) return y;
     }
@@ -482,7 +483,7 @@ export class MCPExecutors {
         };
 
         const getGroundY = (x: number, z: number) => {
-          for (let y = 120; y >= 0; y--) {
+          for (let y = TOPO_VARREDURA; y >= 0; y--) {
             const b = this.world.getBlock(Math.floor(x), y, Math.floor(z));
             if (b !== B.AIR && b !== B.WATER) return y;
           }
@@ -518,7 +519,7 @@ export class MCPExecutors {
 
           for (let z = minZ; z <= maxZ; z++) {
             for (let x = minX; x <= maxX; x++) {
-              for (let y = targetY + 1; y < 128; y++) {
+              for (let y = targetY + 1; y < WORLD_MAX_Y; y++) {
                 if (getBlock(x, y, z) !== B.AIR) {
                   setBlock(x, y, z, B.AIR);
                 }

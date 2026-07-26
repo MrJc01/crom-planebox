@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1244 itens)
+# Checklist Mestre — Painel de Especialistas (1248 itens)
 
-> **Estado em 26/07/2026** — 566 de 1244 itens tratados (45%), com **814 testes** passando,
+> **Estado em 26/07/2026** — 571 de 1248 itens tratados (45%), com **818 testes** passando,
 > `tsc --noEmit` limpo e build funcionando.
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 83 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 483 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 678 | Pendente. |
+> | `[~]` | 488 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 677 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -130,7 +130,7 @@ verticalidade limitada e ausência de LOD.*
 - [x] 027 `P0` `World.setBlock`/`getBlock` marcando chunks sujos para re-mesh — `src/world/world.ts`
 - [x] 028 `P1` Ruído e RNG determinísticos por semente — `src/core/noise.ts`, `src/core/rng.ts`
 - [ ] 029 `P0` Aumentar o limite vertical do mundo (hoje varreduras assumem `y < 128`)
-- [ ] 030 `P0` Extrair as constantes de altura mágicas (`120`, `128`) para `WORLD_MAX_Y` único
+- [~] 030 `P0` **`WORLD_MAX_Y` e `TOPO_VARREDURA` em `world/chunk.ts`** — e a extração revelou um teto silencioso de 8 voxels
 - [ ] 031 `P1` LOD de chunks distantes (mesh simplificado além de N chunks)
 - [ ] 032 `P1` Descarregar chunks fora do raio de render liberando memória de GPU
 - [ ] 033 `P1` Paletização de chunk (índices locais + tabela) para reduzir memória
@@ -3027,3 +3027,33 @@ Comparar o texto final contra os valores conhecidos é simples e não tem como e
 - [~] 1258 `P1` **Caractere especial de regex escapado** no valor do segredo
 - [~] 1259 `P1` **13 testes**, incluindo chave dentro de objeto serializado e dentro de mensagem de erro
 - [~] 1260 `P2` **O stub de teste do host passou a implementar `modEnv`** — a alternativa era guardar a chamada com `?.`, que desligaria a redação em silêncio num host que esquecesse de implementar: exatamente a falha que ela previne
+
+## 53. O teto invisível de 8 voxels — item 030
+
+Item mecânico na aparência: "extrair as constantes de altura mágicas para um `WORLD_MAX_Y`
+único". Extrair obrigou a responder **"120 por quê?"**, e a resposta era um defeito.
+
+Seis lugares varriam a coluna de cima para baixo começando em `120`, num mundo de `128`:
+
+```ts
+for (let y = 120; y >= 0; y--) { ... }   // acha a superfície
+```
+
+**Os oito voxels do topo eram invisíveis para todos eles.** Construa uma torre até y=125 e o
+"achar a superfície" devolve o chão lá embaixo. Quem teleporta ou nasce naquela coluna aparece
+**dentro** da construção. O `120` provavelmente nasceu como margem de segurança e virou um teto.
+
+O sexto lugar é o pior: `ai/WorldPerception.ts` — **o agente enxergava o mundo com o teto
+cortado**. Ele descreveria como "campo aberto" uma coluna com uma torre de 125 blocos.
+
+### Os dois nomes, e por que não é sinônimo à toa
+
+`CY` é a altura de **uma coluna de chunk** — para quem indexa o array. `WORLD_MAX_Y` é o limite do
+**mundo** — para quem varre, valida coordenada ou posiciona. Valem o mesmo hoje porque há uma só
+camada de chunks na vertical. Separar os nomes é o que permite mudar isso (item 029) sem caçar
+cada `CY` para decidir qual dos dois significados ele tinha ali.
+
+- [~] 1261 `P0` **`WORLD_MAX_Y`** e **`TOPO_VARREDURA`**, com o porquê de cada um documentado
+- [~] 1262 `P0` **Seis varreduras corrigidas** — `main.ts`, `EventSystem`, `MCPExecutors` (×3) e `WorldPerception`
+- [~] 1263 `P1` **Teste que reprova varredura descendente com literal** — o número estava em seis arquivos; sem isso, o sétimo nasce com o mesmo defeito. O regex distingue laço descendente de `for (let y = 0; y < CY; y++)`, que é ascendente e legítimo
+- [~] 1264 `P1` **Teste do caso concreto**: torre a `WORLD_MAX_Y - 3` é encontrada pela varredura

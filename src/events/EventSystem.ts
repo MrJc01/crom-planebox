@@ -1,4 +1,5 @@
 import { World } from '../world/world';
+import { TOPO_VARREDURA } from '../world/chunk';
 import { B } from '../world/blocks';
 import { WorldRepository } from '../storage/WorldRepository';
 
@@ -23,7 +24,7 @@ export class EventSystem {
 
     // Find surface Y at center
     let surfaceY = 20;
-    for (let y = 120; y >= 0; y--) {
+    for (let y = TOPO_VARREDURA; y >= 0; y--) {
       const b = this.world.getBlock(Math.floor(cx), y, Math.floor(cz));
       if (b !== B.AIR && b !== B.WATER) {
         surfaceY = y;

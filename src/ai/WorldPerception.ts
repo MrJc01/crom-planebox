@@ -1,4 +1,5 @@
 import { World } from '../world/world';
+import { TOPO_VARREDURA } from '../world/chunk';
 import { BLOCKS, B } from '../world/blocks';
 import { WorldRepository } from '../storage/WorldRepository';
 
@@ -44,7 +45,7 @@ export class WorldPerception {
 
         // Find surface Y
         let surfaceY = 0;
-        for (let y = 120; y >= 0; y--) {
+        for (let y = TOPO_VARREDURA; y >= 0; y--) {
           const block = this.world.getBlock(x, y, z);
           if (block !== B.AIR && block !== B.WATER) {
             surfaceY = y;
