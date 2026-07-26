@@ -18,7 +18,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { instalarNucleo } from '../../src/mods/nucleoDoWorker';
 import { PonteDeMods } from '../../src/mods/PonteDeMods';
 import { MEMBROS_DA_API, GLOBAIS_A_APAGAR, Porta } from '../../src/mods/protocoloDeMods';
-import { ModHostBridge } from '../../src/mods/ModAPI';
+import { ModContext, ModHostBridge, buildModAPI } from '../../src/mods/ModAPI';
+import { emptyModPackage } from '../../src/mods/ModTypes';
 import { B } from '../../src/world/blocks';
 
 /** Duas portas ligadas uma na outra, entregando mensagens de forma assíncrona como um Worker real. */
@@ -53,8 +54,15 @@ function hostFalso(): ModHostBridge & { blocos: Map<string, number>; toasts: str
   } as any;
 }
 
-/** Monta o par núcleo+ponte já conectado, e devolve o que os testes precisam observar. */
-function montar(extras: Record<string, (modId: string, args: unknown[]) => unknown> = {}) {
+/**
+ * Monta o par núcleo+ponte já conectado.
+ *
+ * A ponte recebe a API **de verdade** (`buildModAPI`), e não um duplo: é o ponto do desenho — a
+ * fronteira é transporte puro, e a lógica de `fillBox`, `findNearest`, `isNight` e companhia tem uma
+ * implementação só. Testar com duplo aqui provaria o transporte e esconderia justamente o risco de
+ * duas implementações divergirem.
+ */
+function montar(sobrepor: Record<string, any> = {}) {
   const [ladoWorker, ladoHost] = parDePortas();
   const host = hostFalso();
   const eventos = {
@@ -64,15 +72,22 @@ function montar(extras: Record<string, (modId: string, args: unknown[]) => unkno
     logs: [] as any[],
   };
 
+  const ctx = new ModContext(emptyModPackage('m1', 'M'));
+  const api: Record<string, any> = buildModAPI(ctx, host, 'main');
+  for (const [caminho, fn] of Object.entries(sobrepor)) {
+    const [grupo, nome] = caminho.split('.');
+    api[grupo] = { ...api[grupo], [nome]: fn };
+  }
+
   instalarNucleo(ladoWorker);
-  const ponte = new PonteDeMods(ladoHost, host, {
+  const ponte = new PonteDeMods(ladoHost, (id) => (id === 'm1' ? api : undefined), {
     aoCarregar: (modId, resultados) => eventos.carregados.push({ modId, resultados }),
     aoFalhar: (modId, scriptKey, erro) => eventos.falhas.push({ modId, scriptKey, erro }),
     aoRelatarHandlers: (modId, contagem) => eventos.handlers.push({ modId, contagem }),
     aoRegistrarLog: (modId, nivel, args) => eventos.logs.push({ modId, nivel, args }),
-  }, extras);
+  });
 
-  return { ponte, host, eventos };
+  return { ponte, host, eventos, api };
 }
 
 /** Deixa as mensagens em trânsito chegarem. */
@@ -205,7 +220,7 @@ describe('escrita: vai e não volta', () => {
   it('escrita chega ao host mesmo sem resposta', async () => {
     // Sem esta verificação, "não responder" seria satisfeito por não fazer nada.
     const escritos: unknown[][] = [];
-    const { ponte } = montar({ 'world.setBlock': (_m, args) => { escritos.push(args); return true; } });
+    const { ponte } = montar({ 'world.setBlock': (...args: unknown[]) => { escritos.push(args); return true; } });
 
     ponte.carregar('m1', [{ key: 'main', code: `api.on('tick', () => { api.world.setBlock(7, 8, 9, 'pedra'); });` }], CONSTANTES);
     await assentar();
@@ -336,30 +351,31 @@ describe('o log passa pelo lado que conhece o cofre', () => {
 });
 
 describe('o protocolo e a ponte não saem de sincronia', () => {
-  it('CRÍTICO: todo membro declarado é atendido, ou estoura dizendo que falta', async () => {
-    // O buraco de fiação mais provável nesta arquitetura: acrescentar um membro em
-    // `MEMBROS_DA_API` e esquecer de ligá-lo na ponte. Devolver `undefined` em silêncio faria o mod
-    // receber um valor vazio e seguir em frente, com o defeito aparecendo três passos adiante.
+  it('CRÍTICO: TODO membro declarado existe na API do mod', () => {
+    // O buraco de fiação mais provável desta arquitetura: acrescentar um membro em `MEMBROS_DA_API`
+    // e não existir do outro lado. Devolver `undefined` em silêncio faria o mod receber um valor
+    // vazio e seguir em frente, com o defeito aparecendo três passos adiante.
+    //
+    // Este teste ficou possível — e muito mais forte — depois que a ponte passou a delegar à
+    // `buildModAPI` em vez de reimplementar cada membro num `switch`. Com duas implementações, o
+    // máximo que dava para exigir era "falhe ruidosamente"; com uma, dá para exigir que **nada
+    // falte**.
+    const { api } = montar();
+    const faltando = Object.keys(MEMBROS_DA_API).filter((caminho) => {
+      if (caminho.startsWith('console.')) return false; // desviado de propósito, para a redação
+      const [grupo, nome] = caminho.split('.');
+      return typeof (api as any)[grupo]?.[nome] !== 'function';
+    });
+    expect(faltando).toEqual([]);
+  });
+
+  it('CRÍTICO: membro inventado pelo worker é recusado, não executado', () => {
+    // A ponte resolve um caminho dentro de um objeto. Sem a conferência contra o protocolo,
+    // `{ metodo: 'storage.set' }` — ou pior, `{ metodo: 'constructor' }` — passaria a ser
+    // executável a partir de uma mensagem.
     const { ponte } = montar();
-    const semImplementacao: string[] = [];
-
-    for (const metodo of Object.keys(MEMBROS_DA_API)) {
-      if (MEMBROS_DA_API[metodo] === 'escrita') continue; // mão única: não há resposta a inspecionar
-      try {
-        (ponte as any).executar('m1', metodo, [0, 0, 0]);
-      } catch (e: any) {
-        if (String(e.message).includes('não foi ligado na ponte')) semImplementacao.push(metodo);
-      }
-    }
-
-    // Os que faltam são os que dependem de `extras` (lógica além do host cru). O que este teste
-    // garante é que eles FALHAM RUIDOSAMENTE em vez de devolver `undefined`.
-    expect(semImplementacao).toEqual([
-      'world.fillBox', 'world.findNearest', 'world.blockId',
-      'time.isNight', 'time.isDarkNight',
-      'weather.current', 'weather.isRaining', 'weather.isStorm',
-      'season.current', 'season.is', 'season.growth',
-    ]);
+    expect(() => (ponte as any).executar('m1', 'constructor', [])).toThrow(/desconhecido/);
+    expect(() => (ponte as any).executar('m1', 'on', [])).toThrow(/desconhecido/);
   });
 
   it('a lista de globais a apagar cobre o que importa de verdade', () => {

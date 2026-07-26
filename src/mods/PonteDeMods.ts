@@ -31,12 +31,25 @@ export interface CallbacksDaPonte {
 }
 
 export class PonteDeMods {
+  /**
+   * @param apiDoMod devolve a API **já construída** daquele mod — a mesma `buildModAPI` de sempre.
+   *
+   * ## Por que a ponte delega em vez de reimplementar
+   *
+   * A primeira versão tinha um `switch` traduzindo cada membro para uma chamada do host. Estava
+   * errada por duplicação: `fillBox` conta blocos, `findNearest` varre um cubo, `setBlock` resolve
+   * nome de bloco e cobra do orçamento, `isNight` interpreta a hora. Reescrever isso aqui criaria
+   * **duas** implementações de cada regra, e a segunda a mudar sairia de sincronia em silêncio — um
+   * mod se comportando diferente conforme o lado em que roda é o pior defeito possível numa
+   * migração como esta.
+   *
+   * Resolvendo o caminho dentro do objeto que `buildModAPI` já devolve, existe uma implementação
+   * só. A fronteira vira transporte puro, que é tudo o que ela deveria ser.
+   */
   constructor(
     private porta: Porta,
-    private host: ModHostBridge,
+    private apiDoMod: (modId: string) => Record<string, any> | undefined,
     private cb: CallbacksDaPonte,
-    /** Resolve `world.*` e outros membros que precisam de lógica além do host cru. */
-    private extras: Record<string, (modId: string, args: unknown[]) => unknown> = {},
   ) {
     this.porta.onmessage = (ev) => this.receber(ev.data as ParaOHost);
   }
@@ -94,48 +107,46 @@ export class PonteDeMods {
   }
 
   private executar(modId: string, metodo: string, args: unknown[]): unknown {
-    if (!(metodo in MEMBROS_DA_API)) {
+    // `Object.hasOwn`, e **não** `metodo in MEMBROS_DA_API`.
+    //
+    // `in` percorre a cadeia de protótipos, então `constructor`, `toString`, `valueOf`,
+    // `hasOwnProperty` e `__proto__` passariam pela conferência — nomes que vêm de graça em todo
+    // objeto literal e que nunca estiveram no protocolo. Nenhum deles chega a executar hoje, porque
+    // o passo seguinte não os encontra na API, mas a guarda estaria aceitando o que deveria recusar.
+    //
+    // Numa fronteira em que o outro lado roda código escrito por uma IA, "não executa por acaso" é
+    // uma garantia diferente de "é recusado por regra", e só a segunda continua valendo depois de
+    // alguém mudar o passo seguinte.
+    if (!Object.hasOwn(MEMBROS_DA_API, metodo)) {
       // Um método que o worker inventou. Não é cenário de mod normal — é sinal de protocolo fora de
       // sincronia entre os dois lados, ou de alguém falando com a ponte por fora.
       throw new Error(`método desconhecido: ${metodo}`);
     }
 
+    // O log é o único membro que NÃO passa pela API do mod, e o desvio é proposital: a redação de
+    // segredos (seção 52) acontece ao gravar, no `ModContext`, e quem sabe formatar a linha é o
+    // runtime — não a API.
     if (metodo.startsWith('console.')) {
       const nivel = metodo.slice('console.'.length) as 'log' | 'warn' | 'error';
       this.cb.aoRegistrarLog(modId, nivel, args);
       return undefined;
     }
 
-    const extra = this.extras[metodo];
-    if (extra) return extra(modId, args);
-
-    return this.executarNoHost(modId, metodo, args);
-  }
-
-  /** Os membros que são chamada direta ao host, sem lógica pelo caminho. */
-  private executarNoHost(modId: string, metodo: string, args: unknown[]): unknown {
-    const h = this.host;
-    const n = (v: unknown) => Math.floor(Number(v) || 0);
-    switch (metodo) {
-      case 'world.getBlock': return h.getBlock(n(args[0]), n(args[1]), n(args[2]));
-      case 'world.getGroundY': return h.getGroundY(n(args[0]), n(args[1]));
-      case 'entities.spawn': return h.spawnEntity(modId, String(args[0]), Number(args[1]), Number(args[2]), Number(args[3]));
-      case 'entities.list': return h.listEntities();
-      case 'entities.damage': return h.damageEntity(String(args[0]), Number(args[1]) || 0);
-      case 'player.position': return h.playerPosition();
-      case 'player.teleport': return h.teleportPlayer(Number(args[0]), Number(args[1]), Number(args[2]));
-      case 'player.health': return h.playerHealth();
-      case 'ui.toast': return h.toast(String(args[0]).slice(0, 200));
-      case 'time.ofDay': return h.timeOfDay();
-      case 'time.moonPhase': return h.moonPhase?.() ?? 4;
-      case 'env.get': return h.modEnv(modId).valores[String(args[0])];
-      case 'env.has': return h.modEnv(modId).valores[String(args[0])] !== undefined;
-      case 'env.missing': return h.modEnv(modId).faltando;
-      default:
-        // Declarado no protocolo e sem implementação aqui nem em `extras`. É um buraco de fiação,
-        // e ele **precisa** estourar: devolver `undefined` em silêncio faria o mod receber um valor
-        // vazio e seguir em frente, com o defeito aparecendo três passos adiante.
-        throw new Error(`membro "${metodo}" está no protocolo e não foi ligado na ponte`);
+    const api = this.apiDoMod(modId);
+    if (!api) {
+      // O mod foi descarregado enquanto uma chamada estava em trânsito. Não é defeito: é a corrida
+      // normal de uma fronteira assíncrona, e o erro chega no `await` do script, que já não importa.
+      throw new Error(`mod "${modId}" não está carregado`);
     }
+
+    const [grupo, nome] = metodo.split('.');
+    const fn = api[grupo]?.[nome];
+    if (typeof fn !== 'function') {
+      // Declarado no protocolo e ausente da API. É um buraco de fiação, e ele **precisa** estourar:
+      // devolver `undefined` em silêncio faria o mod receber um valor vazio e seguir em frente, com
+      // o defeito aparecendo três passos adiante.
+      throw new Error(`membro "${metodo}" está no protocolo e não existe na API do mod`);
+    }
+    return fn.apply(api[grupo], args);
   }
 }

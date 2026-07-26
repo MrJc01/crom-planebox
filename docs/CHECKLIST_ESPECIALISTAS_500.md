@@ -3995,5 +3995,41 @@ apagado `fetch` e `indexedDB` num Worker de verdade — e `vitest` com jsdom nã
 lógica, que é onde os defeitos aparecem, está coberta; a segurança, que é onde ela mora, não está.
 
 - [ ] 1373 `P0` **Ligar o `ModRuntime` à ponte** — é o que falta para o 358 estar feito. Move os handlers para o worker, transforma a carga em algo dirigido por evento e faz `describe()` ler a contagem relatada
-- [ ] 1374 `P1` **Ligar os `extras`** — `fillBox`, `findNearest`, `blockId`, `time.isNight`, `weather.*`, `season.*`: a lógica que hoje mora em `buildModAPI` e precisa passar a rodar deste lado
+- [x] 1374 `P1` ~~Ligar os `extras`~~ — **desapareceu como tarefa.** A ponte passou a delegar à `buildModAPI` que já existe, então não há `extras` a ligar: há uma implementação só. Ver a continuação da seção 68
 - [ ] 1375 `P1` **Só então inverter o teste da fuga** (item 1370), no mesmo commit em que a execução mudar de lado
+
+### Continuação da 68 — a ponte que parou de reimplementar, e um defeito meu que o teste pegou
+
+**O item 1374 deixou de existir.** A primeira versão da ponte tinha um `switch` traduzindo cada
+membro numa chamada do host, e uma lista de `extras` para o que exigia mais lógica. Estava errada
+por duplicação: `fillBox` conta blocos, `findNearest` varre um cubo, `setBlock` resolve nome de bloco
+e cobra do orçamento, `isNight` interpreta a hora. Reescrever isso do lado da ponte criaria **duas**
+implementações de cada regra, e a segunda a mudar sairia de sincronia em silêncio.
+
+Um mod se comportando diferente conforme o lado em que roda é o pior defeito possível numa migração
+como esta — ele aparece como "o mod parou de funcionar depois que vocês mudaram alguma coisa", sem
+nada apontando o quê.
+
+A ponte agora resolve o caminho (`world.fillBox`) dentro do objeto que `buildModAPI` já devolve. A
+fronteira virou **transporte puro**, que é tudo o que ela deveria ser. E o teste que antes só podia
+exigir "falhe ruidosamente quando faltar" passou a exigir o que importa: **nada falta** — os 30
+membros do protocolo existem todos na API real.
+
+### O defeito que o teste novo encontrou, no meu próprio código
+
+Eu conferia o método recebido com `metodo in MEMBROS_DA_API`. **`in` percorre a cadeia de
+protótipos**, então `constructor`, `toString`, `valueOf`, `hasOwnProperty` e `__proto__` passavam
+pela conferência — nomes que vêm de graça em todo objeto literal e que nunca estiveram no protocolo.
+
+Nenhum deles chega a executar hoje, porque o passo seguinte não os encontra na API. Mas numa
+fronteira em que o outro lado roda código escrito por uma IA, **"não executa por acaso" é uma
+garantia diferente de "é recusado por regra"** — e só a segunda continua valendo depois de alguém
+mudar o passo seguinte. Passou a ser `Object.hasOwn`.
+
+Vale notar como ele apareceu: escrevi o teste esperando a mensagem "método desconhecido" para
+`constructor`, e recebi "membro não existe na API". A mensagem errada foi o que denunciou que a
+recusa estava acontecendo no lugar errado.
+
+- [~] 1376 `P1` **Ponte delegando à `buildModAPI`** — uma implementação só, fronteira como transporte
+- [~] 1377 `P1` **`Object.hasOwn` no lugar de `in`** na conferência do protocolo
+- [~] 1378 `P1` **Teste "todo membro declarado existe na API"**, mais forte que o "falhe ruidosamente" que a versão anterior permitia
