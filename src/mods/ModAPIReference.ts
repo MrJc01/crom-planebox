@@ -94,7 +94,7 @@ export const MOD_API_REFERENCE = {
 
   limites: {
     blocosPorChamada: '20.000 — um handler que passa disso para de escrever naquele ciclo',
-    tempoPorFrame: '4 ms somados entre TODOS os mods; ao estourar, os mods restantes esperam o próximo frame',
+    chamadasPorQuadro: '2.000 chamadas de API por mod, por quadro. Ao estourar, o resto do quadro é recusado e volta ao normal no seguinte — o script NÃO é desligado por isso',
     errosAteDesligar: '5 — o script que falhar 5 vezes é desligado sozinho, com o motivo no log',
     logs: '300 linhas por mod, as mais antigas são descartadas',
   },

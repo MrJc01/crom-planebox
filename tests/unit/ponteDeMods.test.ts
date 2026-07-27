@@ -16,7 +16,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { instalarNucleo } from '../../src/mods/nucleoDoWorker';
-import { PonteDeMods } from '../../src/mods/PonteDeMods';
+import { CHAMADAS_POR_QUADRO, PonteDeMods } from '../../src/mods/PonteDeMods';
 import { MEMBROS_DA_API, GLOBAIS_A_APAGAR, Porta } from '../../src/mods/protocoloDeMods';
 import { ModContext, ModHostBridge, buildModAPI } from '../../src/mods/ModAPI';
 import { emptyModPackage } from '../../src/mods/ModTypes';
@@ -406,5 +406,74 @@ describe('o protocolo e a ponte não saem de sincronia', () => {
     for (const critico of ['fetch', 'indexedDB', 'XMLHttpRequest', 'WebSocket', 'importScripts']) {
       expect(GLOBAIS_A_APAGAR).toContain(critico);
     }
+  });
+});
+
+describe('orçamento de chamadas por quadro (item 1385)', () => {
+  // Enquanto os scripts rodavam no thread principal, a contenção era `TICK_BUDGET_MS`. Com eles no
+  // Worker, esse relógio deixou de medir o que o nome promete: mede o custo de **enfileirar**
+  // mensagens, que é quase nada. O mod já não trava o quadro, e ganhou uma forma nova de fazer
+  // estrago — inundar a ponte, porque cada chamada atendida roda aqui.
+
+  it('CRÍTICO: passado o teto, a chamada é recusada', () => {
+    const { ponte } = montar();
+    for (let i = 0; i < CHAMADAS_POR_QUADRO; i++) {
+      expect(() => (ponte as any).executar('m1', 'time.ofDay', [])).not.toThrow();
+    }
+    expect(() => (ponte as any).executar('m1', 'time.ofDay', [])).toThrow(/orçamento/i);
+  });
+
+  it('CRÍTICO: o quadro seguinte devolve o orçamento cheio', () => {
+    // Estourar não desliga o mod. Um pico isolado não deve punir um mod que costuma ser barato — é
+    // a mesma regra do orçamento de blocos.
+    const { ponte } = montar();
+    for (let i = 0; i <= CHAMADAS_POR_QUADRO; i++) {
+      try { (ponte as any).executar('m1', 'time.ofDay', []); } catch { /* estourou de propósito */ }
+    }
+    ponte.novoQuadro();
+    expect(() => (ponte as any).executar('m1', 'time.ofDay', [])).not.toThrow();
+  });
+
+  it('CRÍTICO: o orçamento é POR MOD, não global', () => {
+    // Global seria um mod caro calando todos os outros — e o autor do mod inocente não teria como
+    // descobrir por quê.
+    const [ladoWorker, ladoHost] = parDePortas();
+    instalarNucleo(ladoWorker);
+    const ctxA = new ModContext(emptyModPackage('a', 'A'));
+    const ctxB = new ModContext(emptyModPackage('b', 'B'));
+    const apis: Record<string, any> = {
+      a: buildModAPI(ctxA, hostFalso(), '*'),
+      b: buildModAPI(ctxB, hostFalso(), '*'),
+    };
+    const ponte = new PonteDeMods(ladoHost, (id) => apis[id], {
+      aoCarregar: () => {}, aoFalhar: () => {}, aoRelatarHandlers: () => {},
+      aoRegistrarLog: () => {}, aoDescarregar: () => {},
+    });
+
+    for (let i = 0; i <= CHAMADAS_POR_QUADRO; i++) {
+      try { (ponte as any).executar('a', 'time.ofDay', []); } catch { /* o mod "a" estoura */ }
+    }
+    expect(() => (ponte as any).executar('b', 'time.ofDay', [])).not.toThrow();
+  });
+
+  it('avisa UMA vez por quadro, não a cada chamada recusada', () => {
+    // Um laço fugido faz milhares de chamadas. Um aviso por chamada encheria as 300 linhas de log do
+    // mod com a mesma frase e apagaria tudo o que havia de útil antes dela.
+    const { ponte, eventos } = montar();
+    for (let i = 0; i < CHAMADAS_POR_QUADRO + 50; i++) {
+      try { (ponte as any).executar('m1', 'time.ofDay', []); } catch { /* esperado */ }
+    }
+    expect(eventos.logs.filter((l) => String(l.args[0]).includes('Orçamento')).length).toBe(1);
+  });
+
+  it('o log de aviso passa mesmo com o mod estourado', () => {
+    // O aviso vem do mesmo caminho que as chamadas recusadas. Se ele fosse cobrado do orçamento —
+    // ou barrado por ele — o mod pararia de funcionar sem nada explicando por quê.
+    const { ponte, eventos } = montar();
+    for (let i = 0; i < CHAMADAS_POR_QUADRO + 5; i++) {
+      try { (ponte as any).executar('m1', 'time.ofDay', []); } catch { /* esperado */ }
+    }
+    (ponte as any).executar('m1', 'console.log', ['ainda falo']);
+    expect(eventos.logs.some((l) => l.args[0] === 'ainda falo')).toBe(true);
   });
 });

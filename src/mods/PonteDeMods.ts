@@ -32,6 +32,24 @@ export interface CallbacksDaPonte {
   aoDescarregar(modId: string): void;
 }
 
+/**
+ * Teto de chamadas de API que um mod pode fazer por quadro.
+ *
+ * ## Por que este número passou a ser necessário
+ *
+ * Enquanto os scripts rodavam neste thread, a contenção era `TICK_BUDGET_MS`: quatro milissegundos
+ * somados entre todos os mods. Com os scripts no Worker, esse relógio deixou de medir o que o nome
+ * dele promete — mede o custo de **enfileirar** mensagens, que é quase nada.
+ *
+ * O mod já não consegue travar o quadro, e ganhou uma forma nova de fazer estrago: inundar a ponte.
+ * Cada chamada atendida aqui roda no thread principal, então dez mil leituras por quadro travam o
+ * jogo mesmo com o script rodando longe.
+ *
+ * 2.000 é folgado para uso legítimo — um mod que varre uma área de 12×12×12 num tick faz 1.728
+ * leituras — e apertado o bastante para um laço fugido bater no teto na primeira volta.
+ */
+export const CHAMADAS_POR_QUADRO = 2_000;
+
 export class PonteDeMods {
   /**
    * @param apiDoMod devolve a API **já construída** daquele mod — a mesma `buildModAPI` de sempre.
@@ -56,8 +74,45 @@ export class PonteDeMods {
     this.porta.onmessage = (ev) => this.receber(ev.data as ParaOHost);
   }
 
+  /** Chamadas atendidas neste quadro, por mod. */
+  private gastoNoQuadro = new Map<string, number>();
+  /** Mods que já foram avisados neste quadro — o aviso sai uma vez, não duas mil. */
+  private jaAvisou = new Set<string>();
+
   private enviar(msg: ParaOWorker): void {
     this.porta.postMessage(msg);
+  }
+
+  /**
+   * Um novo quadro começou: os orçamentos voltam ao cheio.
+   *
+   * Chamado pelo `tickAll`. Um mod que estourou continua estourado até aqui, e volta a funcionar
+   * sozinho no quadro seguinte — nunca é desligado por isso. Um pico isolado não deve punir um mod
+   * que costuma ser barato, e é a mesma regra do orçamento de blocos.
+   */
+  public novoQuadro(): void {
+    this.gastoNoQuadro.clear();
+    this.jaAvisou.clear();
+  }
+
+  /**
+   * O mod ainda tem orçamento neste quadro?
+   *
+   * Estourar **não** é erro do script: é o jogo se defendendo. Por isso não conta para o limite de
+   * erros que desliga o script — seria punir um mod caro como se ele estivesse quebrado, e o autor
+   * veria "script desligado" sem nenhuma exceção no log para explicar.
+   */
+  private temOrcamento(modId: string): boolean {
+    const gasto = (this.gastoNoQuadro.get(modId) ?? 0) + 1;
+    this.gastoNoQuadro.set(modId, gasto);
+    if (gasto <= CHAMADAS_POR_QUADRO) return true;
+    if (!this.jaAvisou.has(modId)) {
+      this.jaAvisou.add(modId);
+      this.cb.aoRegistrarLog(modId, 'warn', [
+        `Orçamento de ${CHAMADAS_POR_QUADRO} chamadas por quadro estourado; o resto deste quadro foi recusado.`,
+      ]);
+    }
+    return false;
   }
 
   public carregar(modId: string, scripts: Array<{ key: string; code: string }>, constantes: Record<string, unknown>): void {
@@ -141,6 +196,12 @@ export class PonteDeMods {
       const nivel = metodo.slice('console.'.length) as 'log' | 'warn' | 'error';
       this.cb.aoRegistrarLog(modId, nivel, args);
       return undefined;
+    }
+
+    // Depois do log e antes de qualquer trabalho: o aviso de estouro precisa passar mesmo quando o
+    // mod está estourado, senão ele nunca saberia por que parou de funcionar.
+    if (!this.temOrcamento(modId)) {
+      throw new Error(`orçamento de chamadas por quadro estourado (${CHAMADAS_POR_QUADRO})`);
     }
 
     const api = this.apiDoMod(modId);

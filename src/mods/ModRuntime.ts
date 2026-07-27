@@ -264,6 +264,9 @@ export class ModRuntime {
    * cronômetro que não mede mais o que o nome dele promete.
    */
   public tickAll(dt: number): void {
+    // Recarrega o orçamento de mensagens de todos os mods. Fica ANTES do despacho, para o que este
+    // quadro pedir ser cobrado deste quadro.
+    this.ponte.novoQuadro();
     if (this.contexts.size === 0 && this.saindo.size === 0) return;
     for (const ctx of this.contexts.values()) this.dispatchTo(ctx, 'tick', { dt });
 
