@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1460 itens)
+# Checklist Mestre — Painel de Especialistas (1468 itens)
 
-> **Estado em 27/07/2026** — 792 de 1460 itens tratados (54%), com **1231 testes** passando,
+> **Estado em 27/07/2026** — 799 de 1468 itens tratados (54%), com **1270 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 699 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 668 | Pendente. |
+> | `[~]` | 706 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 669 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -3442,7 +3442,7 @@ cumprido, quem sai à noite de propósito já sabe o que está fazendo.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1321 `P1` **A criatura já nascida não é expulsa** — a regra vale para o berço, não para quem já está dentro. Quem tapar o buraco com um zumbi dentro fica com ele lá para sempre
+- [~] 1321 `P1` **A criatura presa no abrigo sai**, e o mundo passou a ter despawn por distância
 - [ ] 1322 `P2` **O abrigo só é mapeado a partir do jogador** — num mundo com dois jogadores, a casa do outro não protege ninguém enquanto ele não estiver dentro dela
 - [ ] 1323 `P2` **A porta ainda não existe** — sem um bloco que abra e feche, todo abrigo é selado com bloco e reaberto na pá, e o "buraco derruba o abrigo" fica sendo a mecânica de entrar e sair
 
@@ -3506,7 +3506,7 @@ caminho novo.
 ### Lacunas anotadas nesta rodada
 
 - [~] 1329 `P1` **A lista de mundos mostra o mundo encerrado** — riscado, com a data, e o botão desabilitado. Ele **continua na lista** de propósito: foi uma partida, e apagá-la sozinho seria decidir pelo jogador que aquilo não vale nada
-- [ ] 1330 `P1` **Os itens largados não expiram nem são marcados** — quem morre duas vezes no mesmo lugar não distingue as duas pilhas, e nada avisa que elas somem (ou que não somem)
+- [~] 1330 `P1` **Itens expiram, piscam antes e a pilha da morte é distinta**
 - [ ] 1331 `P2` **A ferramenta não perde durabilidade na morte** — como ela não cai, `dropar` acaba sendo mais brando do que a descrição sugere para quem só carrega ferramenta
 - [ ] 1332 `P2` **Hardcore não avisa antes** — nenhuma confirmação ao escolher, e nenhum aviso de vida baixa que reconheça que aquela vida é única
 
@@ -4964,3 +4964,59 @@ cópias podem divergir. O que não pode divergir é a **faixa** — é ela que d
 - [ ] 1472 `P2` **O gradiente do horizonte não foi visto** — a faixa e a fiação são conferidas, o GLSL não é compilado por nada. É o mesmo furo dos itens 1466 e do shader de curvatura
 - [ ] 1473 `P2` **A névoa de altitude não conhece o clima** — chuva num pico deveria fechar o horizonte tanto quanto no vale, e hoje os dois multiplicadores só se multiplicam
 - [ ] 1474 `P3` **A cúpula é uma esfera de 24×16** desenhada todo quadro sem necessidade — o gradiente é função só de `y`, e um quad de tela cheia faria o mesmo com dois triângulos
+
+## 83. Quem sai do mundo — itens 1321 e 1330
+
+### A casa que não protegia do caso mais óbvio
+
+A regra de abrigo valia para o **berço** e mais nada. `isSpawnable` recusa o interior da casa, e é
+só isso: quem fechasse a porta com um zumbi dentro ficava com ele lá para sempre. O jogador constrói
+exatamente para se proteger, e a construção não o protegia do caso que qualquer um encontra primeiro
+— sem nada no jogo dizendo que aquilo é permanente.
+
+Investigando, o buraco era maior: **não havia despawn de espécie alguma.** Uma criatura só saía do
+mundo morrendo. Quem gerasse hostis num canto e atravessasse o mundo levava o teto consigo, ocupado
+por criaturas a centenas de metros que nunca mais veria — e teto ocupado quer dizer que nada nasce
+perto. O sintoma seria o mundo ficar inexplicavelmente vazio depois de uma hora de jogo, sem nenhuma
+pista apontando para a causa.
+
+Três decisões que o teste trava:
+
+- **Sumir, não empurrar.** "Expulsar" no sentido literal exigiria achar uma saída, e o caso
+  interessante é justamente o de não haver saída — a casa está fechada, é para isso que ela existe.
+- **Espera contínua, e reiniciável.** Uma criatura que evapora na frente do jogador é pior que uma
+  presa: uma é um incômodo, a outra denuncia que o mundo é uma simulação frouxa. Sair do abrigo e
+  voltar reinicia a conta, senão bastaria cruzar a soleira uma vez para ficar marcado.
+- **Carência após combate.** Sem ela, recuar para dentro de casa faria o zumbi que está mordendo o
+  jogador evaporar — o que não lê como abrigo, lê como o jogo desistindo da luta no meio. E fugir
+  correndo faria o perseguidor sumir, ensinando o jogador a "desaparecer" inimigos andando.
+
+E `despawnEntity` não chama `onEntityDeath`: premiar o despawn com despojos daria uma fazenda de
+recursos que se opera fechando a porta.
+
+### O item que ficava para sempre
+
+`DroppedItem` já contava `age` e ninguém lia. Os itens ficavam no chão pelo resto da partida, cada um
+com uma malha, um material e um teste de distância por quadro — e os materiais nunca eram
+descartados, então cada bloco quebrado deixava um programa de GPU vivo até a página fechar.
+
+Quem morre duas vezes no mesmo lugar ficava com duas pilhas indistinguíveis. Agora o que cai na
+morte dura cinco vezes mais e é maior — o que responde "qual destas é a minha?" sem texto nenhum.
+
+**A piscada de aviso saiu errada na primeira versão, e o teste pegou.** Eu escrevi
+`idade * R * (1 + urgencia * 2)`, que parece uma frequência crescente e não é: com `idade` na casa
+das centenas, a derivada é dominada por `idade * dR/dt` e a piscada sai rapidíssima do começo ao fim.
+Um efeito que existe, roda, e faz o oposto do que o comentário promete. A fase precisa ser a
+**integral** da frequência.
+
+- [~] 1475 `P1` **`despawn.ts`**, regra pura e relógio separados — a regra testa sem simular quadros
+- [~] 1476 `P1` **`despawnEntity` e a marca de combate** no `EntitySystem`, marcada nos dois lados do golpe
+- [~] 1477 `P1` **`vidaDoItem.ts`** com expiração, aviso e origem
+- [~] 1478 `P2` **`dispose` em todo caminho de saída** de item — o vazamento existia desde sempre
+- [~] 1479 `P1` **39 testes** entre os dois, incluindo doze laços de fiação
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1480 `P2` **O despawn não é sincronizado** — o anfitrião remove a criatura e o convidado só descobre no `mob_sync` seguinte, até 170 ms depois. Ela some tarde, e some sem motivo visível daquele lado
+- [ ] 1481 `P2` **Nada avisa que a criatura presa vai embora** — do lado do jogador é um zumbi que desaparece sozinho dentro de casa, que é exatamente o tipo de coisa que se lê como defeito
+- [ ] 1482 `P3` **Os itens largados não são salvos** — fechar o mundo apaga a pilha da morte, e a vida de 25 minutos sugere o contrário

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { BLOCKS } from '../world/blocks';
 import { PlayerController } from '../player/controller';
+import { OrigemDoItem, estadoDoItem } from './vidaDoItem';
 
 interface DroppedItem {
   mesh: THREE.Mesh;
@@ -11,6 +12,8 @@ interface DroppedItem {
   count: number;
   age: number;
   vy: number;
+  /** De onde veio. Decide a vida útil e o aviso — ver `vidaDoItem.ts`. */
+  origem: OrigemDoItem;
 }
 
 const PICKUP_RADIUS = 1.6;
@@ -24,14 +27,23 @@ export class ItemDropSystem {
 
   constructor(private scene: THREE.Scene, private player: PlayerController) {}
 
-  public spawn(blockType: number, count: number, x: number, y: number, z: number): void {
+  public spawn(
+    blockType: number, count: number, x: number, y: number, z: number,
+    origem: OrigemDoItem = 'comum',
+  ): void {
     const def = BLOCKS[blockType];
     const color = def?.colors ? new THREE.Color(def.colors[0][0], def.colors[0][1], def.colors[0][2]) : new THREE.Color(0x38bdf8);
-    const mat = new THREE.MeshLambertMaterial({ color });
+    // `transparent` desde o começo, e não ligado só quando a piscada chega: trocar o modo de um
+    // material em uso força o three.js a recompilar o programa, e isso aconteceria com dezenas de
+    // itens ao mesmo tempo — exatamente no instante em que o jogador está correndo para pegá-los.
+    const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(this.geo, mat);
     mesh.position.set(x, y, z);
+    // O que caiu na morte é maior. É a diferença que responde "qual destas pilhas é a minha?" sem
+    // nenhum texto, e continua respondendo depois de duas mortes no mesmo lugar.
+    if (origem === 'morte') mesh.scale.setScalar(1.6);
     this.scene.add(mesh);
-    this.items.push({ mesh, blockType, count, age: 0, vy: 3 });
+    this.items.push({ mesh, blockType, count, age: 0, vy: 3, origem });
   }
 
   public update(dt: number): void {
@@ -41,6 +53,16 @@ export class ItemDropSystem {
 
     for (const item of this.items) {
       item.age += dt;
+
+      // Expiração e aviso — item 1330. `age` já era contado e ninguém lia: os itens ficavam no
+      // chão pelo resto da partida, um teste de distância e uma malha cada, para sempre.
+      const estado = estadoDoItem(item.age, item.origem);
+      if (estado.expirado) {
+        this.scene.remove(item.mesh);
+        (item.mesh.material as THREE.Material).dispose();
+        continue;
+      }
+      (item.mesh.material as THREE.MeshLambertMaterial).opacity = estado.opacidade;
 
       // pequeno impulso inicial pra cima que se acomoda, depois só bobbing (efeito Minecraft)
       if (item.vy > 0) {
@@ -56,6 +78,9 @@ export class ItemDropSystem {
       if (dist < PICKUP_RADIUS) {
         this.onCollect(item.blockType, item.count);
         this.scene.remove(item.mesh);
+        // Um material por item, então um `dispose` por item. Sem isto cada bloco quebrado numa
+        // sessão deixa um programa de GPU vivo até a página fechar.
+        (item.mesh.material as THREE.Material).dispose();
         continue;
       }
       if (dist < MAGNET_RADIUS) {
@@ -69,7 +94,15 @@ export class ItemDropSystem {
   }
 
   public clearAll(): void {
-    for (const item of this.items) this.scene.remove(item.mesh);
+    for (const item of this.items) {
+      this.scene.remove(item.mesh);
+      (item.mesh.material as THREE.Material).dispose();
+    }
     this.items = [];
+  }
+
+  /** Quantos itens estão no chão agora. Existe para teste e para o painel de depuração. */
+  public get contagem(): number {
+    return this.items.length;
   }
 }

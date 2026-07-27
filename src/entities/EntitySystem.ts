@@ -49,6 +49,13 @@ export interface EntityRecord {
   repathTimer?: number;
   /** Posição do alvo quando a rota foi traçada, para detectar que ele se moveu muito. */
   pathGoal?: THREE.Vector3;
+  /**
+   * Segundos desde o último golpe dado ou levado. `undefined` = nunca lutou.
+   *
+   * Existe para a carência do despawn — ver `despawn.ts`. Guardado em segundos desde, e não como um
+   * relógio que zera, para que a pergunta "faz quanto tempo?" tenha uma resposta direta.
+   */
+  ultimoCombate?: number;
 }
 
 export class EntitySystem {
@@ -342,6 +349,8 @@ export class EntitySystem {
       e.vel.set(kb.x, kb.y, kb.z);
     }
 
+    // Levar dano conta como combate: é o que segura o despawn enquanto a luta acontece.
+    e.ultimoCombate = 0;
     this.updateHealthBar(e);
     this.flashDamage(e);
 
@@ -424,6 +433,38 @@ export class EntitySystem {
 
   /** Notifica a morte de um hostil, para o chamador conceder loot. */
   public onEntityDeath: (entity: EntityRecord) => void = () => {};
+
+  /**
+   * Tira a criatura do mundo **sem** matá-la — item 1321.
+   *
+   * A diferença com `damageEntity` é o que NÃO acontece: nada de `onEntityDeath`, nada de loot,
+   * nada de som. Uma criatura que some porque o jogador se trancou não morreu, e premiar isso com
+   * despojos daria ao jogador uma fazenda de recursos que se opera fechando a porta.
+   */
+  public despawnEntity(id: string): boolean {
+    const e = this.entities.get(id);
+    if (!e) return false;
+    this.scene.remove(e.mesh);
+    this.entities.delete(id);
+    return true;
+  }
+
+  /**
+   * Segundos desde o último golpe dado ou levado por esta criatura, ou `Infinity`.
+   *
+   * Alimenta a carência do despawn: quem está lutando com o jogador não some. Sem isto, recuar
+   * para dentro de casa faria o zumbi que está mordendo o jogador evaporar — o que não lê como
+   * abrigo, lê como o jogo desistindo da luta no meio.
+   */
+  public desdeOCombate(id: string): number {
+    return this.entities.get(id)?.ultimoCombate ?? Infinity;
+  }
+
+  /** Marca que esta criatura acabou de dar ou levar um golpe. */
+  public registrarCombate(id: string): void {
+    const e = this.entities.get(id);
+    if (e) e.ultimoCombate = 0;
+  }
 
   /** Piscada vermelha ao levar dano: o feedback mais barato e mais legível de acerto. */
   private flashDamage(e: EntityRecord): void {
@@ -526,6 +567,9 @@ export class EntitySystem {
       e.mesh.rotation.y = Math.atan2(dx, dz);
       if (e.attackTimer <= 0) {
         e.attackTimer = p.attackInterval;
+        // Dar o golpe também conta como combate: quem está mordendo o jogador não some porque ele
+        // recuou para dentro de casa. Ver a carência em `despawn.ts`.
+        e.ultimoCombate = 0;
         return p.attackDamage;
       }
       return 0;
@@ -617,6 +661,11 @@ export class EntitySystem {
     let damageToPlayer = 0;
 
     for (const entity of this.entities.values()) {
+      // Envelhece a marca de combate. Fica FORA do ramo de autoridade porque o convidado também
+      // precisa dela: ele não decide o despawn, mas a marca chegada pelo `mob_sync` não pode
+      // congelar em zero e segurar a criatura para sempre no lado dele.
+      if (entity.ultimoCombate !== undefined) entity.ultimoCombate += dt;
+
       // Hostis têm IA própria (perceber/perseguir/atacar) e colisão com o mundo; o vagar
       // aleatório abaixo continua valendo só para os NPCs decorativos.
       if (entity.profile) {

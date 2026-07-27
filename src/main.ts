@@ -34,6 +34,7 @@ import { limparRegrasDeMod, regrasDeModRegistradas } from './world/scatter';
 import { CAMADAS, ambienteDaProfundidade, camadaNaProfundidade } from './world/camadas';
 import { avancarAmbiente, criarEstadoDoAmbiente } from './audio/ambienteDeCamada';
 import { neblinaDeAltitude } from './render/neblina';
+import { RelogioDeDespawn } from './entities/despawn';
 import { limparTemplatesDeMod, templatesDeModRegistrados } from './crafting/StructureTemplates';
 import { RedeDeMods } from './mods/RedeDeMods';
 import { pedirCapacidade } from './ui/PedidoDeCapacidade';
@@ -1351,7 +1352,9 @@ async function bootstrap() {
     // largá-los no destino a anularia.
     const ondeMorreu = player.pos.clone();
     for (const item of efeito.largar) {
-      itemDropSystem.spawn(item.block, item.count, ondeMorreu.x, ondeMorreu.y + 0.5, ondeMorreu.z);
+      // `'morte'` dá a estes uma vida cinco vezes maior e um tamanho maior — item 1330. É o que
+      // responde "qual destas pilhas é a minha?" depois de duas mortes no mesmo lugar, sem texto.
+      itemDropSystem.spawn(item.block, item.count, ondeMorreu.x, ondeMorreu.y + 0.5, ondeMorreu.z, 'morte');
     }
     for (const i of efeito.esvaziar) {
       inter.hotbar[i] = { label: '', block: -1, count: 0 };
@@ -2012,6 +2015,8 @@ async function bootstrap() {
   let relogioDeAbrigo = 0;
   /** Células do espaço fechado onde o jogador está, ou `null` se ele está a céu aberto. */
   let abrigoAtual: Set<string> | null = null;
+  /** Conta há quanto tempo cada criatura está presa no abrigo ou longe demais — item 1321. */
+  const relogioDeDespawn = new RelogioDeDespawn();
   /** Já avisamos nesta noite que o jogador está descoberto? Zera ao amanhecer. */
   let avisouDescoberto = false;
   /** O jogador está dormindo: o relógio do mundo corre acelerado até o amanhecer. */
@@ -2236,6 +2241,32 @@ async function bootstrap() {
         : undefined,
     });
     if (ponto) entitySystem.spawnHostile(ponto.kind, ponto.x, ponto.y, ponto.z);
+
+    // O outro lado da regra de abrigo — item 1321.
+    //
+    // A casa recusava o BERÇO e mais nada: quem fechasse a porta com um zumbi dentro ficava com ele
+    // lá para sempre. E não havia despawn de espécie alguma, então o teto de hostis acabava tomado
+    // por criaturas a centenas de metros, que nunca mais seriam vistas — com o efeito de o mundo
+    // perto do jogador ir ficando inexplicavelmente vazio.
+    //
+    // Só o anfitrião decide: no convidado as criaturas vêm pelo `mob_sync`, e removê-las aqui as
+    // faria piscar de volta na sincronização seguinte.
+    if (entitySystem.autoridade) {
+      const observadas = entitySystem.listHostiles().map((m) => ({
+        id: m.id,
+        kind: m.mobKind,
+        x: m.pos.x, y: m.pos.y, z: m.pos.z,
+        desdeOCombate: entitySystem.desdeOCombate(m.id),
+      }));
+      for (const { id } of relogioDeDespawn.avancar(observadas, {
+        jogador: { x: player.pos.x, y: player.pos.y, z: player.pos.z },
+        dentroDoAbrigo: abrigoAtual
+          ? (x, y, z) => abrigoAtual!.has(chaveDeCelula(x, y, z))
+          : undefined,
+      }, dt)) {
+        entitySystem.despawnEntity(id);
+      }
+    }
 
     // Retrato das criaturas para os convidados, a 6 Hz.
     //
