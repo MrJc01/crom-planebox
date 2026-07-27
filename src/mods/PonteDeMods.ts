@@ -78,7 +78,11 @@ export class PonteDeMods {
   private receber(msg: ParaOHost): void {
     switch (msg.t) {
       case 'chamada': this.atender(msg); break;
-      case 'carregado': this.cb.aoCarregar(msg.modId, msg.resultados); break;
+      case 'carregado':
+        // A contagem chega junto, então o diagnóstico já está certo quando a carga é reportada.
+        this.cb.aoRelatarHandlers(msg.modId, msg.handlers);
+        this.cb.aoCarregar(msg.modId, msg.resultados);
+        break;
       case 'falha': this.cb.aoFalhar(msg.modId, msg.scriptKey, msg.erro); break;
       case 'handlers': this.cb.aoRelatarHandlers(msg.modId, msg.contagem); break;
     }

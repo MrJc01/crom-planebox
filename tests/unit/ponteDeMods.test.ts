@@ -125,6 +125,28 @@ describe('carga através da fronteira', () => {
     expect(eventos.handlers[0].contagem.tick).toBe(2);
   });
 
+  it('CRÍTICO: a contagem chega ANTES de a carga ser reportada', async () => {
+    // Corrida encontrada ao ir ligar o `ModRuntime`: a contagem vinha numa mensagem própria, logo
+    // depois. Quem chama `loadMod` resolve a promessa quando o resultado chega — e nesse instante a
+    // contagem ainda estava em trânsito. O diagnóstico leria zero handlers para um mod recém
+    // carregado, e "carregou mas não tem handler nenhum" é exatamente como um mod quebrado se
+    // parece.
+    //
+    // Duas informações produzidas pelo mesmo ato não devem viajar separadas: quem precisa das duas
+    // fica obrigado a sincronizar o que o remetente já sabia junto.
+    const ordem: string[] = [];
+    const [ladoWorker, ladoHost] = parDePortas();
+    instalarNucleo(ladoWorker);
+    new PonteDeMods(ladoHost, () => ({}), {
+      aoCarregar: () => ordem.push('carregado'),
+      aoRelatarHandlers: () => ordem.push('handlers'),
+      aoFalhar: () => {}, aoRegistrarLog: () => {},
+    }).carregar('m1', [{ key: 'main', code: `api.on('tick', () => {});` }], CONSTANTES);
+    await assentar();
+
+    expect(ordem).toEqual(['handlers', 'carregado']);
+  });
+
   it('as constantes chegam como VALOR, não como promessa', async () => {
     // `api.B.STONE` precisa continuar sendo um número. Se as constantes atravessassem por RPC,
     // `if (bloco === api.B.STONE)` compararia um número com uma promessa e daria sempre falso —

@@ -148,6 +148,18 @@ export interface MsgCarregado {
   t: 'carregado';
   modId: string;
   resultados: Array<{ scriptKey: string; ok: boolean; error?: string }>;
+  /**
+   * Quantos handlers cada evento ganhou, **na mesma mensagem** do resultado da carga.
+   *
+   * Vinha numa mensagem própria logo depois, e isso era uma corrida: quem chama `loadMod` resolve a
+   * promessa quando o resultado chega, e nesse instante a contagem ainda estava em trânsito. O
+   * painel de diagnóstico leria zero handlers para um mod recém-carregado — e "carregou mas não tem
+   * handler nenhum" é exatamente como um mod quebrado se parece.
+   *
+   * Duas informações produzidas pelo mesmo ato não devem viajar separadas: quem precisa das duas
+   * fica obrigado a sincronizar o que o remetente já sabia junto.
+   */
+  handlers: Record<string, number>;
 }
 
 /** Erro de um handler já em execução — o que decide desligar o script. */
@@ -158,7 +170,12 @@ export interface MsgFalha {
   erro: string;
 }
 
-/** Quantos handlers cada evento tem, para o painel de diagnóstico continuar honesto. */
+/**
+ * Quantos handlers cada evento tem, quando a contagem muda **fora** da carga.
+ *
+ * Um handler registrado dentro de outro handler — legítimo, e o motivo de `dispatchTo` copiar a
+ * lista antes de percorrer — muda a contagem sem que nenhuma carga tenha acontecido.
+ */
 export interface MsgHandlers {
   t: 'handlers';
   modId: string;

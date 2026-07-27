@@ -113,16 +113,17 @@ export function instalarNucleo(porta: Porta): void {
       }
     }
 
-    enviar({ t: 'carregado', modId: msg.modId, resultados });
-    relatarHandlers(msg.modId);
+    // A contagem vai JUNTO com o resultado, e não numa mensagem seguinte: quem chama `loadMod`
+    // resolve a promessa quando o resultado chega, e a contagem em trânsito faria o diagnóstico ler
+    // zero handlers para um mod recém-carregado — que é exatamente como um mod quebrado se parece.
+    enviar({ t: 'carregado', modId: msg.modId, resultados, handlers: contarHandlers(msg.modId) });
   }
 
-  function relatarHandlers(modId: string): void {
+  function contarHandlers(modId: string): Record<string, number> {
     const reg = mods.get(modId);
-    if (!reg) return;
     const contagem: Record<string, number> = {};
-    for (const [evento, lista] of reg.handlers) contagem[evento] = lista.length;
-    enviar({ t: 'handlers', modId, contagem });
+    if (reg) for (const [evento, lista] of reg.handlers) contagem[evento] = lista.length;
+    return contagem;
   }
 
   function despachar(msg: MsgEvento): void {

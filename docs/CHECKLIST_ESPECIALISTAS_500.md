@@ -4033,3 +4033,43 @@ recusa estava acontecendo no lugar errado.
 - [~] 1376 `P1` **Ponte delegando à `buildModAPI`** — uma implementação só, fronteira como transporte
 - [~] 1377 `P1` **`Object.hasOwn` no lugar de `in`** na conferência do protocolo
 - [~] 1378 `P1` **Teste "todo membro declarado existe na API"**, mais forte que o "falhe ruidosamente" que a versão anterior permitia
+
+### Continuação da 68 — a corrida que apareceu ao ir ligar
+
+Fui começar o item 1373 e a primeira coisa que encontrei foi um defeito no protocolo que eu mesmo
+tinha desenhado.
+
+A contagem de handlers viajava numa mensagem **própria**, logo depois do resultado da carga. Quem
+chama `loadMod` resolve a promessa quando o resultado chega — e nesse instante a contagem ainda
+estava em trânsito. O painel de diagnóstico leria **zero handlers para um mod recém-carregado**, e
+"carregou mas não tem handler nenhum" é exatamente como um mod quebrado se parece.
+
+A regra que fica: **duas informações produzidas pelo mesmo ato não devem viajar separadas.** Quem
+precisa das duas fica obrigado a sincronizar o que o remetente já sabia junto — e, pior, a sincronia
+funciona quase sempre, porque a segunda mensagem costuma chegar rápido. É o tipo de defeito que
+aparece uma vez em cada cem cargas e nunca se reproduz na hora de investigar.
+
+A contagem passou a ir dentro de `MsgCarregado`, e há teste fixando a **ordem** em que os dois
+callbacks disparam. `MsgHandlers` continua existindo para o caso legítimo em que a contagem muda fora
+da carga — um handler registrado dentro de outro handler.
+
+- [~] 1379 `P1` **Contagem de handlers dentro do resultado da carga**, com teste de ordem
+
+### O item 1373 — o que ele é, medido
+
+É o que falta para o 358 estar feito, e não é pequeno. Ele muda o `ModRuntime` de dono da execução
+para coordenador:
+
+- `ctx.handlers` deixa de guardar funções e passa a guardar **contagem** (as funções vivem no worker)
+- `loadMod` deixa de compilar e passa a esperar a mensagem `carregado` — a assinatura não muda,
+  porque ela já devolve promessa desde o 1251
+- `dispatchTo` deixa de chamar funções e passa a mandar uma mensagem; a contagem de erros e o
+  desligamento continuam aqui, alimentados por `aoFalhar`
+- a drenagem de blocos deixa de acontecer logo após o handler e passa a ser por quadro, porque as
+  escritas chegam por mensagem depois
+- os ~40 testes de `modRuntime.test.ts` ganham espera entre despachar e observar
+
+O risco não é o refactor: é a **migração dos testes**. Um teste que observa antes de a mensagem
+chegar falha de forma intermitente, e um que "conserta" isso com espera generosa esconde a corrida em
+vez de provar a ausência dela. Não é trabalho para o fim de uma sessão, e por isso fica marcado como
+o próximo passo, com o desenho já validado por 18 testes.
