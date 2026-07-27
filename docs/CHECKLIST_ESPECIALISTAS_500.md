@@ -685,9 +685,9 @@ precisava nascer com teste, porque a falha dele é silenciosa e corrompe o save.
 
 ## 21 — Designer de Conteúdo Terraria-like
 
-- [ ] 495 `P0` Camadas verticais com identidade (superfície, subsolo, caverna, inferno)
-- [ ] 496 `P0` Recursos exclusivos por camada
-- [ ] 497 `P1` Perigos crescentes com a profundidade
+- [~] 495 `P0` **Quatro camadas com névoa, alcance e piso de luz próprios** — superfície, subsolo, caverna, abismo. Ver a seção 77
+- [~] 496 `P0` **Ouro só na caverna, diamante só no abismo** — a regra é consultada na geração, antes da abundância de bioma
+- [ ] 497 `P1` Perigos crescentes com a profundidade — as camadas já existem (495) e dão onde pendurar isto
 - [ ] 498 `P1` Masmorras com chave/mecanismo de abertura
 - [ ] 499 `P1` Eventos de invasão temporizados
 - [ ] 500 `P1` Bosses invocáveis com item de convocação
@@ -4631,3 +4631,69 @@ daquela".
 
 - [ ] 1430 `P1` **A estrutura de mod só aceita bloco por id numérico no espalhamento** — referências simbólicas (`meumod:cristal`) são descartadas ao virar template, e o autor não é avisado de quais sumiram
 - [ ] 1431 `P2` **Não há como um mod espalhar decoração pequena** (arbustos, pedras soltas) — o sistema é de estruturas com célula de 87 m, e um mod que queira grama alta própria não tem caminho
+
+---
+
+## 77 — A profundidade vira lugar (itens 495, 496)
+
+A profundidade já mudava **o que se acha**: carvão perto da superfície, diamante no fundo. Faltava
+mudar **onde se está** — descer trinta metros era mecanicamente diferente e sensorialmente idêntico:
+mesma névoa, mesmo silêncio, mesma pedra.
+
+Sem identidade, "descer" é um número no F3. Com ela, o jogador sabe onde está sem olhar.
+
+### O erro que cometi, e que o teste de subsolo pegou na hora
+
+Escrevi as camadas com números redondos: caverna em 20 m, abismo em 30. O diamante vai de **20 a 26
+metros**. Com o abismo começando em 30, o diamante ficava exclusivo de uma camada onde **nunca
+aparece**.
+
+Nada errava. Nenhum log, nenhuma exceção — o diamante simplesmente deixou de existir no mundo. É a
+forma mais silenciosa possível de quebrar a progressão inteira, e um jogador levaria horas cavando
+antes de suspeitar que o problema não era azar.
+
+Virou o teste mais importante do arquivo: **todo minério exclusivo precisa ter profundidade onde de
+fato aparece**, cruzando `CAMADAS` com `ORE_TIERS`. Os limites passaram a seguir as faixas — caverna
+em 14, abismo em 20 — e o ouro perde a cauda de 20 a 24 de propósito, que é o que separa "o metal da
+caverna" da "pedra do abismo".
+
+### A camada é medida da superfície, não do y absoluto
+
+Um y fixo tornaria o subsolo de uma montanha e o de um vale a mesma coisa: quem cava dez metros a
+partir de um pico estaria, pelo número, "no fundo" com o céu à vista. O que importa é quanto de rocha
+há acima da cabeça.
+
+### A transição ocupa o terço final, e não a faixa inteira
+
+Interpolar a faixa toda faria o jogador **nunca ver a cor pura de nenhuma camada** — ele estaria
+sempre no meio de duas, e o esforço de dar identidade a cada uma se perderia numa média contínua.
+Trocar de vez na fronteira seria o oposto: um estalo de cor que ensina a posição exata do limite e
+revela a tabela por trás.
+
+### Bioma em cima, camada embaixo — misturados, não escolhidos
+
+Sob dois metros de terra o jogador ainda vê o clarão do bioma pela boca do buraco. A mistura é pela
+profundidade, e a superfície tem peso zero — então nada disso altera quem está por cima, que é onde o
+sistema de biomas precisa continuar mandando sozinho.
+
+### E a exclusividade vem antes da abundância de bioma
+
+São duas regras de força diferente: o bioma **modula quanto** existe, a camada **decide se** existe.
+Invertida, a ordem faria um bioma rico em diamante produzi-lo acima do abismo.
+
+- [~] 1432 `P0` **`camadas.ts`** com 13 testes, incluindo o cruzamento `CAMADAS` × `ORE_TIERS`
+- [~] 1433 `P0` **Exclusividade aplicada na geração**, antes da abundância de bioma
+- [~] 1434 `P1` **Névoa e alcance por camada**, misturados com os do bioma pela profundidade
+- [~] 1435 `P1` **A camada aparece no diagnóstico**, junto do bioma — as duas respondem "onde estou"
+- [~] 1436 `P1` **3 travas de fiação** — o módulo é puro e passaria nos 13 testes com ele desligado
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1437 `P1` **O piso de luz da camada não é aplicado** — está declarado em `luzMinima` e nenhum
+  módulo o consulta ainda. O motor de luz é por voxel e assado no mesh; somar um piso ali exige
+  decidir se ele entra no mesh (barato, exige re-mesh ao trocar de camada) ou no shader (contínuo,
+  mais caro por fragmento)
+- [ ] 1438 `P1` **Não há som próprio de camada** — a névoa mudou, o silêncio não. Metade do "onde
+  estou" continua ausente
+- [ ] 1439 `P2` **A camada não muda a criatura que nasce** — o `MobSpawner` decide por luz, e o
+  abismo teria motivo para ter os seus

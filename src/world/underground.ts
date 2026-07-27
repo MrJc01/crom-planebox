@@ -11,6 +11,7 @@ import { Value3 } from '../core/noise';
 import { hash3 } from '../core/rng';
 import { B } from './blocks';
 import { BiomeId, abundanciaDeMinerio } from './biomes';
+import { mineriroPermitidoNaProfundidade } from './camadas';
 import { SCALE } from './chunk';
 
 /** Nenhuma caverna abre buraco a menos que isto de voxels da superfície. */
@@ -121,6 +122,10 @@ export class UndergroundGen {
     for (let i = ORE_TIERS.length - 1; i >= 0; i--) {
       const tier = ORE_TIERS[i];
       if (depthMeters < tier.minDepth || depthMeters > tier.maxDepth) continue;
+      // Exclusividade de camada — item 496. Vem ANTES da abundância de bioma porque é uma regra
+      // mais forte: o bioma modula quanto existe, a camada decide se existe. Ouro e diamante só
+      // aparecem nas camadas donas deles, por mais que a faixa de profundidade permita.
+      if (!mineriroPermitidoNaProfundidade(tier.chave, depthMeters)) continue;
       const abundancia = bioma ? abundanciaDeMinerio(bioma, tier.chave) : 1;
       if (abundancia <= 0) continue; // não existe neste bioma
       if (roll >= tier.rarity * abundancia) continue;

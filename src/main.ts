@@ -31,6 +31,7 @@ import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
 import { biomasDeModRegistrados, definicaoDeBioma, limparBiomasDeMod, registrarBiomaDeMod } from './world/biomes';
 import { limparRegrasDeMod, regrasDeModRegistradas } from './world/scatter';
+import { CAMADAS, ambienteDaProfundidade, camadaNaProfundidade } from './world/camadas';
 import { limparTemplatesDeMod, templatesDeModRegistrados } from './crafting/StructureTemplates';
 import { RedeDeMods } from './mods/RedeDeMods';
 import { pedirCapacidade } from './ui/PedidoDeCapacidade';
@@ -751,7 +752,11 @@ async function bootstrap() {
   // documentação não descobria nenhuma. O hub dá uma porta única e mostra os atalhos.
   const debugPanel = new DebugPanel({
     ambiente: () => ({
-      bioma: descreverBioma(pesosBioma),
+      // A camada entra junto do bioma, e não numa linha própria: as duas respondem "onde estou",
+      // e separá-las faria o jogador ler duas linhas para montar uma resposta só.
+      bioma: `${descreverBioma(pesosBioma)} · ${camadaNaProfundidade(
+        (gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height - player.pos.y) / SCALE,
+      ).nome}`,
       clima: descreverClima(clima),
       estacao: descreverEstacao(estacao),
       fase: nomeDaFase(gs.getMoonPhase()),
@@ -2281,9 +2286,28 @@ async function bootstrap() {
       // mais lavado que a selva *dentro* do estilo que o jogador escolheu.
       saturacaoBioma = misturarEscalar(pesosBioma, 'saturacao');
     }
+    // Névoa: o bioma manda em cima, a camada manda embaixo — itens 495 e 496.
+    //
+    // A mistura é pela profundidade e não uma escolha entre as duas: sob dois metros de terra o
+    // jogador ainda vê o clarão do bioma pela boca do buraco, e trocar de vez ali seria um estalo
+    // de cor no instante em que ele desce um degrau.
+    //
+    // A superfície tem `alcanceNeblina: 1` e mistura zero, então nada disso altera o comportamento
+    // de quem está por cima — que é onde o sistema de biomas precisa continuar mandando sozinho.
+    const superficieAqui = gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height;
+    const profundidade = (superficieAqui - player.pos.y) / SCALE;
+    const camada = ambienteDaProfundidade(profundidade);
+    const dentroDaTerra = Math.max(0, Math.min(1, profundidade / CAMADAS[1].inicio));
+
+    const corBioma = misturarCor(pesosBioma, 'neblina');
+    const misturar = (a: number, b: number) => a + (b - a) * dentroDaTerra;
     gs.setBiomeAmbience(
-      misturarCor(pesosBioma, 'neblina'),
-      misturarEscalar(pesosBioma, 'alcanceNeblina'),
+      [
+        misturar(corBioma[0], camada.neblina[0]),
+        misturar(corBioma[1], camada.neblina[1]),
+        misturar(corBioma[2], camada.neblina[2]),
+      ],
+      misturar(misturarEscalar(pesosBioma, 'alcanceNeblina'), camada.alcance),
       dt,
     );
 

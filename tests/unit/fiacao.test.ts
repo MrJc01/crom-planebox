@@ -536,6 +536,29 @@ describe('espalhamento de mod — a estrutura chega ao terreno (item 689)', () =
   });
 });
 
+describe('camadas verticais — a profundidade se vê e se sente (itens 495/496)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: a névoa da camada chega ao renderizador', () => {
+    // `camadas.ts` é um módulo puro com 13 testes que passariam com ele completamente desligado —
+    // e desligado significa descer trinta metros continuar sensorialmente idêntico à superfície,
+    // que é exatamente o problema que o item 495 descreve.
+    expect(/ambienteDaProfundidade\(/.test(main), 'a névoa da camada não é consultada').toBe(true);
+    expect(/gs\.setBiomeAmbience\(/.test(main), 'a névoa não chega ao renderizador').toBe(true);
+  });
+
+  it('CRÍTICO: a exclusividade por camada chega à geração de minério', () => {
+    // Sem isto, "recursos exclusivos por camada" seria uma tabela que ninguém consulta: o diamante
+    // continuaria aparecendo onde a faixa de profundidade permite, e a camada não significaria nada.
+    const sub = FONTE.find((f) => f.arquivo.endsWith('world/underground.ts'))!.texto;
+    expect(/mineriroPermitidoNaProfundidade\(/.test(sub)).toBe(true);
+  });
+
+  it('a camada aparece no diagnóstico', () => {
+    expect(/camadaNaProfundidade\(/.test(main)).toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos
