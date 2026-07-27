@@ -17,7 +17,15 @@ import {
   unregisterCustomBlock,
 } from '../world/blocks';
 import { ModBlockDef, ModPackage, ModStructureBlock } from './ModTypes';
-import { definicaoDeBioma, registrarBiomaDeMod } from '../world/biomes';
+import { BIOMAS_CLIMA, BIOMAS_RELEVO, definicaoDeBioma, registrarBiomaDeMod } from '../world/biomes';
+import { registrarRegraDeMod } from '../world/scatter';
+import { registrarTemplateDeMod } from '../crafting/StructureTemplates';
+
+/** Ids nativos, para saber quando um bioma declarado por mod precisa de prefixo. */
+const BIOMAS_NATIVOS = new Set<string>([
+  ...BIOMAS_CLIMA.map((b) => b.id as string),
+  ...Object.values(BIOMAS_RELEVO).map((b) => b.id as string),
+]);
 
 const KEY_PATTERN = /^[a-z0-9][a-z0-9_]*$/;
 
@@ -182,6 +190,46 @@ export function applyModBiomes(pkg: ModPackage): string[] {
   return erros;
 }
 
+/**
+ * Registra as estruturas do mod como templates e as regras de espalhamento delas — item 689.
+ *
+ * Os templates entram **antes** das regras: uma regra aponta para um template por id, e a ordem
+ * inversa deixaria o worldgen achar o sítio e não achar o que carimbar nele — um clarão de terreno
+ * aplanado com nada em cima, que se parece com defeito de geração e não com mod mal declarado.
+ */
+export function applyModScatter(pkg: ModPackage): string[] {
+  const erros: string[] = [];
+  for (const e of pkg.structures || []) {
+    const erro = registrarTemplateDeMod({
+      id: `${pkg.id}:${e.key}`,
+      name: e.name,
+      // As estruturas de mod guardam `block` como id **ou** referência simbólica. O carimbo do
+      // worldgen espera id numérico, então o que não resolver é descartado com aviso em vez de
+      // virar bloco 0 — um buraco no meio da construção.
+      blocks: (e.blocks || []).map((b) => ({
+        dx: b.dx, dy: b.dy, dz: b.dz,
+        block: typeof b.block === 'number' ? b.block : NaN,
+      })).filter((b) => Number.isFinite(b.block)),
+    });
+    if (erro) erros.push(`estrutura "${e.key}": ${erro}`);
+  }
+
+  for (const r of pkg.scatter || []) {
+    const erro = registrarRegraDeMod({
+      template: `${pkg.id}:${r.estrutura}`,
+      peso: r.peso,
+      // Bioma do próprio mod vem sem prefixo na declaração — é como o autor o escreveu. Aqui ele
+      // ganha o mesmo prefixo que o registro de biomas usou, senão a regra nunca casaria.
+      biomas: (r.biomas || []).map((b) => (b.includes(':') || BIOMAS_NATIVOS.has(b) ? b : `${pkg.id}:${b}`)),
+      pegada: r.pegada,
+      desnivelMax: r.desnivelMax,
+      alturaMinAcimaDoMar: r.alturaMinAcimaDoMar,
+    });
+    if (erro) erros.push(`espalhamento de "${r.estrutura}": ${erro}`);
+  }
+  return erros;
+}
+
 /** Registra os blocos de um mod no array global `BLOCKS`, nos ids que o pacote já carrega. */
 export function applyModBlocks(pkg: ModPackage): number[] {
   const applied: number[] = [];
@@ -235,6 +283,7 @@ export function applyAllMods(mods: ModPackage[]): { blocksApplied: number; modsA
     if (!mod.enabled) continue;
     blocksApplied += applyModBlocks(mod).length;
     applyModBiomes(mod);
+    applyModScatter(mod);
     modsApplied++;
   }
   return { blocksApplied, modsApplied };

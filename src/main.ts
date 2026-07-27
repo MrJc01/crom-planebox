@@ -30,6 +30,8 @@ import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
 import { biomasDeModRegistrados, definicaoDeBioma, limparBiomasDeMod, registrarBiomaDeMod } from './world/biomes';
+import { limparRegrasDeMod, regrasDeModRegistradas } from './world/scatter';
+import { limparTemplatesDeMod, templatesDeModRegistrados } from './crafting/StructureTemplates';
 import { RedeDeMods } from './mods/RedeDeMods';
 import { pedirCapacidade } from './ui/PedidoDeCapacidade';
 import { prepareWorld } from './storage/SaveMigration';
@@ -267,11 +269,21 @@ async function bootstrap() {
    * bioma novo aparece no que ainda não foi gerado, que é a única forma de isto não ser destrutivo.
    */
   function reiniciarGeracao(): void {
-    worker.postMessage({ type: 'init', seed, biomasDeMod: biomasDeModRegistrados() });
+    worker.postMessage({
+      type: 'init', seed,
+      biomasDeMod: biomasDeModRegistrados(),
+      regrasDeMod: regrasDeModRegistradas(),
+      templatesDeMod: templatesDeModRegistrados(),
+    });
   }
 
   function initWorker(): void {
-    worker.postMessage({ type: 'init', seed, biomasDeMod: biomasDeModRegistrados() });
+    worker.postMessage({
+      type: 'init', seed,
+      biomasDeMod: biomasDeModRegistrados(),
+      regrasDeMod: regrasDeModRegistradas(),
+      templatesDeMod: templatesDeModRegistrados(),
+    });
     worker.onmessage = (ev) => {
       const msg = ev.data;
       if (msg.type !== 'chunk') return;
@@ -1497,6 +1509,8 @@ async function bootstrap() {
     // contaminaria o próximo aberto na mesma sessão, e o sintoma seria terreno errado num mundo
     // que nunca teve aquele mod.
     limparBiomasDeMod();
+    limparRegrasDeMod();
+    limparTemplatesDeMod();
     relampago.reset();
     void sincronizarGlobaisDeIA();
     for (const key of Array.from(materiaisFade.keys())) encerrarFade(key);
@@ -1516,7 +1530,12 @@ async function bootstrap() {
     savedChunks.clear();
 
     seed = wRecord.seed || (Math.random() * 0xffffffff) >>> 0;
-    worker.postMessage({ type: 'init', seed, biomasDeMod: biomasDeModRegistrados() });
+    worker.postMessage({
+      type: 'init', seed,
+      biomasDeMod: biomasDeModRegistrados(),
+      regrasDeMod: regrasDeModRegistradas(),
+      templatesDeMod: templatesDeModRegistrados(),
+    });
 
     // Os mods vêm ANTES dos blocos salvos: eles registram os blocos customizados nos ids que o
     // save referencia. Na ordem inversa, o mundo aplicaria ids sem definição e o mesher

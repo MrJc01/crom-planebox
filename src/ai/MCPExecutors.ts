@@ -667,6 +667,20 @@ export class MCPExecutors {
         return { result: res.message };
       }
 
+      case 'define_mod_scatter': {
+        const alvo = this.targetMod(args, 'espalhar uma estrutura');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const res = await this.modService.addScatter(alvo.modId, {
+          estrutura: String(args.structure_key || ''),
+          peso: Number(args.weight ?? 1),
+          biomas: Array.isArray(args.biomes) ? args.biomes.map(String) : [],
+          pegada: Number(args.footprint ?? 5),
+          desnivelMax: Number(args.max_slope ?? 3),
+          alturaMinAcimaDoMar: Number(args.min_height_above_sea ?? 2),
+        });
+        return { result: res.message };
+      }
+
       case 'define_mod_entity': {
         const alvo = this.targetMod(args, 'criar uma criatura');
         if ('erro' in alvo) return { result: alvo.erro };

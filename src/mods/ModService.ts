@@ -20,6 +20,7 @@ import {
   ModEntityDef,
   ModPackage,
   ModBiomeDef,
+  ModScatterDef,
   ModStructureDef,
   emptyModPackage,
   stripLocalState,
@@ -30,6 +31,7 @@ import {
   allocateBlockIds,
   applyModBlocks,
   applyModBiomes,
+  applyModScatter,
   conflitoDeContraste,
   normalizeKey,
   resolveStructureBlocks,
@@ -578,6 +580,43 @@ export class ModService {
       ok: true,
       message: `Bioma "${biome.nome}" criado como "${modId}:${key}", com centro em temp ${biome.temp} / moist ${biome.moist}. `
         + 'Ele aparece no terreno ainda não gerado — o mundo já explorado continua como está.',
+    };
+  }
+
+  /**
+   * Faz uma estrutura do mod nascer sozinha pelo mundo — item 689.
+   *
+   * Exige que a estrutura **já exista**. Aceitar uma chave inexistente gravaria uma regra que
+   * escolhe sítios e não constrói nada: clarões de terreno aplanado espalhados pelo mundo, que se
+   * parecem com defeito de geração e não com regra mal declarada.
+   */
+  public async addScatter(modId: string, regra: ModScatterDef): Promise<ModApplyResult> {
+    const mod = this.getMod(modId);
+    if (!mod) return { ok: false, message: `Mod "${modId}" não encontrado. Use create_mod primeiro.` };
+
+    const chave = normalizeKey(regra.estrutura);
+    if (!(mod.structures || []).some((e) => e.key === chave)) {
+      const nomes = (mod.structures || []).map((e) => e.key).join(', ') || 'nenhuma';
+      return {
+        ok: false,
+        message: `O mod "${modId}" não tem a estrutura "${chave}". Estruturas disponíveis: ${nomes}. `
+          + 'Crie-a com define_mod_structure primeiro.',
+      };
+    }
+    if ((mod.scatter || []).some((r) => r.estrutura === chave)) {
+      return { ok: false, message: `Já existe uma regra de espalhamento para "${chave}".` };
+    }
+
+    const candidato: ModPackage = { ...mod, scatter: [...(mod.scatter || []), { ...regra, estrutura: chave }] };
+    const erros = applyModScatter({ ...candidato, scatter: [{ ...regra, estrutura: chave }] });
+    if (erros.length > 0) return { ok: false, message: `Regra inválida: ${erros.join(' ')}` };
+
+    await this.persist(candidato);
+    return {
+      ok: true,
+      message: `"${chave}" passa a nascer sozinha em ${regra.biomas.join(', ')}. `
+        + 'No máximo uma estrutura por célula de ~87 m — o peso disputa com as outras regras do mesmo bioma. '
+        + 'Aparece no terreno ainda não gerado.',
     };
   }
 

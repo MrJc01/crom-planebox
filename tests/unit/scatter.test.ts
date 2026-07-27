@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { BiomeId } from '../../src/world/biomes';
 import {
   CELULA,
@@ -9,9 +9,17 @@ import {
   espacamentoMinimo,
   estruturaNaCelula,
   estruturasNaRegiao,
+  limparRegrasDeMod,
+  regrasDeEspalhamento,
+  regrasDeModRegistradas,
+  registrarRegraDeMod,
 } from '../../src/world/scatter';
 import { WATER_LEVEL } from '../../src/world/worldgen';
-import { getStructureTemplate } from '../../src/crafting/StructureTemplates';
+import {
+  getStructureTemplate,
+  limparTemplatesDeMod,
+  registrarTemplateDeMod,
+} from '../../src/crafting/StructureTemplates';
 
 /** Terreno plano e uniforme: isola o espalhamento de qualquer efeito de relevo. */
 function planicie(bioma: BiomeId = 'planicie', altura = WATER_LEVEL + 30): SondaDeTerreno {
@@ -285,5 +293,104 @@ describe('estruturasNaRegiao — a varredura', () => {
 
   it('região vazia devolve lista vazia, não erro', () => {
     expect(estruturasNaRegiao(SEMENTE, 0, 0, 0, 0, planicie('oceano'))).toEqual([]);
+  });
+});
+
+describe('regras de espalhamento registradas por mod — item 689', () => {
+  const REGRA: any = {
+    template: 'meumod:torre_de_cristal',
+    peso: 5,
+    biomas: ['planicie'],
+    pegada: 6,
+    desnivelMax: 3,
+    alturaMinAcimaDoMar: 2,
+  };
+
+  afterEach(() => limparRegrasDeMod());
+
+  it('CRÍTICO: uma regra de mod entra na disputa pela célula', () => {
+    expect(registrarRegraDeMod(REGRA)).toBeNull();
+    expect(regrasDeEspalhamento().some((r) => r.template === REGRA.template)).toBe(true);
+  });
+
+  it('CRÍTICO: e chega a produzir sítios no mundo', () => {
+    // Registrar sem nunca aparecer seria o pior resultado: o mod carrega, nada erra, e a estrutura
+    // não existe em lugar nenhum.
+    registrarRegraDeMod({ ...REGRA, peso: 1000 });
+    const terreno = planicie();
+    const sitios = estruturasNaRegiao(99, 0, 0, CELULA * 20, CELULA * 20, terreno);
+    expect(sitios.some((s) => s.template === REGRA.template)).toBe(true);
+  });
+
+  it('CRÍTICO: pegada grande demais é recusada, dizendo o teto', () => {
+    // A pegada decide a MARGEM da posição dentro da célula. Maior que meia célula não deixaria
+    // posição nenhuma, e a estrutura invadiria a vizinha — quebrando o espaçamento mínimo, que é a
+    // razão de este sistema existir.
+    const erro = registrarRegraDeMod({ ...REGRA, pegada: CELULA });
+    expect(erro).toMatch(/pegada/);
+    expect(erro).toMatch(/\d+/);
+  });
+
+  it('CRÍTICO: a folga garantida NÃO muda com a pegada do mod — e isso é por construção', () => {
+    // Escrevi este teste esperando o contrário, e ele me corrigiu: a álgebra cancela a pegada.
+    // `margem = pegada + 1`, então a folga entre duas construções vizinhas é `2(p+1) − 2p = 2`,
+    // sempre. A margem foi definida assim justamente para garantir um voxel de cada lado seja qual
+    // for a pegada.
+    //
+    // O que uma pegada grande consome não é a folga: é o espaço útil onde a âncora pode cair dentro
+    // da célula. É por isso que o teto está no registro, e não aqui.
+    const antes = espacamentoMinimo();
+    registrarRegraDeMod({ ...REGRA, pegada: 40 });
+    expect(espacamentoMinimo()).toBe(antes);
+    expect(antes).toBeGreaterThan(0);
+  });
+
+  it('regra sem bioma é recusada', () => {
+    // Nunca ganharia célula nenhuma: existiria na tabela e não no mundo.
+    expect(registrarRegraDeMod({ ...REGRA, biomas: [] })).toMatch(/bioma/);
+  });
+
+  it('peso zero ou negativo é recusado', () => {
+    expect(registrarRegraDeMod({ ...REGRA, peso: 0 })).toMatch(/peso/);
+  });
+
+  it('duas regras para o mesmo template é recusado', () => {
+    registrarRegraDeMod(REGRA);
+    expect(registrarRegraDeMod(REGRA)).toMatch(/já existe/);
+  });
+
+  it('CRÍTICO: limpar devolve o conjunto nativo', () => {
+    registrarRegraDeMod(REGRA);
+    limparRegrasDeMod();
+    expect(regrasDeEspalhamento().some((r) => r.template === REGRA.template)).toBe(false);
+    expect(regrasDeModRegistradas()).toEqual([]);
+  });
+});
+
+describe('templates de mod — item 689', () => {
+  afterEach(() => limparTemplatesDeMod());
+
+  it('CRÍTICO: um template de mod é encontrado por id', () => {
+    expect(registrarTemplateDeMod({ id: 'm:x', name: 'X', blocks: [{ dx: 0, dy: 0, dz: 0, block: 3 }] })).toBeNull();
+    expect(getStructureTemplate('m:x')?.name).toBe('X');
+  });
+
+  it('CRÍTICO: template vazio é recusado', () => {
+    // Produziria um sítio escolhido, o terreno aplanado e nada construído: um clarão inexplicável
+    // no meio do mundo.
+    expect(registrarTemplateDeMod({ id: 'm:vazio', name: 'V', blocks: [] })).toMatch(/blocos/);
+  });
+
+  it('CRÍTICO: substituir um template nativo é recusado', () => {
+    expect(registrarTemplateDeMod({ id: 'tower', name: 'X', blocks: [{ dx: 0, dy: 0, dz: 0, block: 3 }] }))
+      .toMatch(/nativo/);
+  });
+
+  it('registrar o próprio de novo SUBSTITUI, e isso é de propósito', () => {
+    // O autor edita a estrutura no editor e recarrega o mod várias vezes por minuto. Recusar aqui
+    // obrigaria a reiniciar o mundo a cada ajuste.
+    registrarTemplateDeMod({ id: 'm:y', name: 'Antigo', blocks: [{ dx: 0, dy: 0, dz: 0, block: 3 }] });
+    expect(registrarTemplateDeMod({ id: 'm:y', name: 'Novo', blocks: [{ dx: 0, dy: 0, dz: 0, block: 4 }] })).toBeNull();
+    expect(getStructureTemplate('m:y')?.name).toBe('Novo');
   });
 });

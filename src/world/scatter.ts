@@ -95,8 +95,66 @@ export const REGRAS: RegraDeEspalhamento[] = [
   },
 ];
 
-/** Maior pegada entre as regras — define a margem da posição dentro da célula. */
-const MAIOR_PEGADA = REGRAS.reduce((m, r) => Math.max(m, r.pegada), 0);
+/**
+ * Regras registradas por mods — item 689.
+ *
+ * Lista separada da nativa pelos mesmos dois motivos dos biomas: **limpar** ao trocar de mundo (um
+ * mod de um mundo não pode espalhar as estruturas dele no próximo aberto na mesma sessão) e
+ * **restaurar** o conjunto nativo sem precisar lembrar quantas foram acrescentadas.
+ */
+const REGRAS_DE_MOD: RegraDeEspalhamento[] = [];
+
+/** Todas as regras em jogo: as nativas mais as dos mods. */
+export function regrasDeEspalhamento(): RegraDeEspalhamento[] {
+  return REGRAS_DE_MOD.length === 0 ? REGRAS : [...REGRAS, ...REGRAS_DE_MOD];
+}
+
+/**
+ * Registra uma regra de mod. Devolve o erro, ou `null` se entrou.
+ *
+ * A pegada tem teto porque ela decide a **margem** da posição dentro da célula: uma pegada maior
+ * que meia célula não deixaria posição nenhuma sobrando, e a estrutura invadiria a célula vizinha —
+ * quebrando a garantia de espaçamento mínimo que é a razão de este sistema existir.
+ */
+export function registrarRegraDeMod(regra: RegraDeEspalhamento): string | null {
+  if (!regra?.template) return 'regra sem template';
+  if (!Array.isArray(regra.biomas) || regra.biomas.length === 0) {
+    // Uma regra sem bioma nunca ganha célula nenhuma: existiria na tabela e não no mundo.
+    return 'a regra precisa de ao menos um bioma';
+  }
+  if (!(regra.peso > 0)) return 'peso precisa ser maior que zero';
+  const teto = Math.floor(CELULA / 4);
+  if (!(regra.pegada > 0) || regra.pegada > teto) {
+    return `pegada precisa estar entre 1 e ${teto} (recebido ${regra.pegada})`;
+  }
+  if (REGRAS_DE_MOD.some((r) => r.template === regra.template)) {
+    return `já existe uma regra para o template "${regra.template}"`;
+  }
+  REGRAS_DE_MOD.push(regra);
+  return null;
+}
+
+/** Esquece as regras de mod. Chamado ao trocar de mundo. */
+export function limparRegrasDeMod(): void {
+  REGRAS_DE_MOD.length = 0;
+}
+
+/** As regras de mod registradas, para o worldgen replicá-las no Worker. */
+export function regrasDeModRegistradas(): readonly RegraDeEspalhamento[] {
+  return REGRAS_DE_MOD;
+}
+
+/**
+ * Maior pegada entre as regras em jogo — define a margem da posição dentro da célula.
+ *
+ * Função, e não constante calculada na carga do módulo: com uma constante, uma regra de mod com
+ * pegada maior que todas as nativas usaria uma margem pequena demais, e a estrutura dela vazaria
+ * para a célula vizinha. O espaçamento mínimo — a única garantia que este arquivo dá — deixaria de
+ * valer, e só para quem instalasse aquele mod.
+ */
+function maiorPegada(regras: RegraDeEspalhamento[]): number {
+  return regras.reduce((m, r) => Math.max(m, r.pegada), 0);
+}
 
 export interface SitioDeEstrutura {
   template: string;
@@ -132,14 +190,14 @@ export function estruturaNaCelula(
   gx: number,
   gz: number,
   terreno: SondaDeTerreno,
-  regras: RegraDeEspalhamento[] = REGRAS,
+  regras: RegraDeEspalhamento[] = regrasDeEspalhamento(),
 ): SitioDeEstrutura | null {
   if (hash2(gx, gz, semente ^ 0x5771) >= DENSIDADE) return null;
 
   // Posição dentro da célula, com margem para a maior pegada possível não vazar para a vizinha.
   // A margem usa a MAIOR pegada, e não a da regra escolhida, porque a posição é sorteada antes
   // de saber qual regra vence — e mudar a posição conforme a regra reabriria a sobreposição.
-  const margem = MAIOR_PEGADA + 1;
+  const margem = maiorPegada(regras) + 1;
   const util = Math.max(1, CELULA - margem * 2);
   const x = gx * CELULA + margem + Math.floor(hash2(gx, gz, semente ^ 0x1a2b) * util);
   const z = gz * CELULA + margem + Math.floor(hash2(gx, gz, semente ^ 0x3c4d) * util);
@@ -193,7 +251,7 @@ export function estruturasNaRegiao(
   semente: number,
   x0: number, z0: number, x1: number, z1: number,
   terreno: SondaDeTerreno,
-  regras: RegraDeEspalhamento[] = REGRAS,
+  regras: RegraDeEspalhamento[] = regrasDeEspalhamento(),
 ): SitioDeEstrutura[] {
   const saida: SitioDeEstrutura[] = [];
   const gx0 = Math.floor(x0 / CELULA);
@@ -209,9 +267,21 @@ export function estruturasNaRegiao(
   return saida;
 }
 
-/** Espaçamento mínimo garantido entre duas estruturas quaisquer, em metros. */
+/**
+ * Espaçamento mínimo garantido entre duas estruturas quaisquer, em metros.
+ *
+ * Consulta as regras **em jogo**, incluindo as de mod: uma regra de mod com pegada maior muda a
+ * margem, e um valor calculado só sobre as nativas prometeria uma garantia que deixou de valer.
+ */
 export function espacamentoMinimo(): number {
-  // Pior caso: duas âncoras em células adjacentes, cada uma colada na borda comum. Cada uma fica
-  // a `margem` da borda, então a distância entre elas é `2 × margem`, menos as pegadas.
-  return ((MAIOR_PEGADA + 1) * 2 - MAIOR_PEGADA * 2) / SCALE;
+  // Pior caso: duas âncoras em células adjacentes, cada uma colada na borda comum. Cada uma fica a
+  // `margem` da borda, então a distância entre elas é `2 × margem`, menos as pegadas.
+  //
+  // A álgebra **cancela a pegada**: `2(p+1) − 2p = 2`, sempre. Isso não é um acidente e vale dizer,
+  // porque a fórmula parece depender de `p` e não depende — a margem é definida como `pegada + 1`
+  // justamente para garantir um voxel de folga de cada lado, **qualquer que seja a pegada**. Uma
+  // regra de mod com pegada enorme continua respeitando a mesma folga; o que ela consome é o espaço
+  // útil onde a âncora pode cair dentro da célula, e é por isso que a pegada tem teto no registro.
+  const p = maiorPegada(regrasDeEspalhamento());
+  return ((p + 1) * 2 - p * 2) / SCALE;
 }

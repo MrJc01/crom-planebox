@@ -1,6 +1,8 @@
 // Web Worker: gera chunks fora da main thread para não travar o frame.
 import { WorldGen } from './worldgen';
 import { limparBiomasDeMod, registrarBiomaDeMod } from './biomes';
+import { limparRegrasDeMod, registrarRegraDeMod } from './scatter';
+import { registrarTemplateDeMod, limparTemplatesDeMod } from '../crafting/StructureTemplates';
 
 let gen: WorldGen | null = null;
 
@@ -17,7 +19,14 @@ self.onmessage = (ev: MessageEvent) => {
     // aberto na mesma sessão — o worker é reaproveitado, e o sintoma seria terreno errado num
     // mundo que nunca teve aquele mod.
     limparBiomasDeMod();
+    limparRegrasDeMod();
+    limparTemplatesDeMod();
     for (const b of msg.biomasDeMod ?? []) registrarBiomaDeMod(b);
+    // Os templates vêm ANTES das regras: uma regra aponta para um template por id, e registrá-la
+    // primeiro deixaria o worldgen achar o sítio e não achar o que carimbar nele — um buraco no
+    // terreno onde deveria haver uma construção.
+    for (const t of msg.templatesDeMod ?? []) registrarTemplateDeMod(t);
+    for (const r of msg.regrasDeMod ?? []) registrarRegraDeMod(r);
     gen = new WorldGen(msg.seed);
     return;
   }

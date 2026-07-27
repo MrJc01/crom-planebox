@@ -430,6 +430,33 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'define_mod_scatter',
+      description:
+        'Faz uma estrutura do mod nascer sozinha pelo mundo — item 689. A estrutura precisa já existir '
+        + '(define_mod_structure). O mundo é dividido em células de ~87 m e no máximo UMA estrutura nasce '
+        + 'por célula, então o peso disputa com as outras regras do mesmo bioma, não aumenta a densidade '
+        + 'total. Só afeta terreno ainda não gerado.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string', description: 'Id do mod. Omita para editar o mod desta sessão de chat.' },
+          structure_key: { type: 'string', description: 'Chave da estrutura deste mod que deve ser espalhada' },
+          biomes: {
+            type: 'array', items: { type: 'string' },
+            description: 'Biomas onde pode nascer: nativos (planicie, floresta, deserto, montanha, tundra, taiga, selva, savana, pantano, praia) ou a chave de um bioma deste mod',
+          },
+          weight: { type: 'number', description: 'Peso na disputa pela célula, entre as regras válidas para aquele bioma (padrão 1)' },
+          footprint: { type: 'number', description: 'Meia-largura da construção em mini-voxels — usada para medir o desnível do terreno (padrão 5)' },
+          max_slope: { type: 'number', description: 'Desnível máximo tolerado sob a pegada; acima disso o sítio é descartado (padrão 3)' },
+          min_height_above_sea: { type: 'number', description: 'Altura mínima acima do nível do mar, para não nascer com o pé na água (padrão 2)' },
+        },
+        required: ['structure_key', 'biomes'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'define_mod_entity',
       description: 'Adiciona uma ESPÉCIE de criatura/NPC a um mod, montando a anatomia 3D com caixas (partes) e um script de comportamento opcional. Isto define o molde e o salva no mundo; use spawn_mod_entity para colocar indivíduos no mapa.',
       parameters: {

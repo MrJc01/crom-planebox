@@ -507,6 +507,35 @@ describe('biomas de mod — o registro chega ao terreno (item 676)', () => {
   });
 });
 
+describe('espalhamento de mod — a estrutura chega ao terreno (item 689)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: regras e templates de mod chegam ao Worker de geração', () => {
+    expect(/regrasDeMod: regrasDeModRegistradas\(\)/.test(main)).toBe(true);
+    expect(/templatesDeMod: templatesDeModRegistrados\(\)/.test(main)).toBe(true);
+    const gw = FONTE.find((f) => f.arquivo.endsWith('world/genWorker.ts'))!.texto;
+    expect(/registrarRegraDeMod\(r\)/.test(gw), 'o worker recebe as regras e ignora').toBe(true);
+    expect(/registrarTemplateDeMod\(t\)/.test(gw), 'o worker recebe os templates e ignora').toBe(true);
+  });
+
+  it('CRÍTICO: os templates são registrados ANTES das regras', () => {
+    // Uma regra aponta para um template por id. Na ordem inversa, o worldgen acha o sítio e não
+    // acha o que carimbar: um clarão de terreno aplanado com nada em cima, que se parece com
+    // defeito de geração e não com mod mal declarado.
+    const gw = FONTE.find((f) => f.arquivo.endsWith('world/genWorker.ts'))!.texto;
+    expect(gw.indexOf('registrarTemplateDeMod(t)')).toBeLessThan(gw.indexOf('registrarRegraDeMod(r)'));
+    const reg = FONTE.find((f) => f.arquivo.endsWith('mods/ModRegistry.ts'))!.texto;
+    expect(reg.indexOf('registrarTemplateDeMod(')).toBeLessThan(reg.indexOf('registrarRegraDeMod('));
+  });
+
+  it('CRÍTICO: o worker esquece as do mundo anterior', () => {
+    const gw = FONTE.find((f) => f.arquivo.endsWith('world/genWorker.ts'))!.texto;
+    expect(/limparRegrasDeMod\(\)/.test(gw)).toBe(true);
+    expect(/limparTemplatesDeMod\(\)/.test(gw)).toBe(true);
+    expect(/limparRegrasDeMod\(\)/.test(main)).toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos

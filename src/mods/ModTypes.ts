@@ -125,6 +125,28 @@ export interface ModBiomeDef {
   minerios?: Partial<Record<'carvao' | 'ferro' | 'ouro' | 'diamante', number>>;
 }
 
+/**
+ * Regra de espalhamento declarada por um mod — item 689.
+ *
+ * Aponta para uma estrutura **do próprio mod**, pela chave dela. Permitir apontar para a estrutura
+ * de outro mod faria a regra parar de funcionar quando aquele outro fosse desinstalado, e o sintoma
+ * seria estruturas sumindo de um mod que ninguém tocou.
+ */
+export interface ModScatterDef {
+  /** Chave da estrutura deste mod (`ModStructureDef.key`). */
+  estrutura: string;
+  /** Peso relativo na disputa pela célula. */
+  peso: number;
+  /** Biomas onde pode nascer. Aceita nativos e os do próprio mod. */
+  biomas: string[];
+  /** Meia-largura da pegada, em mini-voxels. */
+  pegada: number;
+  /** Desnível máximo tolerado sob a pegada. */
+  desnivelMax: number;
+  /** Altura mínima acima do nível do mar. */
+  alturaMinAcimaDoMar: number;
+}
+
 export interface ModPackage {
   /** Identificador estável, ex.: 'mod-rubi'. Único por mundo. */
   id: string;
@@ -140,6 +162,8 @@ export interface ModPackage {
   scripts?: ModScript[];
   /** Biomas declarados por este mod (item 676). Ausente em mods anteriores a ele. */
   biomes?: ModBiomeDef[];
+  /** Regras de espalhamento de estruturas pelo mundo (item 689). */
+  scatter?: ModScatterDef[];
 
   /**
    * **Esquema** do `mod.env`: quais chaves existem e para que servem. Parte do mod, viaja na

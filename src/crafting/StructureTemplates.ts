@@ -120,6 +120,41 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
   { id: 'wall', name: 'Muro', blocks: generateWall(8) },
 ];
 
+/**
+ * Templates registrados por mods — item 689.
+ *
+ * Lista separada da nativa, como os biomas e as regras de espalhamento: precisa ser limpa ao trocar
+ * de mundo, e o conjunto nativo precisa voltar sem depender de contagem.
+ */
+const TEMPLATES_DE_MOD: StructureTemplate[] = [];
+
+/** Registra um template de mod. Devolve o erro, ou `null` se entrou. */
+export function registrarTemplateDeMod(tpl: StructureTemplate): string | null {
+  if (!tpl?.id) return 'template sem id';
+  if (!Array.isArray(tpl.blocks) || tpl.blocks.length === 0) {
+    // Um template vazio produziria um sítio escolhido, o terreno aplanado e nada construído: um
+    // clarão inexplicável no meio do mundo.
+    return `o template "${tpl.id}" não tem blocos`;
+  }
+  if (STRUCTURE_TEMPLATES.some((t) => t.id === tpl.id)) {
+    return `"${tpl.id}" é um template nativo e não pode ser substituído`;
+  }
+  const i = TEMPLATES_DE_MOD.findIndex((t) => t.id === tpl.id);
+  // Substituir o próprio, e não recusar: o autor edita a estrutura no editor e recarrega o mod
+  // várias vezes por minuto. Recusar aqui obrigaria a reiniciar o mundo a cada ajuste.
+  if (i >= 0) TEMPLATES_DE_MOD[i] = tpl; else TEMPLATES_DE_MOD.push(tpl);
+  return null;
+}
+
+export function limparTemplatesDeMod(): void {
+  TEMPLATES_DE_MOD.length = 0;
+}
+
+export function templatesDeModRegistrados(): readonly StructureTemplate[] {
+  return TEMPLATES_DE_MOD;
+}
+
 export function getStructureTemplate(id: string): StructureTemplate | undefined {
-  return STRUCTURE_TEMPLATES.find((t) => t.id === id);
+  return STRUCTURE_TEMPLATES.find((t) => t.id === id)
+    ?? TEMPLATES_DE_MOD.find((t) => t.id === id);
 }

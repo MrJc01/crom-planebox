@@ -1108,8 +1108,8 @@ seria mais um módulo completo, testado e inerte.
 - [ ] 686 `P1` Baú de loot dentro da estrutura, com tabela por tipo
 - [ ] 687 `P1` Estruturas subterrâneas ligadas às cavernas
 - [ ] 688 `P1` Aldeias com várias estruturas e caminho ligando
-- [ ] 689 `P0` **Mods podem registrar regras de espalhamento** — base para mods de estrutura
-- [ ] 690 `P0` `define_mod_scatter` como ferramenta MCP
+- [~] 689 `P0` **Mods registram espalhamento** — regra e template no pacote, replicados ao Worker. Ver a seção 76
+- [~] 690 `P0` **`define_mod_scatter`** — a descrição explica que o peso **disputa** a célula em vez de aumentar a densidade, que é o que o agente supõe errado
 - [ ] 691 `P1` Estrutura espalhada respeita o bioma declarado na regra
 - [ ] 692 `P1` Densidade de espalhamento configurável por mundo
 - [ ] 693 `P1` Estruturas espalhadas entram no save como blocos normais
@@ -4568,3 +4568,66 @@ entra, não dá erro, e quase não aparece.
 - [ ] 1422 `P1` **O terreno já gerado não é refeito** ao registrar um bioma — assumido (refazer travaria o jogo por segundos e mudaria o chão sob o jogador), mas o jogador não é avisado de que precisa explorar para ver
 - [ ] 1423 `P1` **O bioma de mod não escolhe bloco de superfície nem árvore** — ele muda cor, névoa, saturação e minério, mas o chão continua o da planície
 - [ ] 1424 `P2` **Nada valida colisão de centro** entre um bioma de mod e um nativo: declarar `temp: 0.6, moist: -0.8` em cima do deserto é aceito e produz um bioma que quase nunca ganha
+
+---
+
+## 76 — Mods espalham estruturas pelo mundo (itens 689, 690)
+
+Fecha a frente D. Uma regra de mod aponta para uma estrutura **do próprio mod** — apontar para a de
+outro faria a regra parar de funcionar quando aquele fosse desinstalado, e o sintoma seria estruturas
+sumindo de um mod que ninguém tocou.
+
+### A ordem que decide entre funcionar e um clarão no meio do mundo
+
+Templates entram **antes** das regras, nos dois lugares (no registro de mods e no Worker). Uma regra
+aponta para um template por id; na ordem inversa, o worldgen acha o sítio, aplana o terreno e não
+acha o que carimbar. O resultado é um **clarão de terra batida com nada em cima**, que se parece com
+defeito de geração e não com mod mal declarado — o tipo de pista que leva a investigar o lugar
+errado. Virou trava de fiação que compara as posições no arquivo.
+
+### Quatro recusas
+
+**Estrutura inexistente.** `addScatter` exige que ela já exista, e a mensagem lista as que o mod tem.
+Aceitar gravaria uma regra que escolhe sítios e não constrói nada.
+
+**Template vazio.** Mesmo estrago, um passo adiante.
+
+**Pegada maior que um quarto da célula.** A pegada decide a margem da posição dentro da célula; grande
+demais não deixaria posição nenhuma sobrando.
+
+**Regra sem bioma, ou com peso zero.** Nunca ganharia célula nenhuma: existiria na tabela e não no
+mundo.
+
+E substituir o **próprio** template é permitido de propósito: o autor edita a estrutura no editor e
+recarrega o mod várias vezes por minuto. Recusar obrigaria a reiniciar o mundo a cada ajuste.
+
+### Um teste meu que me corrigiu
+
+Escrevi "o espaçamento mínimo leva a pegada do mod em conta" esperando ver o valor mudar. Não mudou —
+e a fórmula explica: `margem = pegada + 1`, então a folga entre duas construções vizinhas é
+`2(p+1) − 2p = 2`, **sempre**.
+
+A pegada cancela. Não é acidente: a margem foi definida assim justamente para garantir um voxel de
+folga de cada lado, qualquer que seja a pegada. O que uma pegada grande consome não é a folga, é o
+espaço útil onde a âncora pode cair dentro da célula — e é por isso que o teto está no registro, não
+ali.
+
+O comentário da função passou a dizer isso, porque ela **parece** depender de `p` e não depende.
+
+### A descrição da ferramenta corrige a suposição errada
+
+`define_mod_scatter` explica que no máximo **uma** estrutura nasce por célula, e que o peso *disputa*
+com as outras regras do mesmo bioma em vez de aumentar a densidade total. É a suposição que o agente
+faz errado por padrão: peso maior parece "mais estruturas", e é "mais chance de ser esta em vez
+daquela".
+
+- [~] 1425 `P0` **Registro de regras e templates de mod**, com limpeza por mundo
+- [~] 1426 `P0` **Replicação ao Worker**, com os templates antes das regras
+- [~] 1427 `P1` **`define_mod_scatter`** e `ModService.addScatter`, exigindo estrutura existente
+- [~] 1428 `P1` **12 testes**, incluindo "e chega a produzir sítios no mundo"
+- [~] 1429 `P1` **3 travas de fiação**, sendo uma que confere a ordem de registro
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1430 `P1` **A estrutura de mod só aceita bloco por id numérico no espalhamento** — referências simbólicas (`meumod:cristal`) são descartadas ao virar template, e o autor não é avisado de quais sumiram
+- [ ] 1431 `P2` **Não há como um mod espalhar decoração pequena** (arbustos, pedras soltas) — o sistema é de estruturas com célula de 87 m, e um mod que queira grama alta própria não tem caminho
