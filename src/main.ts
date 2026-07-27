@@ -33,6 +33,7 @@ import { biomasDeModRegistrados, definicaoDeBioma, limparBiomasDeMod, registrarB
 import { limparRegrasDeMod, regrasDeModRegistradas } from './world/scatter';
 import { CAMADAS, ambienteDaProfundidade, camadaNaProfundidade } from './world/camadas';
 import { avancarAmbiente, criarEstadoDoAmbiente } from './audio/ambienteDeCamada';
+import { neblinaDeAltitude } from './render/neblina';
 import { limparTemplatesDeMod, templatesDeModRegistrados } from './crafting/StructureTemplates';
 import { RedeDeMods } from './mods/RedeDeMods';
 import { pedirCapacidade } from './ui/PedidoDeCapacidade';
@@ -2321,7 +2322,14 @@ async function bootstrap() {
         misturar(corBioma[1], camada.neblina[1]),
         misturar(corBioma[2], camada.neblina[2]),
       ],
-      misturar(misturarEscalar(pesosBioma, 'alcanceNeblina'), camada.alcance),
+      // Altitude — item 1092. O multiplicador entra **só no lado do bioma** da mistura, e essa é a
+      // decisão inteira: o vale fecha a névoa de quem está lá em cima, e o subsolo continua sendo
+      // governado só pela camada. Aplicá-lo depois da mistura faria a caverna de um vale ser mais
+      // fechada que a caverna de um pico, na mesma profundidade e pelo motivo errado.
+      misturar(
+        misturarEscalar(pesosBioma, 'alcanceNeblina') * neblinaDeAltitude(player.pos.y / SCALE),
+        camada.alcance,
+      ),
       dt,
     );
 

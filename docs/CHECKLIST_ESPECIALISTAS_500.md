@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1453 itens)
+# Checklist Mestre — Painel de Especialistas (1460 itens)
 
-> **Estado em 27/07/2026** — 785 de 1453 itens tratados (54%), com **1212 testes** passando,
+> **Estado em 27/07/2026** — 792 de 1460 itens tratados (54%), com **1231 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 692 | **Entregue** ao longo das rodadas, com teste. |
+> | `[~]` | 699 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 668 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -2360,9 +2360,9 @@ de clima e de hora: chuva aproxima e acinzenta, deserto afasta e amarela, noite 
 - [~] 1088 `P0` **Cor e alcance da névoa por bioma, misturados pelos pesos**
 - [~] 1089 `P0` **Interpolação temporal com meia-vida de 0,5 s, independente da taxa de quadros**
 - [ ] 1090 `P1` Névoa exponencial ao quadrado (`FogExp2`) como opção, mais natural que a linear
-- [ ] 1091 `P1` A cor do céu no horizonte e a cor da névoa precisam casar, senão o mundo termina numa borda
-- [ ] 1092 `P1` Névoa mais densa em altitude baixa (vale com neblina, pico limpo)
-- [ ] 1093 `P1` Névoa densa dentro de caverna, independente do bioma da superfície
+- [~] 1091 `P1` **Cúpula com gradiente**: o horizonte é a cor da névoa, e a borda deixa de existir
+- [~] 1092 `P1` **Névoa por altitude**, entrando só no lado do bioma da mistura
+- [~] 1093 `P1` **Já estava entregue** pelas camadas verticais — auditado e travado com teste
 - [ ] 1094 `P2` Névoa volumétrica barata por camadas, para os raios de luz do amanhecer
 - [ ] 1095 `P2` Teste de que a densidade nunca esconde o bloco em que o jogador está mirando
 
@@ -4923,3 +4923,44 @@ agora desconta sempre, e a troca só apara o teto.
 - [ ] 1465 `P2` **A luz de camada é global, pela profundidade do jogador** — quem está a dez metros olhando pela boca de um túnel vê a superfície com a luz do subsolo. É o mesmo compromisso que a névoa já assume, e sair dele exige uma textura de alturas que o shader hoje não tem
 - [ ] 1466 `P2` **Nenhum dos sons novos foi ouvido** — as especificações são conferidas em faixa e em ritmo, e o que sai da Web Audio API não é conferido por nada. É o mesmo furo do GLSL que ninguém compila
 - [ ] 1467 `P3` **O ambiente não conhece o abrigo** — quem está numa sala selada a vinte metros ouve o abismo igual a quem está numa galeria aberta, e `abrigo.ts` já sabe responder a diferença
+
+## 82. Onde o mundo termina — itens 1091, 1092 e 1093
+
+Três itens de névoa que dizem a mesma coisa por ângulos diferentes.
+
+O **1093** já estava pronto e ninguém tinha reparado: a mistura de `main.ts` é
+`bioma + (camada - bioma) * dentroDaTerra`, e com `dentroDaTerra = 1` o termo do bioma cancela por
+completo. As camadas verticais o entregaram de lado, duas seções atrás. Marcado com um teste que
+prova o cancelamento, porque um item resolvido de raspão continua parecendo pendente até alguém
+mostrar que não está.
+
+O **1091** era um defeito de verdade, e o motivo de nunca ter aparecido é instrutivo: o céu era uma
+cor chapada e a névoa era essa mesma cor **tingida pelo bioma na proporção da luz do dia**. À noite
+o tingimento zera e as duas coincidem exatamente — de dia, num deserto, o terreno sumia numa cor
+areia e o céu logo acima era azul, com uma linha reta entre os dois na altura do horizonte.
+
+A correção é uma cúpula com gradiente: zênite na cor do céu, horizonte na cor da névoa. Pintar o
+fundo inteiro da cor da névoa também casaria as duas e daria ao deserto um céu cor de areia até o
+alto — trocar uma borda visível por um erro maior. A borda tem de sumir **no horizonte**, e só lá.
+
+O **1092** dá recompensa a subir, que nenhum outro sistema dava: o vale fecha em 0,72 e o pico abre
+em 1,12. O multiplicador entra **só no lado do bioma** da mistura, e esse parêntese é a regra
+inteira — aplicá-lo depois faria a caverna de um vale ser mais fechada que a caverna de um pico, na
+mesma profundidade e pelo motivo errado.
+
+### A regra do horizonte existe duas vezes
+
+O que roda é GLSL; o que é testável é TypeScript. Nenhum teste aqui compila shader, então as duas
+cópias podem divergir. O que não pode divergir é a **faixa** — é ela que decide se o efeito aparece
+—, então `ALCANCE_DO_HORIZONTE` mora num lugar só e o shader o recebe por uniform.
+
+- [~] 1468 `P1` **`neblina.ts`**, puro e sem Three.js, com as duas regras verificáveis
+- [~] 1469 `P1` **Cúpula de gradiente no `sky.ts`**, com `depthTest` ligado — o cabeçalho do arquivo registra o relato "estrelas por dentro das árvores", que foi exatamente desligá-lo
+- [~] 1470 `P2` **`ALCANCE_DO_HORIZONTE` compartilhado** entre o TS e o uniform do GLSL
+- [~] 1471 `P1` **19 testes**, incluindo os laços que leem `main.ts`, `scene.ts` e `sky.ts`
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1472 `P2` **O gradiente do horizonte não foi visto** — a faixa e a fiação são conferidas, o GLSL não é compilado por nada. É o mesmo furo dos itens 1466 e do shader de curvatura
+- [ ] 1473 `P2` **A névoa de altitude não conhece o clima** — chuva num pico deveria fechar o horizonte tanto quanto no vale, e hoje os dois multiplicadores só se multiplicam
+- [ ] 1474 `P3` **A cúpula é uma esfera de 24×16** desenhada todo quadro sem necessidade — o gradiente é função só de `y`, e um quad de tela cheia faria o mesmo com dois triângulos

@@ -26,6 +26,7 @@
 
 import * as THREE from 'three';
 import { iluminacaoDaFase } from '../world/moon';
+import { ALCANCE_DO_HORIZONTE } from './neblina';
 
 const ESTRELAS = 1500;
 /** Raio da cúpula. Grande o bastante para ficar atrás de tudo, dentro do alcance da câmera. */
@@ -88,6 +89,9 @@ function fbm2(x: number, z: number): number {
 export class Sky {
   readonly grupo = new THREE.Group();
 
+  private cupula: THREE.Mesh;
+  private materialCupula: THREE.ShaderMaterial;
+
   private estrelas: THREE.Points;
   private materialEstrelas: THREE.PointsMaterial;
 
@@ -115,6 +119,68 @@ export class Sky {
     // Desenhado antes da água e do vidro: o céu está atrás de tudo, e sem isto ele disputaria a
     // ordenação com os transparentes do mundo.
     this.grupo.renderOrder = -1;
+
+    // --- Cúpula com gradiente: onde o mundo termina — item 1091 ---
+    //
+    // ## O defeito
+    //
+    // O céu era uma cor chapada (`scene.background`) e a névoa era essa mesma cor **tingida pelo
+    // bioma**. De dia, num deserto, o terreno sumia numa cor areia e o céu logo acima era azul: o
+    // mundo terminava numa linha reta e visível na altura do horizonte. À noite os dois coincidiam
+    // por acaso — o tingimento zera sem sol —, e é por isso que nada nunca acusou.
+    //
+    // ## Por que uma cúpula, e não pintar o fundo da cor da névoa
+    //
+    // Pintar o fundo inteiro casaria as duas cores e daria ao deserto um céu cor de areia até o
+    // zênite. A borda tem de sumir **no horizonte**, e só lá: é onde não há terreno atrás da névoa,
+    // e portanto onde a névoa é literalmente o que se vê.
+    //
+    // ## Raio maior que tudo, e sem escrever profundidade
+    //
+    // A cúpula fica FORA das estrelas, do sol e da lua (`RAIO_CEU * 1.2`) e não escreve
+    // profundidade. Se estivesse dentro, ocultaria os três; se escrevesse profundidade, ocultaria
+    // os três mesmo estando fora, porque o teste de profundidade não sabe que ela é um fundo.
+    //
+    // `depthTest` fica **ligado**, ao contrário do que o desenho pediria. O cabeçalho deste arquivo
+    // registra o relato "as estrelas e a lua aparecem por dentro das árvores", que foi exatamente
+    // `depthTest: false` num objeto de céu. Desenhando primeiro (`renderOrder -3`) a cúpula não
+    // precisa da folga, e mantê-lo ligado é o que impede o mesmo defeito de voltar se alguém
+    // reordenar o desenho um dia.
+    this.materialCupula = new THREE.ShaderMaterial({
+      uniforms: {
+        uZenite: { value: new THREE.Color(0x74b3e8) },
+        uHorizonte: { value: new THREE.Color(0x74b3e8) },
+        // Vem de `neblina.ts`: a conta existe em TS e em GLSL, e a faixa não pode divergir.
+        uAlcance: { value: ALCANCE_DO_HORIZONTE },
+      },
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      vertexShader: `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform vec3 uZenite;
+        uniform vec3 uHorizonte;
+        uniform float uAlcance;
+        varying vec3 vDir;
+        void main() {
+          // Espelhado em |y|: abaixo do horizonte a névoa também é o que se vê, e um gradiente só
+          // para cima deixaria a metade de baixo azul — visível quando se olha para o chão do alto
+          // de uma montanha, exatamente onde o item nasceu.
+          float t = clamp(abs(vDir.y) / uAlcance, 0.0, 1.0);
+          float m = (1.0 - t) * (1.0 - t);
+          gl_FragColor = vec4(mix(uZenite, uHorizonte, m), 1.0);
+        }`,
+    });
+    this.cupula = new THREE.Mesh(new THREE.SphereGeometry(RAIO_CEU * 1.2, 24, 16), this.materialCupula);
+    this.cupula.frustumCulled = false;
+    // Antes de tudo o mais dentro do grupo: é o fundo.
+    this.cupula.renderOrder = -3;
+    this.grupo.add(this.cupula);
 
     // --- Estrelas ---
     const posicoes = new Float32Array(ESTRELAS * 3);
@@ -350,9 +416,17 @@ export class Sky {
     fase: number,
     corCeu?: THREE.Color,
     tempo = 0,
+    corNeblina?: THREE.Color,
   ): void {
     // A cúpula acompanha a câmera: estrela não muda de lugar quando o jogador anda.
     this.grupo.position.copy(camera.position);
+
+    // Gradiente do horizonte — item 1091. O zênite é a cor do céu; junto ao horizonte a cor vira a
+    // da névoa, e a borda entre terreno e céu deixa de existir. Sem `corNeblina` o gradiente é
+    // chapado, que é exatamente o comportamento de antes — nenhum chamador quebra por não passá-la.
+    if (corCeu) (this.materialCupula.uniforms.uZenite.value as THREE.Color).copy(corCeu);
+    (this.materialCupula.uniforms.uHorizonte.value as THREE.Color)
+      .copy(corNeblina ?? corCeu ?? (this.materialCupula.uniforms.uZenite.value as THREE.Color));
 
     // Visíveis do crepúsculo em diante, com margem para a transição.
     const visibilidade = Math.max(0, Math.min(1, -sunElevation * 2.2 + 0.35));

@@ -442,7 +442,9 @@ export function createScene(container: HTMLElement): GameScene {
 
     aplicarLuzes();
 
-    sky.update(camera, sunAngle, elevation, fasaLunar, tmpSky, relogioCeu);
+    // A cor da névoa vai junto: é ela que pinta o horizonte da cúpula, e é assim que a borda entre
+    // o fim do terreno e o começo do céu deixa de ser visível — item 1091.
+    sky.update(camera, sunAngle, elevation, fasaLunar, tmpSky, relogioCeu, fog?.color);
   }
 
   function getSunScale(): number {
