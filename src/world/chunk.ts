@@ -1,8 +1,27 @@
-// Chunk de coluna inteira: 32 × 128 × 32 mini-voxels em um Uint8Array.
+// Chunk de coluna inteira: 32 × 256 × 32 mini-voxels em um Uint8Array.
 // Escala estilo Lay of the Land: 3 mini-voxels por metro (SCALE).
 
 export const CX = 32;
-export const CY = 128;
+
+/**
+ * Altura de uma coluna de chunk, em mini-voxels — item 029.
+ *
+ * ## O que a medição mostrou, e por que 128 era o número errado
+ *
+ * O item pedia "aumentar o limite vertical porque as varreduras assumem y < 128". Medindo antes de
+ * mexer, o teto **nunca era tocado**: a coluna mais alta de uma amostra de 26 mil dava 38 m num
+ * mundo de 42,7. Zero por cento das colunas encostavam nele.
+ *
+ * O aperto era embaixo. Superfície a 22 m, rocha-mãe em zero: **21 metros de rocha** para faixas de
+ * minério que pedem até 40. O diamante tinha 23% da faixa dele existindo de verdade.
+ *
+ * 256 mini-voxels são 85 metros: com o mar a 46 m, sobram ~48 m de rocha (as faixas inteiras cabem)
+ * e ~23 m livres acima da montanha mais alta para construir.
+ *
+ * O custo é memória: 256 KB por chunk em vez de 128. Com o raio de visão de 6 chunks e descarte em
+ * 9, o pior caso sai de ~46 MB para ~92 MB de dados de bloco. É o preço de o subsolo existir.
+ */
+export const CY = 256;
 
 /**
  * Teto do mundo, em voxels. Sinônimo de `CY`, com nome que diz para que serve.

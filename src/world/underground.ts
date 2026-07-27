@@ -79,17 +79,29 @@ export class UndergroundGen {
 
     const x = vx / SCALE, y = vy / SCALE, z = vz / SCALE;
 
-    // Câmaras: ruído de baixa frequência, esporádico e amplo.
-    const cavern = this.nCavern.fbm(x * 0.035, y * 0.05, z * 0.035, 2);
-    if (cavern > 0.62 && depth > 8 * SCALE) return true;
-
-    // Túneis: dois campos ridged em interseção. Ambos precisam estar altos no mesmo ponto,
-    // o que restringe o vazio a filamentos em vez de esponja.
-    const a = this.nCaveA.ridged(x * 0.045, y * 0.09, z * 0.045, 2);
-    const b = this.nCaveB.ridged(x * 0.045 + 71.3, y * 0.09 - 19.7, z * 0.045 + 43.1, 2);
-
+    // ## Ordem das avaliações: barato primeiro, e curto-circuito de verdade
+    //
+    // Cada `fbm`/`ridged` aqui custa várias amostras de ruído, e isto roda **por voxel** — são
+    // centenas de milhares por chunk. A ordem não é estética: é a maior parte do tempo de geração.
+    //
+    // `depth > 8 * SCALE` é uma comparação e vem antes do ruído das câmaras, que só importa se ela
+    // passar. E os dois campos de túnel eram calculados sempre, para depois um `&&` descartar um
+    // deles — a esmagadora maioria dos voxels reprova no primeiro, então o segundo era trabalho
+    // jogado fora em quase todo ponto do mundo.
     const threshold = CAVE_THRESHOLD + (1 - fade) * 0.12;
-    return a > threshold && b > threshold;
+
+    // Túneis: dois campos ridged em interseção. Ambos precisam estar altos no mesmo ponto, o que
+    // restringe o vazio a filamentos em vez de esponja.
+    const a = this.nCaveA.ridged(x * 0.045, y * 0.09, z * 0.045, 2);
+    if (a > threshold) {
+      const b = this.nCaveB.ridged(x * 0.045 + 71.3, y * 0.09 - 19.7, z * 0.045 + 43.1, 2);
+      if (b > threshold) return true;
+    }
+
+    // Câmaras: ruído de baixa frequência, esporádico e amplo. Fica por último porque o teste de
+    // profundidade dela é o mais restritivo dos três.
+    if (depth <= 8 * SCALE) return false;
+    return this.nCavern.fbm(x * 0.035, y * 0.05, z * 0.035, 2) > 0.62;
   }
 
   /**

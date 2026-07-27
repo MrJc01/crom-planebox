@@ -12,7 +12,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { CY, TOPO_VARREDURA, WORLD_MAX_Y } from '../../src/world/chunk';
+import { CY, SCALE, TOPO_VARREDURA, WORLD_MAX_Y } from '../../src/world/chunk';
+import { WorldGen } from '../../src/world/worldgen';
+import { ORE_TIERS } from '../../src/world/underground';
+import { CAMADAS } from '../../src/world/camadas';
 
 const SRC = new URL('../../src/', import.meta.url).pathname;
 
@@ -64,5 +67,69 @@ describe('constantes de altura', () => {
       });
     }
     expect(infratores, `varredura vertical com número mágico: ${infratores.join(', ')}`).toEqual([]);
+  });
+});
+
+describe('o subsolo tem fundo para o que ele promete — item 029', () => {
+  // O item pedia "aumentar o limite vertical porque as varreduras assumem y < 128". Medindo antes de
+  // mexer, o teto NUNCA era tocado: a coluna mais alta de uma amostra de 26 mil dava 38 m num mundo
+  // de 42,7, e zero por cento encostava nele.
+  //
+  // O aperto era do outro lado. Superfície a 22 m e rocha-mãe em zero davam 21 metros de rocha para
+  // faixas de minério que pedem até 40 — o diamante tinha 23% da faixa dele existindo de verdade.
+  // Nada errava: ele era só raro demais, de um jeito que se lê como má sorte.
+
+  const gen = new WorldGen(4242);
+
+  /** Altura de superfície num quadriculado largo, em metros. */
+  function alturasEmMetros(): number[] {
+    const hs: number[] = [];
+    for (let x = -2000; x < 2000; x += 211) {
+      for (let z = -2000; z < 2000; z += 211) hs.push(gen.column(x, z).height / SCALE);
+    }
+    return hs;
+  }
+
+  it('CRÍTICO: toda faixa de minério cabe abaixo da superfície MAIS BAIXA', () => {
+    // A verificação que importa. Um minério cuja faixa começa abaixo do fundo do mundo existe na
+    // tabela e não no jogo — e o sintoma é "esse minério é raríssimo", nunca "esse minério está
+    // quebrado".
+    const maisBaixa = Math.min(...alturasEmMetros());
+    for (const t of ORE_TIERS) {
+      expect(t.minDepth, `${t.chave} começa abaixo do terreno mais baixo`).toBeLessThan(maisBaixa);
+    }
+  });
+
+  it('CRÍTICO: a faixa INTEIRA do diamante existe sob o terreno médio', () => {
+    // Era o pior caso: 1,4 m dos 6 m alcançáveis.
+    const medias = alturasEmMetros();
+    const media = medias.reduce((a, b) => a + b, 0) / medias.length;
+    const diamante = ORE_TIERS.find((t) => t.chave === 'diamante')!;
+    expect(diamante.maxDepth, 'a faixa do diamante ainda passa do fundo').toBeLessThanOrEqual(media);
+  });
+
+  it('CRÍTICO: toda camada vertical começa acima do fundo alcançável', () => {
+    // A camada do abismo nascia como uma fatia de um metro no fundo do mundo — presente na tabela e
+    // quase inexistente no jogo.
+    const maisBaixa = Math.min(...alturasEmMetros());
+    for (const c of CAMADAS) {
+      expect(c.inicio, `a camada "${c.id}" começa abaixo do terreno mais baixo`).toBeLessThan(maisBaixa);
+    }
+  });
+
+  it('sobra espaço para construir acima da montanha mais alta', () => {
+    // Um teto colado no relevo transforma "construir uma torre" em "bater no limite do mundo", e o
+    // jogador descobre isso depois de ter subido.
+    const maisAlta = Math.max(...alturasEmMetros());
+    const teto = WORLD_MAX_Y / SCALE;
+    expect(teto - maisAlta, 'menos de 10 m livres acima do pico').toBeGreaterThan(10);
+  });
+
+  it('nenhuma coluna encosta no teto', () => {
+    // Se encostasse, a montanha estaria sendo cortada — e o corte é plano, o que se lê como bug de
+    // geração e não como limite.
+    for (const h of alturasEmMetros()) {
+      expect(h * SCALE, 'coluna colada no teto').toBeLessThan(WORLD_MAX_Y - 1);
+    }
   });
 });

@@ -129,7 +129,7 @@ verticalidade limitada e ausência de LOD.*
 - [x] 026 `P0` Escala de minibloco (`SCALE`) separando bloco lógico de voxel visual — `src/world/chunk.ts`
 - [x] 027 `P0` `World.setBlock`/`getBlock` marcando chunks sujos para re-mesh — `src/world/world.ts`
 - [x] 028 `P1` Ruído e RNG determinísticos por semente — `src/core/noise.ts`, `src/core/rng.ts`
-- [ ] 029 `P0` Aumentar o limite vertical do mundo (hoje varreduras assumem `y < 128`)
+- [~] 029 `P0` **Mundo de 85 m, com o mar a 46** — e a medição mostrou que o item apontava para o lado errado: o teto nunca era tocado, o aperto era embaixo. Ver a seção 79
 - [~] 030 `P0` **`WORLD_MAX_Y` e `TOPO_VARREDURA` em `world/chunk.ts`** — e a extração revelou um teto silencioso de 8 voxels
 - [ ] 031 `P1` LOD de chunks distantes (mesh simplificado além de N chunks)
 - [ ] 032 `P1` Descarregar chunks fora do raio de render liberando memória de GPU
@@ -4763,3 +4763,74 @@ quadro: cada hostil roda perseguição e colisão por frame, e o jogador não te
 "muito difícil" de "o jogo travou".
 
 - [~] 1444 `P1` **`limiteDeHostis(perigo)`** com 5 testes, incluindo um que exige o spawner usar o teto da camada e não o global
+
+---
+
+## 79 — O item 029 apontava para o lado errado (e a medição mostrou qual)
+
+O item dizia: *"aumentar o limite vertical do mundo (hoje varreduras assumem `y < 128`)"*. Eu o adiei
+várias rodadas com um motivo — mudar o formato de save, sem poder verificar corrupção sem rodar o
+jogo. Com o projeto declarado beta e mundos antigos fora de questão, o motivo caiu e fui medir antes
+de mexer.
+
+**O teto nunca era tocado.** Numa amostra de 26 mil colunas, a mais alta dava 38 m num mundo de 42,7.
+Zero por cento encostavam no limite.
+
+O aperto era do outro lado, e era grave:
+
+| | faixa | alcançável |
+|---|---|---|
+| carvão | 2–40 m | 51% |
+| ferro | 6–30 m | 64% |
+| ouro | 14–24 m | 74% |
+| **diamante** | **20–26 m** | **23%** |
+
+Com a superfície a 22 m e a rocha-mãe em zero, sobravam **21 metros de rocha** para faixas que pedem
+até 40. Três quartos da faixa do diamante estavam **abaixo do fundo do mundo**.
+
+E nada errava. O diamante era só raro demais — de um jeito que se lê como má sorte, nunca como
+defeito. A camada do abismo que eu tinha acabado de criar (item 495) nascia como uma fatia de um
+metro no fundo, pelo mesmo motivo.
+
+**Se eu tivesse feito o que o item pedia — subir o teto — não teria corrigido nada.**
+
+### O que mudou
+
+Mar de 20 m para 46, base do continente acompanhando, e `CY` de 128 para 256. Depois: superfície
+entre 41 e 64 m, teto a 85, e **as quatro faixas de minério 100% alcançáveis**. Sobram 21 m livres
+acima do pico mais alto para construir.
+
+### O custo, medido e assumido
+
+Memória por chunk dobrou: 128 KB → 256 KB. No pior caso do raio de descarte, 45 MB → 90 MB de dados
+de bloco.
+
+Geração por chunk: **76 ms → 157 ms**. Não é o `CY` que cobra isso — o laço de geração vai até a
+altura do terreno, não até o teto —, é o terreno ter 25 m a mais de rocha por coluna, que é
+exatamente o que se queria.
+
+Ao olhar o laço quente, achei um desperdício que já existia: os **dois** campos de ruído dos túneis
+eram calculados sempre, e um `&&` descartava um deles depois. A esmagadora maioria dos voxels reprova
+no primeiro. Curto-circuitando de verdade e adiando a câmara para depois do teste de profundidade:
+**157 ms → 128 ms**.
+
+A reordenação é álgebra booleana idêntica — `(cavern && fundo) || (a && b)` contra
+`(a && b) || (fundo && cavern)` —, mas "é obviamente igual" é o que se pensa antes de mudar um mundo
+inteiro sem querer. Virou um teste de assinatura por semente.
+
+### Os dois testes que falharam carregavam a suposição do item
+
+Ao subir o mundo, dois testes quebraram — e os dois por terem `128` **escrito à mão**: um comparava
+`c.height < 128`, o outro pulava tudo com `by >= 128`. O número do teto morava copiado dentro de
+testes que juravam verificá-lo.
+
+- [~] 1445 `P0` **Mar a 46 m e `CY = 256`** — as quatro faixas de minério passam a existir por inteiro
+- [~] 1446 `P1` **Curto-circuito real no ruído de caverna** — 19% do tempo de geração, sem mudar o mundo
+- [~] 1447 `P1` **5 testes de profundidade garantida**, cruzando terreno gerado com `ORE_TIERS` e `CAMADAS`
+- [~] 1448 `P1` **Assinatura de caverna por semente**, para uma reordenação futura não mudar o mundo em silêncio
+- [~] 1449 `P2` **Os dois `128` escritos à mão nos testes** trocados por `WORLD_MAX_Y`
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1450 `P1` **Gerar um chunk custa 128 ms** — era 76 antes e nunca foi rápido. O gargalo é uma amostra de ruído 3D por voxel abaixo da superfície. Amostrar o campo de cavernas em resolução menor e interpolar cortaria a maior parte, com perda de detalhe a decidir
+- [ ] 1451 `P2` **90 MB de dados de bloco no pior caso** — paletização de chunk (item 033) reduziria isso a uma fração, e agora tem motivo

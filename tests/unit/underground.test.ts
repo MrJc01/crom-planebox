@@ -280,3 +280,27 @@ describe('minério por bioma — a expedição é real no mundo gerado', () => {
     expect(contar('deserto')).toBeGreaterThan(contar('tundra'));
   });
 });
+
+describe('a ordem das avaliações de caverna não muda o mundo', () => {
+  // A reordenação do curto-circuito (item 029) é álgebra booleana idêntica —
+  // `(cavern && fundo) || (a && b)` contra `(a && b) || (fundo && cavern)` — mas "é obviamente
+  // igual" é exatamente o que se pensa antes de mudar um mundo inteiro sem querer.
+  //
+  // Este teste fixa o resultado por semente: se alguém reordenar de novo e a mudança **não** for
+  // neutra, o mundo de qualquer save existente muda de forma, e nada mais avisaria.
+  it('CRÍTICO: o padrão de cavernas é estável para uma semente', () => {
+    const u = new UndergroundGen(31337);
+    let assinatura = 0;
+    let vazios = 0;
+    for (let x = 0; x < 40; x++) {
+      for (let z = 0; z < 40; z++) {
+        for (let y = 10; y < 120; y += 3) {
+          if (u.isCave(x * 7, y, z * 7, 140)) { vazios++; assinatura = (assinatura * 31 + x * 131 + y * 17 + z) | 0; }
+        }
+      }
+    }
+    // O valor exato não importa; importa ele não mudar sem alguém decidir que muda.
+    expect(vazios).toBeGreaterThan(0);
+    expect(assinatura).toMatchInlineSnapshot(`87742253`);
+  });
+});

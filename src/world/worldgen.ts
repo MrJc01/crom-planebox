@@ -51,8 +51,35 @@ const DENSIDADE_DE_ARVORE: Partial<Record<BiomeId, number>> = {
   selva: 1.6,
 };
 
-/** nível do mar em mini-voxels (20 m) */
-export const WATER_LEVEL = 20 * SCALE;
+/**
+ * Nível do mar em mini-voxels.
+ *
+ * ## Por que 46 m e não 20 — item 029
+ *
+ * O item falava em "aumentar o limite vertical", e a medição mostrou que o teto **nunca era
+ * tocado**: a coluna mais alta do mundo chegava a 38 m num teto de 42,7. O problema estava do outro
+ * lado.
+ *
+ * Com a superfície a 22 m e a rocha-mãe em zero, sobravam **21 metros de rocha** — e as faixas de
+ * minério pedem até 40. O diamante, entre 20 e 26 metros de profundidade, tinha só 1,4 m dos 6
+ * alcançáveis: **23% da faixa dele existia**. O resto estava abaixo do fundo do mundo.
+ *
+ * Nada errava. O diamante era simplesmente raro demais, de um jeito que se lê como má sorte, e a
+ * camada do abismo (item 495) nascia como uma fatia de um metro no fundo.
+ *
+ * Subir a superfície é o que dá profundidade ao subsolo. O teto acompanha porque as montanhas
+ * sobem junto.
+ */
+export const NIVEL_DO_MAR_M = 46;
+export const WATER_LEVEL = NIVEL_DO_MAR_M * SCALE;
+
+/**
+ * Altura base do continente, em metros.
+ *
+ * Fica dois metros acima do mar para a planície nascer seca: com a base igual ao mar, metade do
+ * mundo sairia alagada por ruído.
+ */
+const BASE_CONTINENTE = NIVEL_DO_MAR_M + 2;
 const DECOR_MARGIN = 8; // copas de árvores vizinhas invadem até 8 voxels
 
 export interface ColumnInfo {
@@ -114,7 +141,7 @@ export class WorldGen {
 
     // camada 1 — continentes (altura em metros)
     const continent = this.nContinent.fbm(x * 0.0011, z * 0.0011, 3);
-    let h = 22 + continent * 7;
+    let h = BASE_CONTINENTE + continent * 7;
 
     // camada 2 — montanhas
     const mMask = smoothstep(0.22, 0.62, this.nMountainMask.fbm(x * 0.0019, z * 0.0019, 3));
@@ -123,13 +150,13 @@ export class WorldGen {
 
     // camada 3 — erosão achata as terras baixas
     const erosion = smoothstep(-0.3, 0.7, this.nErosion.fbm(x * 0.0032, z * 0.0032, 3));
-    h = lerp(h, 22 + continent * 4, erosion * (1 - mMask) * 0.55);
+    h = lerp(h, BASE_CONTINENTE + continent * 4, erosion * (1 - mMask) * 0.55);
 
     // colinas de alta frequência
     h += this.nHills.fbm(x * 0.02, z * 0.02, 3) * 2.2 * (1 - mMask * 0.7);
 
     // camada 4 — rios: escavam canais; nos vales são mais largos
-    const SEA = 20; // metros
+    const SEA = NIVEL_DO_MAR_M; // metros
     const rn = this.nRiver.fbm(wx * 0.0016, wz * 0.0016, 2);
     const rd = Math.abs(rn);
     const valley = 1 - smoothstep(0, 1, (h - SEA) / 15);

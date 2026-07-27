@@ -4,7 +4,7 @@ import {
   limparBiomasDeMod, pesosDeBioma, registrarBiomaDeMod,
 } from '../../src/world/biomes';
 import { B } from '../../src/world/blocks';
-import { CX, CZ, SCALE } from '../../src/world/chunk';
+import { CX, CZ, SCALE, WORLD_MAX_Y } from '../../src/world/chunk';
 import { estruturasNaRegiao } from '../../src/world/scatter';
 import { WorldGen, WATER_LEVEL } from '../../src/world/worldgen';
 
@@ -124,7 +124,10 @@ describe('o mundo gerado tem biomas de verdade', () => {
   it('a altura da coluna continua num intervalo válido', () => {
     for (const c of cols) {
       expect(c.height).toBeGreaterThan(0);
-      expect(c.height).toBeLessThan(128);
+      // `WORLD_MAX_Y`, e não `128` escrito à mão. Este teste falhou ao subir o mundo (item 029)
+      // carregando exatamente a suposição que o item existe para remover: o número do teto morava
+      // copiado num teste que jurava verificá-lo.
+      expect(c.height).toBeLessThan(WORLD_MAX_Y);
       expect(Number.isFinite(c.height)).toBe(true);
     }
   });
@@ -194,7 +197,7 @@ describe('as construções espalhadas existem no mundo gerado', () => {
       for (let dx = -4; dx <= 4; dx++) {
         for (let dz = -4; dz <= 4; dz++) {
           const bx = lx + dx, bz = lz + dz, by = sitio.y + dy;
-          if (bx < 0 || bx >= CX || bz < 0 || bz >= CZ || by < 0 || by >= 128) continue;
+          if (bx < 0 || bx >= CX || bz < 0 || bz >= CZ || by < 0 || by >= WORLD_MAX_Y) continue;
           const b = data[(by * CZ + bz) * CX + bx];
           if (b === B.PLANK || b === B.COBBLE || b === B.STONE_BRICK || b === B.LOG) encontrados++;
         }
