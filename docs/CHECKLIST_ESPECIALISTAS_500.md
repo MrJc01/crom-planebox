@@ -687,7 +687,7 @@ precisava nascer com teste, porque a falha dele é silenciosa e corrompe o save.
 
 - [~] 495 `P0` **Quatro camadas com névoa, alcance e piso de luz próprios** — superfície, subsolo, caverna, abismo. Ver a seção 77
 - [~] 496 `P0` **Ouro só na caverna, diamante só no abismo** — a regra é consultada na geração, antes da abundância de bioma
-- [ ] 497 `P1` Perigos crescentes com a profundidade — as camadas já existem (495) e dão onde pendurar isto
+- [~] 497 `P1` **Perigo por camada** — o abismo gera hostis mais que o dobro do ritmo da superfície. Ver a seção 78
 - [ ] 498 `P1` Masmorras com chave/mecanismo de abertura
 - [ ] 499 `P1` Eventos de invasão temporizados
 - [ ] 500 `P1` Bosses invocáveis com item de convocação
@@ -4697,3 +4697,49 @@ Invertida, a ordem faria um bioma rico em diamante produzi-lo acima do abismo.
   estou" continua ausente
 - [ ] 1439 `P2` **A camada não muda a criatura que nasce** — o `MobSpawner` decide por luz, e o
   abismo teria motivo para ter os seus
+
+---
+
+## 78 — Descer custa (itens 497, 1439)
+
+As camadas da seção 77 deram onde pendurar isto. **Perigo por tempo pune quem joga devagar e não
+recompensa nada. Perigo por lugar é uma escolha**: descer passa a ser a decisão de trocar segurança
+por recurso, e é ela que dá sentido ao diamante estar no fundo.
+
+Sem isso, a única diferença entre a caverna e o abismo era o tempo de caminhada.
+
+### O perigo divide, não subtrai
+
+Se subtraísse do intervalo, a lua cheia no abismo ficaria mais calma que a lua nova na superfície — e
+isso inverteria a relação que o jogador passou a noite inteira aprendendo lá em cima. Dividindo, cada
+camada gera na mesma **proporção** seja qual for a fase da lua: a lua continua significando o que
+significava, e a profundidade acrescenta em vez de contradizer.
+
+### A mistura de espécies desloca, não troca
+
+O zumbi continua existindo no abismo — só deixa de ser o mais comum. Trocar por completo faria cada
+camada parecer um jogo diferente, e a passagem entre elas deixaria de ser progressão para virar
+transporte.
+
+O que se quer é o jogador notar que "aqui aparece mais aranha" **antes** de conseguir dizer por quê.
+Há teste exigindo que o zumbi não desapareça.
+
+### Duas escolhas de onde medir, com respostas diferentes
+
+**O ritmo acompanha o jogador.** O que ele sente é a frequência com que algo aparece perto dele.
+Calcular por ponto de spawn faria a pressão depender de onde o sorteio caiu, e ela oscilaria sem que
+nada no mundo tivesse mudado.
+
+**A espécie acompanha o ponto sorteado.** Quem está na boca da caverna olhando para baixo deve ver o
+que vive lá embaixo, não o que vive ao lado dele.
+
+São a mesma pergunta com respostas opostas, e as duas estão certas porque medem coisas diferentes:
+uma é sobre a pressão que o jogador percebe, a outra sobre o lugar de onde a criatura veio.
+
+- [~] 1440 `P1` **`perigo` por camada**, crescendo monotonicamente, com teste que reprova uma camada funda mais calma
+- [~] 1441 `P1` **`especieDaCamada`** com pesos por camada e 5 testes de distribuição
+- [~] 1442 `P1` **2 travas de fiação** — `perigo` e `superficieY` são campos que, sem alguém passá-los, deixam as duas tabelas decorativas
+
+### Lacuna anotada nesta rodada
+
+- [ ] 1443 `P2` **O teto de hostis simultâneos é global** (`MAX_HOSTILES = 18`) — com o abismo gerando ao dobro, ele é atingido mais rápido lá, e o efeito prático é o perigo saturar em vez de crescer. Um teto por camada, ou por distância do jogador, faria a diferença continuar valendo no fundo

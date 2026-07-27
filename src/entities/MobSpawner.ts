@@ -11,9 +11,18 @@
 import { B, isSolid } from '../world/blocks';
 import { skyOf, blockOf } from '../world/lighting';
 import { MOB_KINDS, MobKind } from './Combat';
+import { camadaEm } from '../world/camadas';
 
 export interface SpawnWorld {
   getBlock(x: number, y: number, z: number): number;
+  /**
+   * Altura da superfície naquela coluna, em mini-voxels.
+   *
+   * Opcional: um mundo que não a forneça é tratado como tudo na superfície, o que preserva o
+   * comportamento anterior. É o que permite os testes de spawn continuarem sobre um mundo de
+   * mentira sem precisarem simular relevo.
+   */
+  superficieY?(x: number, z: number): number;
   /** Luz empacotada `(sol << 4) | bloco`, como em `src/world/lighting.ts`. */
   getLight(x: number, y: number, z: number): number;
 }
@@ -53,9 +62,47 @@ export interface SpawnPoint {
  * porque aqui não há percepção envolvida — é ritmo de jogo, e o jogador deve sentir a diferença
  * proporcional à fase que vê no céu.
  */
-export function intervaloDeSpawn(iluminacao: number): number {
+export function intervaloDeSpawn(iluminacao: number, perigo = 1): number {
   const i = Math.max(0, Math.min(1, iluminacao));
-  return SPAWN_INTERVAL * (INTERVALO_LUA_NOVA + (1 - INTERVALO_LUA_NOVA) * i);
+  // `perigo` divide, não subtrai: a camada mais funda gera na mesma proporção seja qual for a fase
+  // da lua. Subtrair faria a lua cheia no abismo ficar mais calma que a lua nova na superfície, o
+  // que inverteria a relação que o jogador aprendeu lá em cima.
+  return (SPAWN_INTERVAL * (INTERVALO_LUA_NOVA + (1 - INTERVALO_LUA_NOVA) * i)) / Math.max(0.1, perigo);
+}
+
+/**
+ * Peso de cada espécie por camada — item 1439.
+ *
+ * A superfície é o mundo que o jogador já conhece: mistura uniforme. Descer **desloca** a mistura em
+ * vez de trocá-la — o zumbi continua existindo no abismo, só deixa de ser o mais comum.
+ *
+ * Trocar por completo faria cada camada parecer um jogo diferente, e a passagem entre elas deixaria
+ * de ser progressão para virar transporte. O que se quer é o jogador notar que "aqui aparece mais
+ * aranha" antes de conseguir dizer por quê.
+ */
+export const ESPECIES_POR_CAMADA: Record<string, Partial<Record<MobKind, number>>> = {
+  superficie: { zumbi: 1, esqueleto: 1, aranha: 1 },
+  // Terra e raiz: o zumbi é o bicho do subsolo raso.
+  subsolo: { zumbi: 2, esqueleto: 1, aranha: 1 },
+  // Túnel apertado favorece quem é rápido e frágil.
+  caverna: { zumbi: 1, esqueleto: 2, aranha: 2 },
+  // No fundo, o que pressiona: aranha rápida e esqueleto de longo alcance.
+  abismo: { zumbi: 1, esqueleto: 3, aranha: 3 },
+};
+
+/** Sorteia a espécie conforme os pesos da camada. */
+export function especieDaCamada(camadaId: string, sorteio: number): MobKind {
+  const pesos = ESPECIES_POR_CAMADA[camadaId] ?? ESPECIES_POR_CAMADA.superficie;
+  let total = 0;
+  for (const k of MOB_KINDS) total += pesos[k] ?? 0;
+  if (total <= 0) return 'zumbi';
+
+  let r = Math.max(0, Math.min(0.999999, sorteio)) * total;
+  for (const k of MOB_KINDS) {
+    r -= pesos[k] ?? 0;
+    if (r < 0) return k;
+  }
+  return MOB_KINDS[MOB_KINDS.length - 1];
 }
 
 export interface SpawnContext {
@@ -82,6 +129,14 @@ export interface SpawnContext {
    * construir.
    */
   dentroDoAbrigo?: (x: number, y: number, z: number) => boolean;
+  /**
+   * Multiplicador de perigo da camada onde o **jogador** está — item 497.
+   *
+   * O ritmo acompanha o jogador e não o ponto de spawn, e isso é deliberado: o que o jogador sente
+   * é a frequência com que algo aparece perto dele. Calcular por ponto faria a pressão depender de
+   * onde o sorteio caiu, e ela oscilaria sem que nada no mundo tivesse mudado.
+   */
+  perigo?: number;
 }
 
 /**
@@ -148,8 +203,11 @@ export function findSpawnPoint(
 
     for (let y = y1; y >= y0; y--) {
       if (!isSpawnable(world, x, y, z, ctx.sunScale, ctx.dentroDoAbrigo)) continue;
-      const kind = MOB_KINDS[Math.floor(rng() * MOB_KINDS.length)] ?? 'zumbi';
-      return { x: x + 0.5, y, z: z + 0.5, kind };
+      // A espécie sai da camada do ponto ESCOLHIDO, e não da do jogador: quem está na boca da
+      // caverna olhando para baixo deve ver o que vive lá embaixo, não o que vive ao lado dele.
+      const superficie = world.superficieY?.(x, z) ?? y;
+      const camada = camadaEm(y, superficie);
+      return { x: x + 0.5, y, z: z + 0.5, kind: especieDaCamada(camada.id, rng()) };
     }
   }
 
@@ -175,7 +233,7 @@ export class MobSpawner {
     if (!this.enabled) return null;
 
     this.timer += dt;
-    if (this.timer < intervaloDeSpawn(ctx.moonIllumination ?? 1)) return null;
+    if (this.timer < intervaloDeSpawn(ctx.moonIllumination ?? 1, ctx.perigo ?? 1)) return null;
     this.timer = 0;
 
     return findSpawnPoint(world, player, ctx, rng);

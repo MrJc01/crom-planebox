@@ -557,6 +557,18 @@ describe('camadas verticais — a profundidade se vê e se sente (itens 495/496)
   it('a camada aparece no diagnóstico', () => {
     expect(/camadaNaProfundidade\(/.test(main)).toBe(true);
   });
+
+  it('CRÍTICO: o perigo da camada chega ao spawner — item 497', () => {
+    // `perigo` é um campo numa tabela: sem alguém passá-lo, o abismo gera hostis no mesmo ritmo da
+    // superfície e a única diferença entre as camadas volta a ser o tempo de caminhada.
+    expect(/perigo: camadaNaProfundidade\(/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: o spawner sabe a altura da superfície — item 1439', () => {
+    // Sem `superficieY`, `camadaEm` trata todo ponto como superfície e a mistura de espécies é a
+    // mesma no abismo e no quintal. O deslocamento existiria na tabela e não no jogo.
+    expect(/superficieY: \(x: number, z: number\)/.test(main)).toBe(true);
+  });
 });
 
 describe('o próprio varredor é confiável', () => {

@@ -55,6 +55,22 @@ export interface CamadaDef {
    * não é só "mais do mesmo, mais raro", é chegar a algo que não estava lá em cima.
    */
   exclusivos: Array<'carvao' | 'ferro' | 'ouro' | 'diamante'>;
+  /**
+   * Multiplicador do ritmo de surgimento de hostis — item 497.
+   *
+   * 1 é a superfície. Acima disso, a camada gera criaturas mais depressa.
+   *
+   * ## Por que o perigo cresce com a profundidade, e não com o tempo
+   *
+   * Perigo por tempo pune quem joga devagar e não recompensa nada. Perigo por **lugar** é uma
+   * escolha: descer é a decisão de trocar segurança por recurso, e é ela que dá sentido ao diamante
+   * estar no fundo. Sem o perigo crescente, a única diferença entre a caverna e o abismo seria o
+   * tempo de caminhada.
+   *
+   * O número mora aqui e não no spawner porque é uma propriedade **da camada** — quem decide o que
+   * o abismo é são as camadas, e o spawner só obedece.
+   */
+  perigo: number;
 }
 
 /**
@@ -80,25 +96,25 @@ export const CAMADAS: CamadaDef[] = [
     // A superfície não impõe névoa própria: quem manda ali é o bioma, e sobrepor isto apagaria a
     // diferença entre deserto e tundra que o sistema de biomas existe para criar.
     neblina: [0.62, 0.70, 0.80], alcanceNeblina: 1, luzMinima: 0,
-    exclusivos: [],
+    exclusivos: [], perigo: 1,
   },
   {
     id: 'subsolo', nome: 'Subsolo', inicio: 6,
     // Terra e raiz: marrom acinzentado, ainda com um resto da luz de cima.
     neblina: [0.30, 0.27, 0.24], alcanceNeblina: 0.55, luzMinima: 0.06,
-    exclusivos: [],
+    exclusivos: [], perigo: 1.25,
   },
   {
     id: 'caverna', nome: 'Caverna', inicio: 14,
     // Azul frio e fechado. É a camada do ferro e do ouro, onde a tocha passa a valer território.
     neblina: [0.13, 0.15, 0.20], alcanceNeblina: 0.34, luzMinima: 0.04,
-    exclusivos: ['ouro'],
+    exclusivos: ['ouro'], perigo: 1.6,
   },
   {
     id: 'abismo', nome: 'Abismo', inicio: 20,
     // Quase preto, com um resto de brasa. O diamante mora aqui e em nenhum outro lugar.
     neblina: [0.07, 0.05, 0.06], alcanceNeblina: 0.22, luzMinima: 0.03,
-    exclusivos: ['diamante'],
+    exclusivos: ['diamante'], perigo: 2.2,
   },
 ];
 

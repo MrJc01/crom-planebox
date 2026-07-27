@@ -13,7 +13,10 @@ import {
   intervaloDeSpawn,
   findSpawnPoint,
   isSpawnable,
+  ESPECIES_POR_CAMADA,
+  especieDaCamada,
 } from '../../src/entities/MobSpawner';
+import { CAMADAS } from '../../src/world/camadas';
 import { MOB_KINDS } from '../../src/entities/Combat';
 
 /** Mundo de teste: chão sólido em y=9, ar acima, luz configurável por célula. */
@@ -266,5 +269,81 @@ describe('a casa protege — o abrigo do jogador não é berço (item 1315)', ()
     // `undefined` é o estado normal: de dia, e sempre que o jogador está a céu aberto.
     const w = world();
     expect(isSpawnable(w, 5, 10, 5, 0.12, undefined)).toBe(true);
+  });
+});
+
+describe('perigo cresce com a profundidade — item 497', () => {
+  // Perigo por tempo pune quem joga devagar e não recompensa nada. Perigo por LUGAR é uma escolha:
+  // descer é a decisão de trocar segurança por recurso, e é ela que dá sentido ao diamante estar no
+  // fundo. Sem isto, a única diferença entre a caverna e o abismo seria o tempo de caminhada.
+
+  it('CRÍTICO: camada mais funda gera mais depressa', () => {
+    const superficie = intervaloDeSpawn(1, CAMADAS[0].perigo);
+    const abismo = intervaloDeSpawn(1, CAMADAS[CAMADAS.length - 1].perigo);
+    expect(abismo).toBeLessThan(superficie);
+  });
+
+  it('CRÍTICO: o perigo divide, e não subtrai', () => {
+    // Subtrair faria a lua cheia no abismo ficar mais calma que a lua nova na superfície — o que
+    // inverteria a relação que o jogador aprendeu lá em cima.
+    const luaCheiaNoAbismo = intervaloDeSpawn(1, 2.2);
+    const luaNovaNaSuperficie = intervaloDeSpawn(0, 1);
+    expect(luaCheiaNoAbismo).toBeLessThan(luaNovaNaSuperficie);
+  });
+
+  it('o perigo ausente preserva o ritmo antigo', () => {
+    expect(intervaloDeSpawn(1)).toBe(intervaloDeSpawn(1, 1));
+  });
+
+  it('perigo zero ou negativo não vira intervalo infinito nem negativo', () => {
+    expect(intervaloDeSpawn(1, 0)).toBeGreaterThan(0);
+    expect(Number.isFinite(intervaloDeSpawn(1, -5))).toBe(true);
+  });
+
+  it('o perigo cresce monotonicamente com a profundidade', () => {
+    // Uma camada mais funda que fosse mais calma faria descer parecer voltar para cima.
+    for (let i = 1; i < CAMADAS.length; i++) {
+      expect(CAMADAS[i].perigo, CAMADAS[i].id).toBeGreaterThan(CAMADAS[i - 1].perigo);
+    }
+  });
+});
+
+describe('a camada desloca a mistura de espécies — item 1439', () => {
+  /** Distribuição de 3.000 sorteios uniformes. */
+  function distribuicao(camada: string): Record<string, number> {
+    const conta: Record<string, number> = { zumbi: 0, esqueleto: 0, aranha: 0 };
+    for (let i = 0; i < 3000; i++) conta[especieDaCamada(camada, i / 3000)]++;
+    return conta;
+  }
+
+  it('CRÍTICO: no abismo a aranha e o esqueleto dominam', () => {
+    const d = distribuicao('abismo');
+    expect(d.aranha).toBeGreaterThan(d.zumbi);
+    expect(d.esqueleto).toBeGreaterThan(d.zumbi);
+  });
+
+  it('CRÍTICO: o zumbi NÃO some do abismo — desloca, não troca', () => {
+    // Trocar por completo faria cada camada parecer um jogo diferente, e a passagem entre elas
+    // deixaria de ser progressão para virar transporte.
+    expect(distribuicao('abismo').zumbi).toBeGreaterThan(0);
+  });
+
+  it('a superfície continua uniforme — é o mundo que o jogador já conhece', () => {
+    const d = distribuicao('superficie');
+    expect(Math.abs(d.zumbi - d.aranha)).toBeLessThan(200);
+  });
+
+  it('camada desconhecida cai na mistura da superfície, sem estourar', () => {
+    expect(() => especieDaCamada('inventada', 0.5)).not.toThrow();
+    expect(MOB_KINDS).toContain(especieDaCamada('inventada', 0.5));
+  });
+
+  it('toda camada tem pelo menos uma espécie — nenhuma fica vazia', () => {
+    // Uma camada sem espécie devolveria sempre o mesmo padrão, e o sorteio deixaria de importar.
+    for (const c of CAMADAS) {
+      const pesos = ESPECIES_POR_CAMADA[c.id];
+      expect(pesos, c.id).toBeDefined();
+      expect(Object.values(pesos!).some((p) => (p ?? 0) > 0), c.id).toBe(true);
+    }
   });
 });

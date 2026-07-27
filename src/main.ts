@@ -2206,7 +2206,12 @@ async function bootstrap() {
       abrigoAtual = null;
       avisouDescoberto = false;
     }
-    const ponto = mobSpawner.update(dt, world, player.pos, {
+    // O mundo que o spawner vê ganha a altura da superfície, para a espécie sair da camada do
+    // ponto sorteado. Sem isso, todo hostil nasceria com a mistura da superfície, mesmo no abismo.
+    const mundoDeSpawn = Object.assign(Object.create(world) as typeof world, {
+      superficieY: (x: number, z: number) => gen.column(x, z).height,
+    });
+    const ponto = mobSpawner.update(dt, mundoDeSpawn, player.pos, {
       timeOfDay,
       sunScale,
       // Lua nova gera hostis quase no dobro do ritmo. É o que dá consequência de jogo à fase:
@@ -2214,6 +2219,11 @@ async function bootstrap() {
       moonIllumination: iluminacaoDaFase(gs.getMoonPhase()),
       hostileCount: entitySystem.hostileCount,
       maxY: CY,
+      // Perigo da camada onde o jogador está — item 497. Descer é trocar segurança por recurso, e
+      // sem isto a única diferença entre a caverna e o abismo seria o tempo de caminhada.
+      perigo: camadaNaProfundidade(
+        (gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height - player.pos.y) / SCALE,
+      ).perigo,
       // A casa protege. Sem isto ela não protegia de nada: o interior fechado é o lugar mais
       // escuro do mundo à noite, e `MIN_SPAWN_DISTANCE` são menos de cinco metros — ou seja, o
       // melhor berço que o sorteio poderia encontrar era exatamente dentro do abrigo.
