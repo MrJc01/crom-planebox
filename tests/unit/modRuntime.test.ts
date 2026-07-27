@@ -597,3 +597,102 @@ describe('handler em voo depois do descarregamento (item 1366)', () => {
     expect(escritos.length).toBeGreaterThan(0);
   });
 });
+
+describe('o reino que morre (item 1386)', () => {
+  // Um erro fatal no Worker cala TODOS os mods de uma vez, inclusive os que não têm nada a ver com
+  // o que quebrou. E as mensagens simplesmente param de chegar: o jogo continua rodando normal, os
+  // mods param, e nada em lugar nenhum explica.
+
+  /** Porta local que dá para "matar", como um Worker faria. */
+  function portaMatavel() {
+    const a: Porta = { postMessage: () => {}, onmessage: null };
+    const b: Porta = { postMessage: () => {}, onmessage: null, onerror: null };
+    a.postMessage = (m) => b.onmessage?.({ data: m });
+    b.postMessage = (m) => a.onmessage?.({ data: m });
+    instalarNucleo(a);
+    return b;
+  }
+
+  it('CRÍTICO: a queda é anunciada, não silenciosa', async () => {
+    const host = fakeHost();
+    const portas: Porta[] = [];
+    const rt = new ModRuntime(host, () => { const p = portaMatavel(); portas.push(p); return p; });
+    const quedas: { motivo: string; tentando: boolean }[] = [];
+    rt.onReinoCaiu = (motivo, tentando) => quedas.push({ motivo, tentando });
+
+    await rt.loadMod(modComScript(`api.on('tick', () => {});`));
+    portas[0].onerror?.({ message: 'estourou lá dentro' });
+
+    expect(quedas[0]).toEqual({ motivo: 'estourou lá dentro', tentando: true });
+  });
+
+  it('CRÍTICO: os mods voltam sozinhos', async () => {
+    // Deixar tudo mudo até o jogador reiniciar o mundo é desproporcional: o estrago de um mod ruim
+    // viraria a perda de todos os outros pelo resto da sessão.
+    const host = fakeHost();
+    const portas: Porta[] = [];
+    const rt = new ModRuntime(host, () => { const p = portaMatavel(); portas.push(p); return p; });
+
+    await rt.loadMod(modComScript(`api.on('tick', () => api.ui.toast('vivo'));`));
+    portas[0].onerror?.({ message: 'morreu' });
+    await assentar();
+
+    host.chamadas.toasts.length = 0;
+    rt.tickAll(0.016);
+    expect(host.chamadas.toasts).toContain('vivo');
+  });
+
+  it('CRÍTICO: a perda do `api.storage` é dita, não escondida', async () => {
+    // O estado vivia lá dentro e morreu junto. Um mod que acorda com o estado zerado se comporta de
+    // um jeito que o autor não consegue explicar sem esta informação.
+    const host = fakeHost();
+    const portas: Porta[] = [];
+    const rt = new ModRuntime(host, () => { const p = portaMatavel(); portas.push(p); return p; });
+
+    await rt.loadMod(modComScript(`api.on('tick', () => {});`));
+    portas[0].onerror?.({ message: 'morreu' });
+    // O aviso é gravado no contexto NOVO, depois da recarga — daí a espera. Gravá-lo no antigo
+    // perderia a mensagem junto com o contexto que ela explicava.
+    await assentar();
+
+    expect(rt.getLogs('mod-teste', 10).some((l) => l.message.includes('api.storage'))).toBe(true);
+  });
+
+  it('CRÍTICO: desiste depois de algumas quedas seguidas', async () => {
+    // O mod que derrubou o reino o derruba de novo assim que for recarregado. Sem teto isso vira um
+    // laço de recriação que consome a máquina, com o jogador vendo o jogo engasgar sem pista nenhuma.
+    const host = fakeHost();
+    const portas: Porta[] = [];
+    const rt = new ModRuntime(host, () => { const p = portaMatavel(); portas.push(p); return p; });
+    const quedas: boolean[] = [];
+    rt.onReinoCaiu = (_m, tentando) => quedas.push(tentando);
+
+    await rt.loadMod(modComScript(`api.on('tick', () => {});`));
+    for (let i = 0; i < 5; i++) {
+      portas[portas.length - 1].onerror?.({ message: 'de novo' });
+      await assentar();
+    }
+
+    expect(quedas.slice(0, 3)).toEqual([true, true, true]);
+    expect(quedas[3]).toBe(false);
+  });
+
+  it('carga em curso quando o reino cai não fica esperando para sempre', async () => {
+    // A resposta nunca viria do reino morto. Resolver com falha é o que impede quem chamou
+    // `loadMod` de travar — e num `await` sem `catch`, travar é a aba inteira parada.
+    const host = fakeHost();
+    let porta: Porta | null = null;
+    const rt = new ModRuntime(host, () => {
+      // Porta muda: nunca entrega nada, para a carga ficar pendente.
+      porta = { postMessage: () => {}, onmessage: null, onerror: null };
+      return porta;
+    });
+
+    const promessa = rt.loadMod(modComScript(`api.on('tick', () => {});`));
+    porta!.onerror?.({ message: 'caiu no meio da carga' });
+    const r = await promessa;
+
+    expect(r[0].ok).toBe(false);
+    expect(r[0].error).toMatch(/caiu no meio da carga/);
+  });
+});

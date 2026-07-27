@@ -217,4 +217,13 @@ export type ParaOHost = MsgChamada | MsgCarregado | MsgFalha | MsgHandlers | Msg
 export interface Porta {
   postMessage(msg: unknown): void;
   onmessage: ((ev: { data: unknown }) => void) | null;
+  /**
+   * O reino morreu (erro fatal lá dentro, ou o navegador o encerrou).
+   *
+   * Opcional porque o duplo dos testes não morre. Num `Worker` de verdade é a **única** notificação
+   * que existe: sem ela, todos os mods simplesmente param de responder, e nada na tela diz por quê.
+   */
+  onerror?: ((ev: unknown) => void) | null;
+  /** Encerra o reino. Só o `Worker` tem; o duplo ignora. */
+  terminate?: () => void;
 }

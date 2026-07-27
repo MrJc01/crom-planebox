@@ -615,6 +615,14 @@ async function bootstrap() {
   modRuntime.onScriptDisabled = (modId, scriptKey, reason) => {
     hud.showToast(`Script "${scriptKey}" do mod "${modId}" foi desligado: ${reason}`);
   };
+  // O reino de execução dos mods caiu. Sem este aviso, todos os mods param de responder de uma vez
+  // e o jogo continua rodando normal — o jogador não teria como distinguir "o mod não faz nada" de
+  // "o mod parou de existir".
+  modRuntime.onReinoCaiu = (motivo, vaiTentarDeNovo) => {
+    hud.showToast(vaiTentarDeNovo
+      ? `Os mods travaram (${motivo}) e estão sendo recarregados.`
+      : `Os mods travaram repetidamente (${motivo}) e foram desligados nesta sessão.`);
+  };
   mcpExecutors.modRuntime = modRuntime;
 
   // --- Telas de manutenção -----------------------------------------------------------------

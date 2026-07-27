@@ -30,6 +30,8 @@ export interface CallbacksDaPonte {
   aoRegistrarLog(modId: string, nivel: 'log' | 'warn' | 'error', args: unknown[]): void;
   /** O worker esqueceu o mod. Momento exato de drenar pela última vez e soltar o contexto. */
   aoDescarregar(modId: string): void;
+  /** O reino de execução morreu. Todos os mods pararam, e alguém precisa dizer isso. */
+  aoMorrer(motivo: string): void;
 }
 
 /**
@@ -72,6 +74,16 @@ export class PonteDeMods {
     private cb: CallbacksDaPonte,
   ) {
     this.porta.onmessage = (ev) => this.receber(ev.data as ParaOHost);
+    // Sem isto, um erro fatal no reino deixa **todos** os mods mudos e nada em lugar nenhum
+    // explica: as mensagens simplesmente param de chegar, e o jogo continua rodando normal.
+    this.porta.onerror = (ev: any) => this.cb.aoMorrer(ev?.message || 'erro fatal no reino de execução');
+  }
+
+  /** Encerra o reino. Usado ao recriá-lo depois de uma queda. */
+  public encerrar(): void {
+    this.porta.onmessage = null;
+    this.porta.onerror = null;
+    this.porta.terminate?.();
   }
 
   /** Chamadas atendidas neste quadro, por mod. */

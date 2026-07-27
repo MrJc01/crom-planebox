@@ -3852,7 +3852,7 @@ poder de congelar o jogo — um handler que nunca resolve travaria a aba inteira
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1364 `P1` **O orçamento de 4 ms por frame só mede tempo síncrono** — um handler assíncrono escapa dele por completo, e hoje nada limita quanto tempo de relógio um mod pode ocupar entre `await`s
+- [~] 1364 `P1` **Resolvido por mudança de natureza**: com o script fora deste thread, o que precisa de teto não é o tempo dele e sim quantas chamadas ele faz voltar para cá
 - [ ] 1365 `P2` **Nada avisa o autor do mod de que ele esqueceu um `await`** — uma leitura sem `await` funciona hoje e vai quebrar no Worker. Um aviso no log ao detectar `getBlock` usado como valor bruto pouparia a descoberta tardia
 - [~] 1366 `P2` **`flush` reconfere o contexto** — bloco de mod já descarregado não é mais gravado em nome dele
 
@@ -3939,7 +3939,7 @@ o item 1364, e ele deixa de ser opcional no dia do Worker.
 - [~] 1368 `P0` **`modWorker.ts` + `nucleoDoWorker.ts`** — reino de execução com globais apagados. **Escrito e testado, ainda NÃO no caminho de execução** (ver 1373)
 - [~] 1369 `P0` **`PonteDeMods.ts`** — RPC com escritas de mão única, 16 testes ponta a ponta por portas falsas
 - [~] 1370 `P0` **Reenquadrado, não invertido** — a fuga é real e continua real; o que mudou foi o reino em que o script roda
-- [ ] 1371 `P1` Orçamento por mensagens/frame no lugar do de milissegundos (é o 1364 sob outra forma)
+- [~] 1371 `P1` **Feito com o 1385** — o relógio deu lugar à contagem de chamadas
 - [ ] 1372 `P1` Teste manual documentado do isolamento, já que jsdom não tem `Worker`
 
 ---
@@ -4144,6 +4144,69 @@ função que os apaga.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1385 `P0` **O orçamento por quadro deixou de existir de fato** — `TICK_BUDGET_MS` não é mais aplicado, e nada limita quantas mensagens um mod enfileira. É o item 1371, e ele saiu de "desejável" para **necessário**: era a única contenção contra um mod caro
-- [ ] 1386 `P1` **O Worker não é reiniciado se morrer** — um erro fatal lá dentro deixa todos os mods mudos, sem nada na tela dizendo por quê
+- [~] 1385 `P0` **Orçamento de 2.000 chamadas por mod, por quadro** — ver a seção 70
+- [~] 1386 `P1` **Queda anunciada e reino recriado**, com teto de três tentativas
 - [ ] 1387 `P2` **`ctx.handlers` ficou duplicado com `ctx.handlerCount`** — o primeiro só é preenchido quando a API é construída neste reino, o que já não acontece para scripts. Sai quando ninguém mais o ler
+
+---
+
+## 70 — O que a mudança de reino tirou, e o que ela exigiu de volta (itens 1385, 1386)
+
+Duas consequências do item 358 que **não** eram melhorias opcionais: eram buracos abertos pela
+própria migração.
+
+### O relógio que parou de medir o que o nome dele promete (1385)
+
+Enquanto os scripts rodavam neste thread, a contenção era `TICK_BUDGET_MS`: quatro milissegundos
+somados entre todos os mods. Com eles no Worker, esse relógio passou a medir o custo de **enfileirar
+mensagens**, que é quase nada.
+
+O resultado era pior que não ter limite: havia um número, com nome de orçamento, dando a impressão de
+proteção — enquanto a proteção tinha ido embora junto com a execução.
+
+O mod deixou de poder travar o quadro e ganhou uma forma nova de fazer estrago: **inundar a ponte**.
+Cada chamada atendida roda no thread principal, então dez mil leituras por quadro travam o jogo com o
+script rodando longe. O teto virou 2.000 chamadas por mod, por quadro — folgado para uso legítimo
+(varrer uma área de 12×12×12 são 1.728 leituras) e apertado o bastante para um laço fugido bater nele
+na primeira volta.
+
+Três decisões dentro disso:
+
+**Estourar não desliga o script.** Um pico isolado não deve punir um mod que costuma ser barato — a
+mesma regra do orçamento de blocos. O mod volta ao normal no quadro seguinte, sozinho.
+
+**O orçamento é por mod, não global.** Global seria um mod caro calando todos os outros, e o autor do
+mod inocente não teria como descobrir por quê.
+
+**O aviso sai uma vez por quadro.** Um laço fugido faz milhares de chamadas; um aviso por chamada
+encheria as 300 linhas de log do mod com a mesma frase e apagaria tudo o que havia de útil antes
+dela.
+
+### O reino que morre em silêncio (1386)
+
+Um erro fatal no Worker cala **todos** os mods de uma vez, inclusive os que não têm nada a ver com o
+que quebrou. E o modo como isso aparece é o pior possível: as mensagens simplesmente param de chegar,
+o jogo continua rodando normal, e o jogador não tem como distinguir "o mod não faz nada" de "o mod
+parou de existir".
+
+O reino passou a ser recriado, com **teto de três tentativas** — porque o mod que derrubou o Worker o
+derruba de novo assim que for recarregado, e sem teto isso vira um laço de recriação que consome a
+máquina.
+
+Duas coisas que só apareceram ao testar:
+
+**O aviso morria junto com o contexto que ele explicava.** Eu gravava "o `api.storage` foi perdido"
+no contexto antigo, que é descartado na recarga — o mod voltava com o log limpo, o estado zerado e
+nenhuma pista. Passou a ser gravado no contexto **novo**, depois da recarga.
+
+**Uma carga em curso ficaria esperando para sempre.** A resposta nunca viria do reino morto, e num
+`await` sem `catch` isso é a aba parada. As cargas pendentes são resolvidas com falha.
+
+- [~] 1388 `P0` **`CHAMADAS_POR_QUADRO`** com 5 testes, incluindo "o aviso passa mesmo com o mod estourado"
+- [~] 1389 `P1` **Queda do reino tratada** com 5 testes, incluindo "desiste depois de algumas quedas seguidas"
+- [~] 1390 `P1` **3 travas de fiação novas**, sendo uma que confere que a execução continua no Worker — sem ela, devolver a execução para cá deixaria todos os testes de sandbox verdes descrevendo uma proteção desligada
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1391 `P2` **`api.console` não é cobrado do orçamento** — é de propósito (o aviso de estouro precisa passar), e o log é limitado a 300 linhas, mas um mod pode gastar mensagens ali sem teto
+- [ ] 1392 `P2` **A recarga depois da queda não restaura o `api.storage`** — ele vivia no reino e morreu junto. Persistir o storage deste lado resolveria, e custaria uma ida e volta por escrita

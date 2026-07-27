@@ -90,9 +90,25 @@ export class ModRuntime {
    * ponto do item 358. Injetável porque `vitest` com jsdom não tem `Worker`, e porque um teste que
    * precisa de navegador não é um teste que se roda a cada commit.
    */
-  constructor(host: ModHostBridge, criarPorta: () => Porta = criarPortaDeWorker) {
+  constructor(host: ModHostBridge, private criarPorta: () => Porta = criarPortaDeWorker) {
     this.host = host;
-    this.ponte = new PonteDeMods(criarPorta(), (modId) => this.apis.get(modId), {
+    this.ponte = this.abrirReino();
+  }
+
+  /**
+   * Máximo de vezes que o reino é recriado depois de morrer.
+   *
+   * Um mod que derruba o Worker o derruba de novo assim que for recarregado. Sem teto, isso vira um
+   * laço de recriação que consome a máquina — e o jogador vê o jogo engasgando sem nenhuma pista.
+   * Três tentativas separam o acidente do padrão.
+   */
+  private static readonly MAX_RESSURREICOES = 3;
+  private ressurreicoes = 0;
+  /** Avisado quando o reino dos mods cai — o jogo precisa poder dizer isso na tela. */
+  public onReinoCaiu: (motivo: string, vaiTentarDeNovo: boolean) => void = () => {};
+
+  private abrirReino(): PonteDeMods {
+    return new PonteDeMods(this.criarPorta(), (modId) => this.apis.get(modId), {
       aoCarregar: (modId, resultados) => this.aoCarregar(modId, resultados),
       aoFalhar: (modId, scriptKey, erro) => this.aoFalhar(modId, scriptKey, erro),
       aoRelatarHandlers: (modId, contagem) => {
@@ -101,7 +117,56 @@ export class ModRuntime {
       },
       aoRegistrarLog: (modId, nivel, args) => this.contexts.get(modId)?.log(nivel, ...args),
       aoDescarregar: (modId) => this.aoDescarregar(modId),
+      aoMorrer: (motivo) => this.aoMorrer(motivo),
     });
+  }
+
+  /**
+   * O reino de execução morreu.
+   *
+   * ## Por que recriar em vez de só avisar
+   *
+   * Um erro fatal lá dentro cala **todos** os mods de uma vez, inclusive os que não têm nada a ver
+   * com o que quebrou. Deixar assim até o jogador reiniciar o mundo é desproporcional: o estrago de
+   * um mod ruim viraria a perda de todos os outros pelo resto da sessão.
+   *
+   * Recriar tem o risco oposto — o mod que derrubou o reino o derruba de novo assim que for
+   * recarregado — e é por isso que existe teto. Três tentativas separam o acidente do padrão.
+   *
+   * O que **não** é restaurado é o `api.storage` dos mods: ele vivia lá dentro e morreu junto. Isso
+   * é dito no log de cada mod, porque um mod que acorda com o estado zerado se comporta de um jeito
+   * que o autor não consegue explicar sem essa informação.
+   */
+  private aoMorrer(motivo: string): void {
+    const pacotes = Array.from(this.contexts.values()).map((c) => c.mod);
+    const aviso = `O reino de execução dos mods caiu (${motivo}). O estado de api.storage foi perdido.`;
+    const vaiTentar = this.ressurreicoes < ModRuntime.MAX_RESSURREICOES;
+    this.onReinoCaiu(motivo, vaiTentar);
+    this.ponte.encerrar();
+    if (!vaiTentar) {
+      // Sem recarga, o contexto atual é o que sobra: o aviso vai nele.
+      for (const ctx of this.contexts.values()) ctx.log('error', aviso);
+      return;
+    }
+
+    this.ressurreicoes++;
+    this.contexts.clear();
+    this.apis.clear();
+    this.saindo.clear();
+    // As cargas em curso nunca vão receber resposta do reino morto: resolvê-las com falha é o que
+    // impede quem chamou `loadMod` de esperar para sempre.
+    for (const [modId, resolver] of this.cargasPendentes) {
+      resolver([{ scriptKey: '*', ok: false, error: `reino de execução caiu: ${motivo}` }]);
+      this.cargasPendentes.delete(modId);
+    }
+
+    this.ponte = this.abrirReino();
+    // O aviso é gravado no contexto NOVO, depois da recarga. Gravá-lo no antigo — como eu havia
+    // feito — perde a mensagem junto com o contexto que ela explicava: o mod volta com o log
+    // limpo, o estado zerado, e nenhuma pista do que houve.
+    for (const pkg of pacotes) {
+      void this.loadMod(pkg).then(() => this.contexts.get(pkg.id)?.log('error', aviso));
+    }
   }
 
   /** Constantes que o script vê sem atravessar a fronteira — ver `protocoloDeMods.ts`. */

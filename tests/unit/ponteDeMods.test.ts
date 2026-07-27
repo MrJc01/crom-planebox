@@ -70,6 +70,7 @@ function montar(sobrepor: Record<string, any> = {}) {
     falhas: [] as any[],
     handlers: [] as any[],
     logs: [] as any[],
+    mortes: [] as string[],
   };
 
   const ctx = new ModContext(emptyModPackage('m1', 'M'));
@@ -85,6 +86,8 @@ function montar(sobrepor: Record<string, any> = {}) {
     aoFalhar: (modId, scriptKey, erro) => eventos.falhas.push({ modId, scriptKey, erro }),
     aoRelatarHandlers: (modId, contagem) => eventos.handlers.push({ modId, contagem }),
     aoRegistrarLog: (modId, nivel, args) => eventos.logs.push({ modId, nivel, args }),
+    aoDescarregar: () => {},
+    aoMorrer: (motivo) => eventos.mortes.push(motivo),
   });
 
   return { ponte, host, eventos, api };
@@ -140,7 +143,7 @@ describe('carga através da fronteira', () => {
     new PonteDeMods(ladoHost, () => ({}), {
       aoCarregar: () => ordem.push('carregado'),
       aoRelatarHandlers: () => ordem.push('handlers'),
-      aoFalhar: () => {}, aoRegistrarLog: () => {},
+      aoFalhar: () => {}, aoRegistrarLog: () => {}, aoDescarregar: () => {}, aoMorrer: () => {},
     }).carregar('m1', [{ key: 'main', code: `api.on('tick', () => {});` }], CONSTANTES);
     await assentar();
 
@@ -225,8 +228,9 @@ describe('escrita: vai e não volta', () => {
 
     instalarNucleo(ladoWorker);
     const ponte = new PonteDeMods(ladoHost, hostFalso(), {
-      aoCarregar: () => {}, aoFalhar: () => {}, aoRelatarHandlers: () => {}, aoRegistrarLog: () => {},
-    }, { 'world.setBlock': () => true });
+      aoCarregar: () => {}, aoFalhar: () => {}, aoRelatarHandlers: () => {},
+      aoRegistrarLog: () => {}, aoDescarregar: () => {}, aoMorrer: () => {},
+    });
 
     ponte.carregar('m1', [{ key: 'main', code: `api.on('tick', () => { api.world.setBlock(1, 2, 3, 'pedra'); });` }], CONSTANTES);
     await assentar();
@@ -447,7 +451,7 @@ describe('orçamento de chamadas por quadro (item 1385)', () => {
     };
     const ponte = new PonteDeMods(ladoHost, (id) => apis[id], {
       aoCarregar: () => {}, aoFalhar: () => {}, aoRelatarHandlers: () => {},
-      aoRegistrarLog: () => {}, aoDescarregar: () => {},
+      aoRegistrarLog: () => {}, aoDescarregar: () => {}, aoMorrer: () => {},
     });
 
     for (let i = 0; i <= CHAMADAS_POR_QUADRO; i++) {

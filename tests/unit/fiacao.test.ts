@@ -350,6 +350,33 @@ describe('cama — o ponto de renascimento chega ao jogo (item 010)', () => {
   });
 });
 
+describe('o reino dos mods — item 358 e a queda dele', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: a execução de mod acontece num Worker, não neste thread', () => {
+    // A trava mais importante deste arquivo. Trocar o padrão do `ModRuntime` de volta para execução
+    // local deixaria TODOS os testes de sandbox verdes descrevendo uma proteção desligada — e a
+    // única diferença visível seria nenhuma.
+    const rt = FONTE.find((f) => f.arquivo.endsWith('mods/ModRuntime.ts'))!.texto;
+    expect(/criarPorta: \(\) => Porta = criarPortaDeWorker/.test(rt)).toBe(true);
+    expect(/new Worker\(new URL\('\.\/modWorker\.ts'/.test(rt)).toBe(true);
+  });
+
+  it('CRÍTICO: a queda do reino chega ao jogador', () => {
+    // `onReinoCaiu` é um callback com padrão vazio: sem alguém o atribuindo, o reino cai, todos os
+    // mods param, e o jogo continua rodando normal. O jogador não teria como distinguir "o mod não
+    // faz nada" de "o mod parou de existir".
+    expect(/modRuntime\.onReinoCaiu\s*=/.test(main), 'ninguém escuta a queda').toBe(true);
+  });
+
+  it('CRÍTICO: o orçamento de chamadas por quadro é recarregado', () => {
+    // `novoQuadro()` nunca chamado deixaria todo mod estourado para sempre depois de 2.000
+    // chamadas — os mods funcionariam por alguns segundos e parariam, com um aviso só no log.
+    const rt = FONTE.find((f) => f.arquivo.endsWith('mods/ModRuntime.ts'))!.texto;
+    expect(/this\.ponte\.novoQuadro\(\)/.test(rt)).toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos
