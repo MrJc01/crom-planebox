@@ -664,6 +664,13 @@ async function bootstrap() {
   const modsPage = new ModsPage(mcpExecutors.modService, modRuntime);
   const codeEditor = new CodeEditorPage(mcpExecutors.modService, modRuntime);
 
+  modsPage.worldIdAtual = () => currentWorld.id || null;
+  // Sem isto, revogar só valeria na próxima vez que o mundo abrisse — o jogador teria clicado em
+  // "revogar" e o mod continuaria com acesso pelo resto da sessão, sem nada indicando.
+  modsPage.onConsentimentosMudaram = () => {
+    if (currentWorld.id) void WorldRepository.getConsents(currentWorld.id).then((c) => { consentimentos = c; });
+  };
+
   modsPage.onOpenEditor = (modId, scriptKey) => {
     uiManager.openBlocking('code-editor');
     void codeEditor.abrir(modId, scriptKey);

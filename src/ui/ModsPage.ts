@@ -8,6 +8,8 @@ import { ModRuntime } from '../mods/ModRuntime';
 import { descreverEnv, resolverEnv } from '../mods/ModEnv';
 import { ModPackage } from '../mods/ModTypes';
 import { Tabs } from './Tabs';
+import { WorldRepository } from '../storage/WorldRepository';
+import { ModConsentRecord, ModNetLogRecord } from '../storage/Database';
 
 export class ModsPage implements UIScreen {
   readonly id = 'mods-page';
@@ -23,6 +25,16 @@ export class ModsPage implements UIScreen {
 
   /** Abrir o editor num script deste mod. Ligado pelo `main`. */
   public onOpenEditor: (modId: string, scriptKey?: string) => void = () => {};
+  /**
+   * Mundo atual, para ler e revogar consentimentos de rede.
+   *
+   * Ligado pelo `main` e não guardado aqui: o mundo muda durante a sessão, e uma cópia guardada
+   * mostraria as permissões do mundo anterior — que é o pior tipo de erro nesta tela, porque parece
+   * informação correta.
+   */
+  public worldIdAtual: () => string | null = () => null;
+  /** O `main` regrava o espelho em memória depois de uma revogação. */
+  public onConsentimentosMudaram: () => void = () => {};
   public onChanged: () => void = () => {};
 
   /**
@@ -43,6 +55,128 @@ export class ModsPage implements UIScreen {
    * Um id desconhecido é seguro: `Tabs.ir` cai na primeira aba em vez de deixar a tela em branco.
    */
   private abaDetalhe = 'general';
+
+  /**
+   * O que o mod pede, o que o jogador concedeu, e o que ele de fato fez.
+   *
+   * ## Por que as três coisas na mesma tela
+   *
+   * Separadas, cada uma responde meia pergunta. "Este mod pede acesso a `api.x.com`" não diz se
+   * alguém autorizou; "você autorizou `api.x.com`" não diz se o mod usou. Juntas, a tela responde a
+   * pergunta que o jogador realmente tem: **este mod está fazendo o que disse que faria?**
+   *
+   * É a diferença entre uma lista de permissões e uma prestação de contas. A primeira se lê uma vez
+   * e nunca mais; a segunda tem motivo para ser reaberta.
+   */
+  private async blocoCapacidades(mod: ModPackage): Promise<HTMLElement> {
+    const caixa = document.createElement('div');
+    caixa.style.cssText = 'display:flex; flex-direction:column; gap:16px;';
+
+    const rede = mod.capacidades?.rede;
+    if (!rede || rede.hosts.length === 0) {
+      const nada = document.createElement('p');
+      nada.style.cssText = 'font-size:13px; color:#94a3b8; line-height:1.6; margin:0;';
+      // O caso mais comum, e vale dizer que é bom: a maioria dos mods não precisa de rede.
+      nada.textContent =
+        'Este mod não pede acesso à rede. Ele não consegue falar com nenhum endereço externo — '
+        + 'não há o que autorizar nem o que revogar.';
+      caixa.appendChild(nada);
+      return caixa;
+    }
+
+    const worldId = this.worldIdAtual();
+    const concedidos: ModConsentRecord[] = worldId
+      ? (await WorldRepository.getConsents(worldId)).filter((c) => c.modId === mod.id)
+      : [];
+
+    const motivo = document.createElement('div');
+    motivo.style.cssText = 'font-size:13px; color:#cbd5e1; line-height:1.6;';
+    motivo.innerHTML = `<strong style="color:#f1f5f9;">Motivo declarado pelo autor:</strong> ${esc(rede.motivo)}`;
+    caixa.appendChild(motivo);
+
+    if (rede.envia) {
+      const alerta = document.createElement('div');
+      alerta.style.cssText = 'padding:10px 12px; border-radius:9px; background:rgba(239,68,68,0.10); '
+        + 'border:1px solid rgba(239,68,68,0.35); color:#fca5a5; font-size:12px; line-height:1.5;';
+      alerta.innerHTML = 'Este mod declara que <strong>envia dados</strong>, além de ler.';
+      caixa.appendChild(alerta);
+    }
+
+    for (const host of rede.hosts) {
+      const concedido = concedidos.find((c) => c.host === host || c.host === host.replace(/^\./, ''));
+      const linha = document.createElement('div');
+      linha.style.cssText = 'display:flex; align-items:center; gap:12px; padding:11px 13px; '
+        + 'background:rgba(30,41,59,0.55); border:1px solid rgba(255,255,255,0.08); border-radius:10px;';
+
+      const texto = document.createElement('div');
+      texto.style.cssText = 'flex:1; min-width:0;';
+      texto.innerHTML =
+        `<div style="font-family:monospace; font-size:13px; color:#e2e8f0; word-break:break-all;">${esc(host)}</div>`
+        + `<div style="font-size:11px; margin-top:3px; color:${concedido ? '#4ade80' : '#64748b'};">`
+        + (concedido
+          ? `Autorizado em ${new Date(concedido.grantedAt).toLocaleDateString()}`
+          : 'Ainda não autorizado — o mod será barrado até você permitir')
+        + '</div>';
+      linha.appendChild(texto);
+
+      if (concedido && worldId) {
+        const revogar = document.createElement('button');
+        revogar.textContent = 'Revogar';
+        revogar.style.cssText = 'background:transparent; border:1px solid #7f1d1d; color:#fca5a5; '
+          + 'padding:7px 13px; border-radius:8px; cursor:pointer; font-size:12px; flex:0 0 auto;';
+        revogar.onclick = async () => {
+          await WorldRepository.revokeConsent(worldId, mod.id, concedido.host);
+          // O espelho em memória precisa ser regravado, senão a revogação só valeria na próxima vez
+          // que o mundo abrisse — e o jogador teria clicado em "revogar" sem revogar nada.
+          this.onConsentimentosMudaram();
+          this.render();
+        };
+        linha.appendChild(revogar);
+      }
+      caixa.appendChild(linha);
+    }
+
+    caixa.appendChild(await this.blocoAuditoria(mod.id, worldId));
+    return caixa;
+  }
+
+  /** As últimas chamadas de rede deste mod — item 768 posto na mão do jogador. */
+  private async blocoAuditoria(modId: string, worldId: string | null): Promise<HTMLElement> {
+    const caixa = document.createElement('div');
+    caixa.style.cssText = 'display:flex; flex-direction:column; gap:8px; margin-top:4px;';
+
+    const titulo = document.createElement('h4');
+    titulo.style.cssText = 'margin:0; font-size:13px; color:#94a3b8;';
+    titulo.textContent = 'Últimas chamadas';
+    caixa.appendChild(titulo);
+
+    const linhas = worldId ? await WorldRepository.getModNetLog(worldId, modId, 25) : [];
+    if (linhas.length === 0) {
+      const vazio = document.createElement('p');
+      vazio.style.cssText = 'font-size:12px; color:#64748b; margin:0;';
+      vazio.textContent = 'Este mod ainda não tentou nenhuma chamada de rede.';
+      caixa.appendChild(vazio);
+      return caixa;
+    }
+
+    for (const l of linhas as ModNetLogRecord[]) {
+      const item = document.createElement('div');
+      const barrada = !!l.recusa;
+      item.style.cssText = `display:flex; gap:10px; align-items:baseline; font-size:11.5px;
+        padding:7px 10px; border-radius:7px; background:rgba(15,23,42,0.6);
+        border-left:3px solid ${barrada ? '#ef4444' : '#4ade80'};`;
+      item.innerHTML =
+        `<span style="color:#64748b; font-family:monospace;">${new Date(l.quando).toLocaleTimeString()}</span>`
+        + `<span style="color:#cbd5e1; font-family:monospace; flex:1; min-width:0; word-break:break-all;">`
+        + `${esc(l.metodo)} ${esc(l.host)}${esc(l.caminho)}</span>`
+        // A recusa aparece com o motivo, porque é a linha que vale a pena investigar. Um log que
+        // só mostra o que deu certo responde à pergunta errada.
+        + `<span style="color:${barrada ? '#fca5a5' : '#94a3b8'}; flex:0 0 auto;">`
+        + `${barrada ? esc(l.recusa!) : `${l.status} · ${formatarBytes(l.bytes)}`}</span>`;
+      caixa.appendChild(item);
+    }
+    return caixa;
+  }
 
   constructor(private mods: ModService, private runtime: ModRuntime) {
     const { root, lista, detalhe } = this.montarDom();
@@ -203,6 +337,18 @@ export class ModsPage implements UIScreen {
     });
 
     // Aba 3: Histórico de Versões
+    // Aba de capacidades — itens 769, 770 e 1399.
+    modTabs.adicionar({
+      id: 'capacidades',
+      titulo: 'Capacidades',
+      icone: 'chave',
+      emblema: () => mod.capacidades?.rede?.hosts.length ?? 0,
+      montar: async (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:14px; overflow-y:auto; height:100%;';
+        container.appendChild(await this.blocoCapacidades(mod));
+      },
+    });
+
     modTabs.adicionar({
       id: 'revisions',
       titulo: 'Versões',
@@ -557,4 +703,17 @@ function escapar(texto: string): string {
   const d = document.createElement('div');
   d.textContent = texto;
   return d.innerHTML;
+}
+
+/** Texto vindo de um pacote de mod, que pode ter sido escrito por qualquer um. */
+function esc(texto: string): string {
+  const d = document.createElement('div');
+  d.textContent = String(texto);
+  return d.innerHTML;
+}
+
+function formatarBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} kB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

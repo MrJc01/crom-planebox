@@ -400,6 +400,22 @@ describe('rede de mod — a porta está ligada (itens 761-768)', () => {
     expect(/logModNetCall\(/.test(main), 'nada é auditado').toBe(true);
   });
 
+  it('CRÍTICO: a revogação atinge a sessão em curso, não só a próxima', () => {
+    // Revogar gravando no banco e não regravando o espelho em memória é o pior resultado possível:
+    // o jogador clica em "revogar", a tela mostra revogado, e o mod continua com acesso pelo resto
+    // da sessão. Uma permissão que não some quando se manda sumir é pior que não ter o botão.
+    const mods = FONTE.find((f) => f.arquivo.endsWith('ui/ModsPage.ts'))!.texto;
+    expect(/revokeConsent\(/.test(mods), 'não revoga').toBe(true);
+    expect(/onConsentimentosMudaram\(\)/.test(mods), 'revoga e não avisa').toBe(true);
+    expect(/modsPage\.onConsentimentosMudaram\s*=/.test(main), 'ninguém escuta').toBe(true);
+  });
+
+  it('CRÍTICO: a aba de capacidades sabe de que mundo está falando', () => {
+    // Uma cópia guardada do `worldId` mostraria as permissões do mundo anterior — o pior tipo de
+    // erro nesta tela, porque parece informação correta.
+    expect(/modsPage\.worldIdAtual\s*=/.test(main)).toBe(true);
+  });
+
   it('CRÍTICO: a pergunta ao jogador tem tela própria', () => {
     // Sem ela, `pedirConsentimento` teria que devolver `false` sempre — a porta ficaria construída
     // e permanentemente fechada, sem nada dizendo por quê.

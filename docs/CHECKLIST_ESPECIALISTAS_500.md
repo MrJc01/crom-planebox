@@ -1331,8 +1331,8 @@ se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já
 - [ ] 766 `P0` Capacidade sensível (microfone, geolocalização) exige consentimento separado
 - [~] 767 `P0` **Revogação é apagar a linha** — ausência é o padrão seguro, e um campo booleano criaria estado indefinido
 - [~] 768 `P0` **`modNetLog`** — registra também o que foi **recusado**, e nunca a query
-- [ ] 769 `P1` Painel mostrando as capacidades ativas por mod, em linguagem simples
-- [ ] 770 `P1` Importar mod de terceiro exibe as capacidades pedidas **antes** de instalar
+- [~] 769 `P1` **Aba de capacidades por mod**, com o motivo declarado em destaque e o aviso de envio separado
+- [~] 770 `P1` **Parcial**: o manifesto viaja com o mod e a aba o exibe; **falta** interceptar o momento da importação para mostrar antes de instalar (item 1408)
 - [ ] 771 `P1` Rate limit e cota de chamadas por mod, por sessão
 - [ ] 772 `P1` Timeout e retry com backoff no wrapper, para o jogo não travar na rede
 - [ ] 773 `P1` Falha de rede não derruba o mod — degrada para o comportamento offline
@@ -4344,7 +4344,7 @@ da segunda em diante seriam clicadas sem leitura. Todas esperam a mesma resposta
 ### O que falta para a frente B estar ligada
 
 - [~] 1400 `P0` **`api.net.fetch` ligado** — protocolo, `buildModAPI`, repositório, tela de consentimento e referência da API. A porta está aberta e guardada
-- [ ] 1399 `P1` **Tela de capacidades ativas**, com revogação por host (itens 769 e 770)
+- [~] 1399 `P1` **Aba "Capacidades"** no painel do mod — o que ele pede, o que foi concedido e o que ele fez, com revogação por host
 
 ### Continuação da 72 — a porta ligada, e a tela que decide
 
@@ -4382,3 +4382,42 @@ que ela existe para evitar.
 - [~] 1404 `P1` **Consentimento espelhado em memória** — a verificação acontece dentro de uma chamada de mod, e consultar o IndexedDB ali tornaria cada chamada assíncrona por um dado que muda uma vez por sessão
 - [~] 1405 `P1` **Poda do log de auditoria em 2.000 linhas por mundo** — a pergunta que ele responde é sobre o passado recente; guardar um ano faria o que importa ficar enterrado
 - [~] 1406 `P1` **4 travas de fiação** e a referência da API ensinando `capacidades` e `await api.net.fetch`
+
+---
+
+## 73 — A aba que transforma permissão em prestação de contas (itens 769, 1399)
+
+Três coisas na mesma tela: **o que o mod pede**, **o que o jogador concedeu** e **o que o mod de fato
+fez**.
+
+Separadas, cada uma responde meia pergunta. "Este mod pede acesso a `api.x.com`" não diz se alguém
+autorizou; "você autorizou `api.x.com`" não diz se o mod usou. Juntas, respondem a pergunta que o
+jogador realmente tem: **este mod está fazendo o que disse que faria?**
+
+É a diferença entre uma lista de permissões e uma prestação de contas. A primeira se lê uma vez e
+nunca mais; a segunda tem motivo para ser reaberta.
+
+### Três detalhes que decidem se a tela serve
+
+**A revogação atinge a sessão em curso, não só a próxima.** Gravar no banco sem regravar o espelho em
+memória seria o pior resultado possível: o jogador clica em "revogar", a tela mostra revogado, e o
+mod continua com acesso pelo resto da sessão. **Uma permissão que não some quando se manda sumir é
+pior que não ter o botão** — ela transforma uma proteção em teatro. Virou trava de fiação, dos dois
+lados.
+
+**A aba pergunta o mundo, não guarda.** O mundo muda durante a sessão, e uma cópia guardada mostraria
+as permissões do mundo anterior — o pior tipo de erro nesta tela, porque parece informação correta.
+
+**A chamada recusada aparece com o motivo, e em vermelho.** É a linha que vale a pena investigar. Um
+log que só mostra o que deu certo responde à pergunta errada.
+
+E o caso mais comum tem texto próprio: um mod sem rede declarada não mostra uma lista vazia, mostra
+uma frase dizendo que ele **não consegue** falar com endereço nenhum. Lista vazia se lê como "ainda
+não configurado"; a frase se lê como "não há o que configurar".
+
+- [~] 1407 `P1` **Aba "Capacidades"** com os três blocos e as 25 últimas chamadas
+- [~] 1408 `P1` **2 travas de fiação** — a da revogação em sessão é a que mais importa
+
+### Lacuna anotada nesta rodada
+
+- [ ] 1409 `P1` **A importação de mod ainda não mostra o manifesto antes de instalar** (metade do item 770) — o pacote já carrega as capacidades e a aba já as exibe, mas quem importa um mod de terceiro só as vê **depois** de ele estar instalado. O momento de decidir é antes
