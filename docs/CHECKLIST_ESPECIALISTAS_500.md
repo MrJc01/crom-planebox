@@ -4695,8 +4695,8 @@ Invertida, a ordem faria um bioma rico em diamante produzi-lo acima do abismo.
   mais caro por fragmento)
 - [ ] 1438 `P1` **Não há som próprio de camada** — a névoa mudou, o silêncio não. Metade do "onde
   estou" continua ausente
-- [ ] 1439 `P2` **A camada não muda a criatura que nasce** — o `MobSpawner` decide por luz, e o
-  abismo teria motivo para ter os seus
+- [~] 1439 `P2` **A camada desloca a mistura de espécies** — não a troca: o zumbi continua no
+  abismo, só deixa de ser o mais comum
 
 ---
 
