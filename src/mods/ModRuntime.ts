@@ -1,29 +1,40 @@
-// Executa os scripts dos mods e distribui os eventos do jogo entre eles.
+// Coordena os mods: carrega, distribui eventos, conta erros e guarda o log.
 //
-// O runtime é o lugar onde o isolamento vira concreto: compilar, chamar e falhar acontecem
-// todos aqui, e nenhuma dessas três coisas pode escapar para o loop do jogo. Um mod quebrado
-// deve produzir um log e sumir de cena — nunca uma tela preta.
+// ## O que este arquivo deixou de ser — item 358
 //
-// Orçamento de tempo: `tick` roda em todo frame, somando todos os mods. Um orçamento global por
-// frame impede que dez mods razoáveis, juntos, façam o que um mod ruim faria sozinho.
+// Ele **executava** os scripts: compilava, chamava os handlers, pegava as exceções. Agora não. Os
+// scripts vivem num Web Worker cujo global foi esvaziado (`modWorker.ts`), e daqui saem mensagens.
+//
+// A diferença não é de organização, é de garantia. O sandbox anterior negava o alcance ao global
+// por `with` + `Proxy`, e sempre foi honesto sobre o limite: `[].constructor.constructor('return
+// this')()` continuava devolvendo o objeto global **deste** reino, com `fetch` e `indexedDB` dentro
+// — e o IndexedDB da mesma origem é onde moram os mundos salvos e o cofre de chaves de API.
+//
+// No Worker, a mesma fuga continua funcionando e deixa de servir para nada: devolve o global de
+// **lá**, que foi esvaziado antes de existir um único script. Deixou de ser uma corrida entre o que
+// eu lembrei de bloquear e o que o navegador vai ganhar amanhã.
+//
+// ## O que ficou aqui, e por quê
+//
+// Contagem de erros, desligamento de script e log. Todos os três por causa de um só motivo: a
+// **redação de segredos** (seção 52 do checklist) acontece ao gravar o log, do lado que conhece o
+// cofre. Se o log fosse formatado no worker, o valor da chave de API teria que viajar até lá em
+// texto para ser mascarado — ou sairia sem máscara.
 
-import { ModPackage, ModScript } from './ModTypes';
-import { compilarScriptDeMod } from './sandbox';
+import { ModPackage } from './ModTypes';
 import { ModContext, ModEvent, ModHostBridge, buildModAPI } from './ModAPI';
-
-/** Teto de tempo por frame para o conjunto de todos os `tick`, em milissegundos. */
-export const TICK_BUDGET_MS = 4;
+import { PonteDeMods } from './PonteDeMods';
+import { Porta } from './protocoloDeMods';
 
 /**
- * É uma promessa (ou qualquer coisa com `.then`)?
+ * Teto de tempo por quadro para o conjunto de todos os `tick`, em milissegundos.
  *
- * O teste é por `.then` e não por `instanceof Promise`: um mod pode devolver a promessa de outro
- * reino de execução — do Worker do item 358, por exemplo — e ela não seria `instanceof` a Promise
- * desta janela. Verificar a forma em vez da linhagem é o que faz isto continuar valendo depois.
+ * **Já não é aplicado**, e a constante fica porque a referência da API a documenta para o autor de
+ * mod. Com os scripts do outro lado da fronteira, medir tempo aqui mediria o custo de enfileirar
+ * mensagens — quase nada — e daria a impressão de um limite que não existe. O limite certo é
+ * mensagens por quadro (item 1371), e ele está pendente.
  */
-function ehPromessa(v: unknown): v is Promise<unknown> {
-  return !!v && typeof (v as { then?: unknown }).then === 'function';
-}
+export const TICK_BUDGET_MS = 4;
 
 export interface ScriptLoadResult {
   scriptKey: string;
@@ -31,16 +42,22 @@ export interface ScriptLoadResult {
   error?: string;
 }
 
+/**
+ * O reino de execução de verdade: um `Worker` de módulo.
+ *
+ * `new URL(..., import.meta.url)` é a forma que o Vite reconhece para empacotar o worker como um
+ * bundle próprio. Sem ela, o caminho seria resolvido só em tempo de execução e o arquivo não
+ * entraria na build.
+ *
+ * O `Worker` só fala `postMessage`/`onmessage`, que é exatamente a `Porta` — daí não haver
+ * adaptação nenhuma aqui.
+ */
+export function criarPortaDeWorker(): Porta {
+  return new Worker(new URL('./modWorker.ts', import.meta.url), { type: 'module' }) as unknown as Porta;
+}
+
 export class ModRuntime {
   private contexts = new Map<string, ModContext>();
-  /**
-   * Handlers assíncronos que ainda não terminaram.
-   *
-   * `WeakSet` e não `Set`: a chave é a própria função do mod, e quando o mod é descarregado ela
-   * deve poder ser coletada sem ninguém precisar lembrar de removê-la daqui. Um `Set` comum
-   * seguraria a função — e, por ela, o escopo inteiro do script — para sempre.
-   */
-  private emVoo = new WeakSet<Function>();
   /**
    * Uma instância de `api` por script, reaproveitada em toda chamada dele.
    *
@@ -50,14 +67,82 @@ export class ModRuntime {
    * dentro de um evento nunca chegava a ser salvo nem sincronizado.
    */
   private apis = new Map<string, Record<string, any>>();
+  /**
+   * Contextos já descarregados, esperando a última drenagem.
+   *
+   * O handler de `unload` costuma **apagar do mundo o que o mod construiu** — é o que a referência
+   * manda fazer nele. As escritas dele chegam por mensagem, depois de o contexto já ter saído de
+   * `contexts`. Sem esta sala de espera, a limpeza do mod seria descartada em silêncio e o mundo
+   * ficaria com os restos de um mod que ninguém mais consegue reverter.
+   */
+  private saindo = new Map<string, { ctx: ModContext; api: Record<string, any> }>();
+  /** Cargas em curso, resolvidas quando o outro lado responde. */
+  private cargasPendentes = new Map<string, (r: ScriptLoadResult[]) => void>();
+  private ponte: PonteDeMods;
   private host: ModHostBridge;
   /** Avisado a cada lote de blocos alterado por script, com o mod responsável. */
   public onBlocksChanged: (modId: string, changes: { x: number; y: number; z: number; blockType: number }[]) => void = () => {};
   /** Avisado quando um script é desligado por erros repetidos. */
   public onScriptDisabled: (modId: string, scriptKey: string, reason: string) => void = () => {};
 
-  constructor(host: ModHostBridge) {
+  /**
+   * @param criarPorta de onde vem o reino de execução. O padrão é um `Worker` de verdade — que é o
+   * ponto do item 358. Injetável porque `vitest` com jsdom não tem `Worker`, e porque um teste que
+   * precisa de navegador não é um teste que se roda a cada commit.
+   */
+  constructor(host: ModHostBridge, criarPorta: () => Porta = criarPortaDeWorker) {
     this.host = host;
+    this.ponte = new PonteDeMods(criarPorta(), (modId) => this.apis.get(modId), {
+      aoCarregar: (modId, resultados) => this.aoCarregar(modId, resultados),
+      aoFalhar: (modId, scriptKey, erro) => this.aoFalhar(modId, scriptKey, erro),
+      aoRelatarHandlers: (modId, contagem) => {
+        const ctx = this.contexts.get(modId);
+        if (ctx) ctx.handlerCount = contagem;
+      },
+      aoRegistrarLog: (modId, nivel, args) => this.contexts.get(modId)?.log(nivel, ...args),
+      aoDescarregar: (modId) => this.aoDescarregar(modId),
+    });
+  }
+
+  /** Constantes que o script vê sem atravessar a fronteira — ver `protocoloDeMods.ts`. */
+  private constantesDe(ctx: ModContext): Record<string, unknown> {
+    const api = this.apiDoMod(ctx);
+    return { mod: api.mod, B: api.B, audio: { nomes: api.audio.nomes } };
+  }
+
+  private aoCarregar(modId: string, resultados: ScriptLoadResult[]): void {
+    const ctx = this.contexts.get(modId);
+    if (ctx) {
+      for (const r of resultados) {
+        if (r.ok) { ctx.disabledScripts.delete(r.scriptKey); continue; }
+        ctx.log('error', `[${r.scriptKey}] falha ao carregar: ${r.error}`);
+        ctx.disabledScripts.set(r.scriptKey, r.error ?? 'erro');
+        this.onScriptDisabled(modId, r.scriptKey, r.error ?? 'erro');
+      }
+      this.drenar(ctx);
+    }
+    this.cargasPendentes.get(modId)?.(resultados);
+    this.cargasPendentes.delete(modId);
+  }
+
+  private aoFalhar(modId: string, scriptKey: string, erro: string): void {
+    const ctx = this.contexts.get(modId);
+    if (!ctx) return;
+    const desligou = ctx.recordError(scriptKey, new Error(erro));
+    this.drenar(ctx);
+    if (!desligou) return;
+    // Contar e não avisar deixaria o script marcado como desligado deste lado e ainda sendo
+    // chamado do outro — errando para sempre, com o log já parado de crescer.
+    this.ponte.desligarScript(modId, scriptKey);
+    this.onScriptDisabled(modId, scriptKey, ctx.disabledScripts.get(scriptKey) ?? 'erro');
+  }
+
+  private aoDescarregar(modId: string): void {
+    const pendente = this.saindo.get(modId);
+    if (!pendente) return;
+    this.saindo.delete(modId);
+    const changes = pendente.api.__drain();
+    if (changes.length > 0) this.onBlocksChanged(modId, changes);
   }
 
   public getContext(modId: string): ModContext | undefined {
@@ -84,58 +169,34 @@ export class ModRuntime {
     ctx.segredos = Object.values(this.host.modEnv(pkg.id).valores ?? {});
     this.contexts.set(pkg.id, ctx);
 
-    const resultados: ScriptLoadResult[] = [];
-    // Em série, e não em paralelo com `Promise.all`: os scripts de um mod se veem pelo mesmo
-    // contexto, e a ordem em que registram handlers é observável. Carregar em paralelo tornaria
-    // essa ordem dependente de quando cada `await` interno resolve — não determinística, e
-    // diferente a cada execução.
-    for (const script of pkg.scripts ?? []) {
-      if (!script.enabled) continue;
-      resultados.push(await this.compile(ctx, script));
-    }
+    const scripts = (pkg.scripts ?? []).filter((s) => s.enabled).map((s) => ({ key: s.key, code: s.code }));
+    const resultados = await new Promise<ScriptLoadResult[]>((resolver) => {
+      this.cargasPendentes.set(pkg.id, resolver);
+      this.ponte.carregar(pkg.id, scripts, this.constantesDe(ctx));
+    });
 
     this.dispatchTo(ctx, 'load', {});
+    // Drena logo depois do `load`. Sem isto, um mod que constrói no `load` — o caso mais comum de
+    // todos — só teria os blocos gravados no quadro seguinte, e quem chama `loadMod` e olha o mundo
+    // na linha de baixo veria um mundo vazio.
+    this.drenar(ctx);
     return resultados;
   }
 
-  /** Compila um script e roda seu corpo, que é onde os `api.on(...)` são registrados. */
-  private apiFor(ctx: ModContext, scriptKey: string): Record<string, any> {
-    const chave = `${ctx.mod.id}:${scriptKey}`;
-    let api = this.apis.get(chave);
+  /**
+   * A API deste mod, do lado do jogo.
+   *
+   * Uma por **mod**, e não mais uma por script. O `scriptKey` só servia para `api.on` saber de quem
+   * era o handler, e `api.on` mudou de lado da fronteira — os handlers vivem no reino de execução.
+   * O que sobra aqui é o buffer de blocos e o orçamento, que sempre foram do mod inteiro.
+   */
+  private apiDoMod(ctx: ModContext): Record<string, any> {
+    let api = this.apis.get(ctx.mod.id);
     if (!api) {
-      api = buildModAPI(ctx, this.host, scriptKey);
-      this.apis.set(chave, api);
+      api = buildModAPI(ctx, this.host, '*');
+      this.apis.set(ctx.mod.id, api);
     }
     return api;
-  }
-
-  private async compile(ctx: ModContext, script: ModScript): Promise<ScriptLoadResult> {
-    // Descarta a instância anterior: recarregar precisa reiniciar o orçamento e o buffer.
-    this.apis.delete(`${ctx.mod.id}:${script.key}`);
-    const api = this.apiFor(ctx, script.key);
-    try {
-      // O escopo global é SOMBREADO — ver `src/mods/sandbox.ts`.
-      //
-      // O comentário que estava aqui afirmava que `new Function` com um parâmetro só impedia o
-      // corpo de ver `window` e `globalThis`. Era falso: `new Function` isola do escopo LOCAL de
-      // quem cria, e o corpo continua avaliado no escopo global, com `fetch`, `document`,
-      // `localStorage` e `indexedDB` ao alcance. Num projeto onde estes scripts são escritos por
-      // uma IA e rodam na mesma origem do cofre de chaves, isso não era um detalhe.
-      // O `await` não é decorativo: com o corpo `async`, um erro **síncrono** do script vira uma
-      // promessa rejeitada. Sem esperá-la aqui, o `catch` abaixo nunca dispararia, o script seria
-      // reportado como carregado com sucesso, e o erro sairia como rejeição não tratada no console
-      // — longe do mod que a causou e sem desligar script nenhum.
-      await compilarScriptDeMod(script.code)(api);
-      this.flush(ctx, api);
-      return { scriptKey: script.key, ok: true };
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      ctx.log('error', `[${script.key}] falha ao carregar: ${msg}`);
-      ctx.disabledScripts.set(script.key, msg);
-      ctx.removeHandlersOf(script.key);
-      this.onScriptDisabled(ctx.mod.id, script.key, msg);
-      return { scriptKey: script.key, ok: false, error: msg };
-    }
   }
 
   /** Recarrega um script só, sem tocar nos demais do mesmo mod. */
@@ -145,21 +206,34 @@ export class ModRuntime {
     const script = (ctx.mod.scripts ?? []).find((s) => s.key === scriptKey);
     if (!script) return null;
 
-    ctx.removeHandlersOf(scriptKey);
     ctx.disabledScripts.delete(scriptKey);
     if (!script.enabled) return { scriptKey, ok: true };
-    return this.compile(ctx, script);
+
+    // Recarrega só este script. Mandar o mod inteiro seria mais simples e estaria errado: apagaria
+    // o `api.storage` dos outros e dispararia o `load` deles de novo — o autor mexe numa linha e vê
+    // o mod inteiro reiniciar.
+    const resultados = await new Promise<ScriptLoadResult[]>((resolver) => {
+      this.cargasPendentes.set(modId, resolver);
+      this.ponte.recarregarScript(modId, scriptKey, script.code, this.constantesDe(ctx));
+    });
+    return resultados[0] ?? { scriptKey, ok: true };
   }
 
   public unloadMod(modId: string): void {
     const ctx = this.contexts.get(modId);
     if (!ctx) return;
-    this.dispatchTo(ctx, 'unload', {});
-    ctx.reset();
+
+    // A ordem importa e é o ponto todo desta função: o evento vai primeiro, o `descarregar` depois.
+    // As mensagens são ordenadas, então o handler de `unload` — que é onde o mod apaga do mundo o
+    // que construiu — roda antes de o outro lado esquecer o mod, e as escritas dele entram na fila
+    // à frente da confirmação.
+    const api = this.apiDoMod(ctx);
+    this.ponte.despachar(modId, 'unload', {});
+    this.ponte.descarregar(modId);
+    this.saindo.set(modId, { ctx, api });
+
     this.contexts.delete(modId);
-    for (const chave of Array.from(this.apis.keys())) {
-      if (chave.startsWith(`${modId}:`)) this.apis.delete(chave);
-    }
+    this.apis.delete(modId);
   }
 
   public unloadAll(): void {
@@ -175,86 +249,53 @@ export class ModRuntime {
   }
 
   /**
-   * `tick` de todos os mods, com orçamento global de tempo.
-   * Ao estourar, os mods restantes são pulados **neste frame** — nunca desligados: um pico
-   * isolado não deve punir um mod que costuma ser barato.
+   * `tick` de todos os mods.
+   *
+   * ## O orçamento mudou de natureza, e vale dizer como
+   *
+   * Antes ele media **milissegundos de CPU deste thread**, porque os handlers rodavam aqui: dez
+   * mods razoáveis podiam, juntos, fazer o que um mod ruim faria sozinho. Com os scripts do outro
+   * lado da fronteira, um mod já não consegue travar o quadro — o pior que ele faz é inundar a
+   * ponte de mensagens.
+   *
+   * Medir tempo aqui passaria a medir o custo de enfileirar mensagens, que é quase nada, e daria a
+   * impressão de que existe um limite quando não existe. O limite certo é **mensagens por quadro**,
+   * e ele está registrado como item 1371 — pendente, e dito como pendente em vez de fingido por um
+   * cronômetro que não mede mais o que o nome dele promete.
    */
   public tickAll(dt: number): void {
-    if (this.contexts.size === 0) return;
-    const limite = performance.now() + TICK_BUDGET_MS;
+    if (this.contexts.size === 0 && this.saindo.size === 0) return;
+    for (const ctx of this.contexts.values()) this.dispatchTo(ctx, 'tick', { dt });
 
-    for (const ctx of this.contexts.values()) {
-      this.dispatchTo(ctx, 'tick', { dt });
-      if (performance.now() > limite) break;
-    }
-  }
-
-  private dispatchTo(ctx: ModContext, event: ModEvent, payload: any): void {
-    const list = ctx.handlers.get(event);
-    if (!list || list.length === 0) return;
-
-    // Cópia da lista: um handler pode registrar ou remover outro durante o despacho.
-    for (const { scriptKey, fn } of [...list]) {
-      if (ctx.disabledScripts.has(scriptKey)) continue;
-
-      // Um `tick` assíncrono que demora mais que um frame seria reentrado 60 vezes por segundo, e
-      // cada entrada empilharia mais uma. Em segundos há centenas de execuções do mesmo handler
-      // disputando o mesmo `api.storage` — e o sintoma não é lentidão, é o estado do mod embaralhado
-      // por si mesmo.
-      //
-      // Só o `tick` é pulado: ele é periódico, e perder uma volta é o mesmo que o orçamento de tempo
-      // já faz. Os outros eventos vêm de uma ação do jogador e perder um seria perder o fato.
-      if (event === 'tick' && this.emVoo.has(fn)) continue;
-
-      const api = this.apiFor(ctx, scriptKey);
-      try {
-        const resultado = fn.call(undefined, payload) as unknown;
-
-        // Handler assíncrono (item 1251). O `try/catch` só pega o que estoura ANTES do primeiro
-        // `await`; o que estourar depois vira uma promessa rejeitada, e sem este tratamento seria
-        // uma rejeição não tratada no console — o script continuaria ligado, errando para sempre,
-        // e o contador de erros que desliga o script nunca subiria.
-        //
-        // O despacho **não** espera: quem chama é o laço de renderização, e travá-lo até um mod
-        // terminar entregaria a cada mod o poder de congelar o jogo.
-        if (ehPromessa(resultado)) {
-          this.emVoo.add(fn);
-          resultado.then(
-            () => { this.emVoo.delete(fn); this.flush(ctx, api); },
-            (err) => {
-              this.emVoo.delete(fn);
-              this.registrarFalha(ctx, scriptKey, err);
-              // Descarrega o que o handler chegou a escrever antes de falhar: metade de uma
-              // construção no mundo e nada no save é pior que a construção inteira.
-              this.flush(ctx, api);
-            },
-          );
-        }
-      } catch (err) {
-        this.registrarFalha(ctx, scriptKey, err);
-      }
-      this.flush(ctx, api);
-    }
-  }
-
-  /** Contabiliza um erro de handler e desliga o script se ele passou do limite. */
-  private registrarFalha(ctx: ModContext, scriptKey: string, err: unknown): void {
-    const desligou = ctx.recordError(scriptKey, err);
-    if (desligou) {
-      this.onScriptDisabled(ctx.mod.id, scriptKey, ctx.disabledScripts.get(scriptKey) ?? 'erro');
-    }
+    // Drenagem por quadro. As escritas do mod chegam por mensagem, depois de o handler ter
+    // terminado, então já não existe "logo após o handler" para drenar. Uma vez por quadro é o
+    // ritmo natural: o atraso máximo é um quadro, e o custo é uma varredura de um punhado de mods.
+    for (const ctx of this.contexts.values()) this.drenar(ctx);
   }
 
   /**
-   * Recolhe os blocos que o handler alterou e avisa o host para persistir e sincronizar.
+   * Manda o evento para o reino de execução.
    *
-   * O contexto é reconferido porque um handler assíncrono pode terminar **depois** do mod ser
-   * descarregado — o jogador desligou o mod, ou o editor salvou uma revisão nova, enquanto uma
-   * promessa ainda corria. Sem esta guarda, os blocos de um mod que já não existe seriam gravados
-   * e replicados em nome dele, e o desfazer do mod não os alcançaria: eles chegaram depois de a
-   * atribuição ter sido apagada.
+   * Não há mais `try/catch` aqui, e a ausência é o ponto: as funções estão do outro lado, e o que
+   * elas quebram quebra lá. O erro volta por `aoFalhar`, que é onde a contagem e o desligamento
+   * continuam morando — junto do log, que é onde a redação de segredos acontece.
    */
-  private flush(ctx: ModContext, api: Record<string, any>): void {
+  private dispatchTo(ctx: ModContext, event: ModEvent, payload: any): void {
+    this.ponte.despachar(ctx.mod.id, event, payload);
+  }
+
+  /**
+   * Recolhe os blocos que os scripts deste mod alteraram e avisa o host.
+   *
+   * O contexto é reconferido porque uma escrita pode chegar **depois** do mod ser descarregado — o
+   * jogador desligou o mod, ou o editor salvou uma revisão nova, enquanto mensagens ainda estavam
+   * em trânsito. Sem esta guarda, os blocos de um mod que já não existe seriam gravados e
+   * replicados em nome dele, e o desfazer do mod não os alcançaria: chegaram depois de a atribuição
+   * ter sido apagada.
+   */
+  private drenar(ctx: ModContext): void {
+    const api = this.apis.get(ctx.mod.id);
+    if (!api) return;
     const changes = api.__drain();
     if (changes.length === 0) return;
     if (this.contexts.get(ctx.mod.id) !== ctx) return; // mod descarregado ou recarregado no meio
@@ -324,9 +365,11 @@ export class ModRuntime {
     blocksPlaced: number;
   }[] {
     return Array.from(this.contexts.values()).map((ctx) => {
+      // A contagem vem do reino de execução (`ctx.handlerCount`), e não de uma lista local: as
+      // funções vivem lá. Ler `ctx.handlers` aqui mostraria zero para todo mod carregado.
       const handlers: Record<string, number> = {};
-      for (const [event, list] of ctx.handlers) {
-        if (list.length > 0) handlers[event] = list.length;
+      for (const [event, n] of Object.entries(ctx.handlerCount)) {
+        if (n > 0) handlers[event] = n;
       }
       return {
         modId: ctx.mod.id,

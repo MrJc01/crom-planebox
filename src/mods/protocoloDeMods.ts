@@ -122,6 +122,21 @@ export interface MsgEvento {
 
 export interface MsgDescarregar { t: 'descarregar'; modId: string }
 
+/**
+ * Recompila **um** script de um mod já carregado, sem tocar nos outros.
+ *
+ * É o que o editor de código faz a cada salvamento. Recarregar o mod inteiro seria mais simples e
+ * estaria errado: apagaria o `api.storage` dos outros scripts e dispararia o `load` deles de novo —
+ * o autor mexe numa linha de um script e vê o mod inteiro reiniciar.
+ */
+export interface MsgRecarregar {
+  t: 'recarregar';
+  modId: string;
+  scriptKey: string;
+  code: string;
+  constantes: Record<string, unknown>;
+}
+
 /** Resposta a uma leitura. `ok: false` leva o erro para dentro do `await` do script. */
 export interface MsgResposta {
   t: 'resposta';
@@ -131,7 +146,7 @@ export interface MsgResposta {
   erro?: string;
 }
 
-export type ParaOWorker = MsgCarregar | MsgEvento | MsgDescarregar | MsgResposta;
+export type ParaOWorker = MsgCarregar | MsgEvento | MsgDescarregar | MsgResposta | MsgRecarregar;
 
 // --- Mensagens do worker para o host -----------------------------------------
 
@@ -182,7 +197,21 @@ export interface MsgHandlers {
   contagem: Record<string, number>;
 }
 
-export type ParaOHost = MsgChamada | MsgCarregado | MsgFalha | MsgHandlers;
+/**
+ * O worker terminou de descarregar um mod.
+ *
+ * Existe por um motivo de ordem, não de cortesia. O handler de `unload` costuma **apagar do mundo o
+ * que o mod construiu** — é literalmente o que a referência manda fazer nele. As escritas dele
+ * chegam como mensagens, e o host precisa saber quando parou de haver mensagens daquele mod para
+ * fazer a última drenagem e só então esquecê-lo.
+ *
+ * Como as mensagens são ordenadas, tudo o que o `unload` escreveu de forma síncrona já está na fila
+ * **antes** desta confirmação. Sem ela, a alternativa seria esperar um número arbitrário de quadros
+ * — que ou descarta escritas legítimas ou segura contexto morto para sempre.
+ */
+export interface MsgDescarregado { t: 'descarregado'; modId: string }
+
+export type ParaOHost = MsgChamada | MsgCarregado | MsgFalha | MsgHandlers | MsgDescarregado;
 
 /** As duas pontas só precisam disto — o que permite testar com um duplo em vez de um Worker. */
 export interface Porta {

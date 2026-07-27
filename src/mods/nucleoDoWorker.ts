@@ -10,7 +10,8 @@
 // segunda parte é a que tem defeito com frequência, e ela fica coberta.
 
 import { compilarScriptDeMod } from './sandbox';
-import { MEMBROS_DA_API, MsgCarregar, MsgEvento, ParaOHost, ParaOWorker, Porta } from './protocoloDeMods';
+import { MEMBROS_DA_API, MsgCarregar, MsgEvento, MsgRecarregar, ParaOHost, ParaOWorker, Porta } from './protocoloDeMods';
+import { MOD_EVENTS } from './ModAPI';
 
 interface HandlerRegistrado {
   scriptKey: string;
@@ -33,6 +34,15 @@ interface ModCarregado {
  */
 export function instalarNucleo(porta: Porta): void {
   const mods = new Map<string, ModCarregado>();
+
+  /**
+   * Handlers de `tick` que ainda não terminaram.
+   *
+   * `WeakSet` sobre a própria função: quando o mod for descarregado ela deve poder ser coletada sem
+   * ninguém lembrar de removê-la daqui. Um `Set` comum seguraria a função e, por ela, o escopo
+   * inteiro do script.
+   */
+  const emVoo = new WeakSet<Function>();
 
   /** Leituras aguardando resposta do host, por id. */
   const pendentes = new Map<number, { resolver: (v: unknown) => void; rejeitar: (e: Error) => void }>();
@@ -78,7 +88,17 @@ export function instalarNucleo(porta: Porta): void {
     }
 
     api.on = (evento: string, fn: unknown) => {
-      if (typeof fn !== 'function') return;
+      // As duas recusas avisam em vez de calar. Um `api.on('tickk', ...)` que some sem dizer nada é
+      // um mod que "não funciona" sem nenhuma pista — e quem escreveu foi uma IA, que vai reler o
+      // log procurando o que fazer diferente.
+      if (!(MOD_EVENTS as readonly string[]).includes(evento)) {
+        api.console.warn(`Evento desconhecido "${evento}". Válidos: ${MOD_EVENTS.join(', ')}`);
+        return;
+      }
+      if (typeof fn !== 'function') {
+        api.console.warn(`on("${evento}") precisa de uma função.`);
+        return;
+      }
       const lista = registro.handlers.get(evento) ?? [];
       lista.push({ scriptKey, fn: fn as (p: unknown) => unknown });
       registro.handlers.set(evento, lista);
@@ -119,6 +139,31 @@ export function instalarNucleo(porta: Porta): void {
     enviar({ t: 'carregado', modId: msg.modId, resultados, handlers: contarHandlers(msg.modId) });
   }
 
+  /**
+   * Recompila um script só.
+   *
+   * Os handlers **daquele** script saem primeiro. Sem isso, salvar no editor cinco vezes deixaria
+   * cinco cópias do mesmo handler registradas, e o mod passaria a reagir cinco vezes a cada evento
+   * — que é o defeito clássico de recarregar sem limpar.
+   */
+  async function recarregar(msg: MsgRecarregar): Promise<void> {
+    const reg = mods.get(msg.modId);
+    if (!reg) return;
+    for (const [evento, lista] of reg.handlers) {
+      reg.handlers.set(evento, lista.filter((h) => h.scriptKey !== msg.scriptKey));
+    }
+    reg.desligados.delete(msg.scriptKey);
+
+    let resultado: { scriptKey: string; ok: boolean; error?: string };
+    try {
+      await compilarScriptDeMod(msg.code)(montarApi(msg.modId, msg.scriptKey, msg.constantes));
+      resultado = { scriptKey: msg.scriptKey, ok: true };
+    } catch (err: any) {
+      resultado = { scriptKey: msg.scriptKey, ok: false, error: err?.message || String(err) };
+    }
+    enviar({ t: 'carregado', modId: msg.modId, resultados: [resultado], handlers: contarHandlers(msg.modId) });
+  }
+
   function contarHandlers(modId: string): Record<string, number> {
     const reg = mods.get(modId);
     const contagem: Record<string, number> = {};
@@ -134,13 +179,29 @@ export function instalarNucleo(porta: Porta): void {
     // Cópia: um handler pode registrar ou remover outro durante o despacho.
     for (const { scriptKey, fn } of [...lista]) {
       if (reg.desligados.has(scriptKey)) continue;
+
+      // Um `tick` assíncrono mais lento que um quadro seria reentrado sessenta vezes por segundo, e
+      // cada entrada empilharia mais uma. Em segundos há centenas de execuções do mesmo handler
+      // disputando o mesmo `api.storage` — e o sintoma não é lentidão, é o estado do mod embaralhado
+      // por si mesmo.
+      //
+      // Isto mora aqui, e não do lado do host, porque é aqui que as funções vivem: do outro lado só
+      // se sabe que um evento foi enviado, nunca se o anterior terminou. A guarda passou a ser mais
+      // necessária que antes — no reino isolado, **toda** leitura da API é uma ida e volta de
+      // verdade, então qualquer `await` já dura mais que um quadro.
+      if (msg.evento === 'tick' && emVoo.has(fn)) continue;
+
       try {
         const r = fn(msg.payload) as unknown;
         // O erro depois do primeiro `await` vira rejeição, e sem isto ele sairia como rejeição não
         // tratada **dentro do worker** — onde ninguém está olhando, e de onde nem o console do
         // jogador enxerga. O script erraria para sempre em silêncio absoluto.
         if (r && typeof (r as { then?: unknown }).then === 'function') {
-          (r as Promise<unknown>).catch((e) => relatarFalha(msg.modId, scriptKey, e));
+          emVoo.add(fn);
+          (r as Promise<unknown>).then(
+            () => emVoo.delete(fn),
+            (e) => { emVoo.delete(fn); relatarFalha(msg.modId, scriptKey, e); },
+          );
         }
       } catch (err) {
         relatarFalha(msg.modId, scriptKey, err);
@@ -163,6 +224,9 @@ export function instalarNucleo(porta: Porta): void {
       case 'carregar':
         void carregar(msg);
         break;
+      case 'recarregar':
+        void recarregar(msg);
+        break;
       case 'evento':
         // `desligar` viaja como um evento reservado: o host conta os erros (é ele que tem o log e o
         // limite), e só avisa o worker de quem parar de chamar.
@@ -171,6 +235,9 @@ export function instalarNucleo(porta: Porta): void {
         break;
       case 'descarregar':
         mods.delete(msg.modId);
+        // Confirma DEPOIS de esquecer: tudo o que o `unload` escreveu de forma síncrona já saiu
+        // na frente, e o host pode drenar uma última vez sabendo que não vem mais nada.
+        enviar({ t: 'descarregado', modId: msg.modId });
         break;
       case 'resposta': {
         const p = pendentes.get(msg.id);

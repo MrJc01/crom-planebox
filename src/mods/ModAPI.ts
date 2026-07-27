@@ -86,6 +86,18 @@ export const MAX_SCRIPT_ERRORS = 5;
  */
 export class ModContext {
   public readonly handlers = new Map<ModEvent, { scriptKey: string; fn: ModHandler }[]>();
+  /**
+   * Quantos handlers por evento, relatados pelo reino onde os scripts rodam (item 358).
+   *
+   * Duplica `handlers.size` de propósito, e só por enquanto: as funções vivem do outro lado da
+   * fronteira, e este lado só precisa do número — para o painel de diagnóstico não dizer "zero
+   * handlers" sobre um mod que carregou bem, que é exatamente como um mod quebrado se parece.
+   *
+   * `handlers` continua aqui porque `buildModAPI` ainda o preenche quando a API é construída neste
+   * reino, e é ele que o `ModRegistry` usa. Quando o worker for a única forma de executar, este
+   * campo fica e aquele sai.
+   */
+  public handlerCount: Record<string, number> = {};
   public readonly storage = new Map<string, any>();
   public readonly logs: ModLogEntry[] = [];
   /** Scripts desligados por falharem demais, com o motivo. */

@@ -526,7 +526,7 @@ deve ser tratado antes de qualquer compartilhamento de mods.*
 - [x] 355 `P1` Erro de script isolado e reportado sem derrubar o jogo
 - [~] 356 `P1` **Validação estrita do pacote de mod antes de persistir**
 - [~] 357 `P1` **Script de comportamento de entidade compilado com falha isolada**
-- [ ] 358 `P0` Executar scripts da IA em Web Worker isolado sem acesso a `window`/`fetch` — **dimensionado na seção 51: exige tornar a API de mods assíncrona, e esse é o custo real**
+- [~] 358 `P0` **Scripts rodam em Web Worker isolado**, com `fetch`, `indexedDB` e companhia apagados antes de existir um único script. Ver a seção 69
 - [~] 359 `P0` **Escopo global sombreado** — `fetch`, `window`, `document`, `localStorage`, `indexedDB` e cia. entram como parâmetros `undefined`. Barra o acesso direto; **não é fronteira de segurança** (ver 358)
 - [ ] 360 `P1` Limite de iterações além do limite de tempo
 - [ ] 361 `P1` Limite de memória/blocos por script
@@ -2909,7 +2909,7 @@ fronteira real ser outro reino de execução.
 
 ### Continua pendente, e agora com o tamanho certo
 
-- [ ] 1239 `P0` **Item 358 é a correção de verdade**: rodar o script em Web Worker sem `fetch`, ou iframe com `sandbox`. Só outro reino de execução fecha a saída pelo construtor
+- [~] 1239 `P0` **Feito com o 358.** A fuga pelo construtor continua funcionando e passou a devolver o global do Worker — que está vazio
 - [~] 1240 `P0` ~~Item 382~~ **FEITO nesta rodada** — item 382 (**sincronizar entidades**) — em aberto e confirmado no código: o convidado roda o próprio `MobSpawner` sem checar o papel, e `EntityUpdateMsg` está **definida no protocolo e nunca enviada nem recebida**. É o nono caso de código dormente, e a continuação direta do "o mundo não é o mesmo no multiplayer"
 
 ## 50. As criaturas — a segunda metade de "o mundo não é o mesmo"
@@ -2989,7 +2989,7 @@ registrado, para quem for fazer:
 
 - [~] 1251 `P0` **Corpo e handlers de mod agora são `async`** — o `await` já é válido hoje, com a API síncrona, e continua valendo quando a leitura virar mensagem. Ver a seção 66
 - [~] 1252 `P0` **Não há o que migrar** — os dois formatos são válidos ao mesmo tempo, e a referência que o agente lê passou a ensinar o formato novo, com exemplo
-- [ ] 1253 `P1` Só então mover a execução para o Worker, com os globais do Worker apagados (`fetch`, `importScripts`, `indexedDB`) — no Worker isso funciona de verdade, porque a fuga pelo construtor devolve o global **daquele** reino, que está vazio
+- [~] 1253 `P1` **Execução movida para o Worker**, com os globais apagados no topo do módulo
 
 ## 52. O caminho de saída de um segredo não é a rede — é o texto
 
@@ -3938,7 +3938,7 @@ o item 1364, e ele deixa de ser opcional no dia do Worker.
 
 - [~] 1368 `P0` **`modWorker.ts` + `nucleoDoWorker.ts`** — reino de execução com globais apagados. **Escrito e testado, ainda NÃO no caminho de execução** (ver 1373)
 - [~] 1369 `P0` **`PonteDeMods.ts`** — RPC com escritas de mão única, 16 testes ponta a ponta por portas falsas
-- [ ] 1370 `P0` Inverter o teste da fuga pelo construtor, no mesmo commit
+- [~] 1370 `P0` **Reenquadrado, não invertido** — a fuga é real e continua real; o que mudou foi o reino em que o script roda
 - [ ] 1371 `P1` Orçamento por mensagens/frame no lugar do de milissegundos (é o 1364 sob outra forma)
 - [ ] 1372 `P1` Teste manual documentado do isolamento, já que jsdom não tem `Worker`
 
@@ -3994,9 +3994,9 @@ um teste que percorre o protocolo inteiro e fixa exatamente quais membros ainda 
 apagado `fetch` e `indexedDB` num Worker de verdade — e `vitest` com jsdom não tem `Worker`. A
 lógica, que é onde os defeitos aparecem, está coberta; a segurança, que é onde ela mora, não está.
 
-- [ ] 1373 `P0` **Ligar o `ModRuntime` à ponte** — é o que falta para o 358 estar feito. Move os handlers para o worker, transforma a carga em algo dirigido por evento e faz `describe()` ler a contagem relatada
+- [~] 1373 `P0` **`ModRuntime` ligado à ponte** — deixou de executar e passou a coordenar
 - [x] 1374 `P1` ~~Ligar os `extras`~~ — **desapareceu como tarefa.** A ponte passou a delegar à `buildModAPI` que já existe, então não há `extras` a ligar: há uma implementação só. Ver a continuação da seção 68
-- [ ] 1375 `P1` **Só então inverter o teste da fuga** (item 1370), no mesmo commit em que a execução mudar de lado
+- [~] 1375 `P1` **Teste da fuga reenquadrado** no mesmo commit — ele continua passando quando a fuga funciona, e agora explica por que isso deixou de importar
 
 ### Continuação da 68 — a ponte que parou de reimplementar, e um defeito meu que o teste pegou
 
@@ -4073,3 +4073,77 @@ O risco não é o refactor: é a **migração dos testes**. Um teste que observa
 chegar falha de forma intermitente, e um que "conserta" isso com espera generosa esconde a corrida em
 vez de provar a ausência dela. Não é trabalho para o fim de uma sessão, e por isso fica marcado como
 o próximo passo, com o desenho já validado por 18 testes.
+
+---
+
+## 69 — O item 358 está feito: os scripts saíram deste reino
+
+O `ModRuntime` deixou de executar e passou a coordenar. Os scripts vivem num Web Worker cujo global
+foi esvaziado antes de existir um único deles, e daqui só saem mensagens.
+
+**O que muda não é organização, é garantia.** O sandbox anterior negava o alcance ao global por
+`with` + `Proxy` e sempre foi honesto sobre o limite: `[].constructor.constructor('return this')()`
+devolvia o objeto global **deste** reino, com `fetch` e `indexedDB` dentro — e o IndexedDB da mesma
+origem é onde moram os mundos salvos e o cofre de chaves de API.
+
+A fuga continua funcionando. O que mudou é que ela devolve o global de **lá**. A defesa deixou de ser
+"eu lembrei de bloquear esse nome" e passou a ser "não existe nada para alcançar": a diferença entre
+uma tranca melhor e um cofre vazio.
+
+O teste da fuga **não foi invertido** — foi reenquadrado. Ele continua passando quando a fuga
+funciona, porque ela é real; o bloco explica por que deixou de importar, e ganhou duas travas: uma
+que confere que o padrão do `ModRuntime` é mesmo um `Worker`, e outra que confere que a casca apaga
+os globais. Sem elas, alguém poderia devolver a execução para cá e todos os testes continuariam
+verdes descrevendo uma proteção desligada.
+
+### Três regressões que a migração criou, e o que cada uma ensinou
+
+**`api.on('tickk', ...)` passou a sumir calado.** A validação de evento vivia no `buildModAPI`, que
+ficou deste lado — e `api.on` mudou de lado. Um mod que "não funciona" sem nenhuma pista é
+especialmente ruim aqui, porque quem escreveu foi uma IA, que vai reler o log procurando o que fazer
+diferente. Voltou, junto com a recusa de `on` sem função.
+
+**A trava de reentrância de `tick` sumiu junto.** Ela morava no `ModRuntime`, e as funções mudaram
+de lado — do lado de cá só se sabe que um evento foi enviado, nunca se o anterior terminou. Foi para
+o núcleo, e lá ela passou a ser **mais** necessária que antes: no reino isolado, toda leitura da API
+é uma ida e volta de verdade, então qualquer `await` já dura mais que um quadro.
+
+**O mod que constrói no `load` só via os blocos no quadro seguinte.** A drenagem passou a ser por
+quadro, mas o `load` acontece dentro de `loadMod` — quem chama e olha o mundo na linha de baixo veria
+um mundo vazio. Passou a drenar logo após o `load`.
+
+### Duas decisões de teste que valem registro
+
+**O duplo do reino entrega síncrono no `modRuntime.test.ts` e assíncrono no `ponteDeMods.test.ts`.**
+São duas perguntas diferentes. Lá se testa a fronteira — ordem, corrida, resposta casando com a
+pergunta certa — e isso exige entrega adiada, senão não há ordem para errar. Aqui se testa o runtime:
+contar erro, desligar script, drenar bloco. Se cada asserção precisasse esperar a mensagem chegar,
+todo teste viraria exercício de sincronização — e um teste de sincronização mal calibrado não falha,
+ele **fica intermitente**, que é a pior coisa que uma suíte pode ter.
+
+**Duas tentativas de migrar os testes por script deram errado, e o erro foi o mesmo.** Um regex que
+procurava o fim de um comando encontrava o `));` de dentro de um template literal, e inseria `await
+assentar()` **no meio do código do mod**. A segunda tentativa, com rastreio de crases, ainda errou
+num caso. A terceira abordagem não foi um regex melhor: foi mudar o duplo para entrega síncrona, o
+que eliminou a necessidade de 30 das 40 esperas. **Quando a terceira tentativa de automatizar falha,
+o problema costuma ser o desenho e não a automação.**
+
+### O que continua sem cobertura
+
+O isolamento em si. Os testes instalam o núcleo no mesmo reino, porque jsdom não tem `Worker`. Que o
+global de lá esteja de fato vazio depende de `esvaziarOReino()` rodar num Worker de verdade, e isso
+exige navegador — item 1372, teste manual. O que dá para verificar sem navegador está verificado: que
+o padrão é um `Worker`, que a lista de globais cobre `fetch` e `indexedDB`, e que a casca chama a
+função que os apaga.
+
+- [~] 1380 `P0` **Execução no Worker, ligada e no caminho de produção** — `modWorker` sai como bundle próprio de ~7,7 kB
+- [~] 1381 `P1` **Validação de evento e reentrância de `tick`** de volta, agora no reino certo
+- [~] 1382 `P1` **Drenagem logo após o `load`**, além da drenagem por quadro
+- [~] 1383 `P1` **Confirmação de descarregamento** (`MsgDescarregado`) — é o que permite drenar o que o `unload` escreveu sem esperar um número arbitrário de quadros
+- [~] 1384 `P1` **50 testes migrados** para a fronteira, em `modRuntime.test.ts` e `reverterMod.test.ts`
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1385 `P0` **O orçamento por quadro deixou de existir de fato** — `TICK_BUDGET_MS` não é mais aplicado, e nada limita quantas mensagens um mod enfileira. É o item 1371, e ele saiu de "desejável" para **necessário**: era a única contenção contra um mod caro
+- [ ] 1386 `P1` **O Worker não é reiniciado se morrer** — um erro fatal lá dentro deixa todos os mods mudos, sem nada na tela dizendo por quê
+- [ ] 1387 `P2` **`ctx.handlers` ficou duplicado com `ctx.handlerCount`** — o primeiro só é preenchido quando a API é construída neste reino, o que já não acontece para scripts. Sai quando ninguém mais o ler

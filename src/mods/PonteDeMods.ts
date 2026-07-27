@@ -28,6 +28,8 @@ export interface CallbacksDaPonte {
   aoRelatarHandlers(modId: string, contagem: Record<string, number>): void;
   /** O script pediu para registrar no log. Passa pela redação de segredos lá no `ModContext`. */
   aoRegistrarLog(modId: string, nivel: 'log' | 'warn' | 'error', args: unknown[]): void;
+  /** O worker esqueceu o mod. Momento exato de drenar pela última vez e soltar o contexto. */
+  aoDescarregar(modId: string): void;
 }
 
 export class PonteDeMods {
@@ -62,6 +64,10 @@ export class PonteDeMods {
     this.enviar({ t: 'carregar', modId, constantes, scripts });
   }
 
+  public recarregarScript(modId: string, scriptKey: string, code: string, constantes: Record<string, unknown>): void {
+    this.enviar({ t: 'recarregar', modId, scriptKey, code, constantes });
+  }
+
   public despachar(modId: string, evento: string, payload: unknown): void {
     this.enviar({ t: 'evento', modId, evento, payload });
   }
@@ -85,6 +91,7 @@ export class PonteDeMods {
         break;
       case 'falha': this.cb.aoFalhar(msg.modId, msg.scriptKey, msg.erro); break;
       case 'handlers': this.cb.aoRelatarHandlers(msg.modId, msg.contagem); break;
+      case 'descarregado': this.cb.aoDescarregar(msg.modId); break;
     }
   }
 

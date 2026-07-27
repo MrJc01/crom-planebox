@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { B } from '../../src/world/blocks';
 import { MOD_EVENTS, MAX_SCRIPT_ERRORS, ModHostBridge } from '../../src/mods/ModAPI';
 import { ModRuntime } from '../../src/mods/ModRuntime';
+import { instalarNucleo } from '../../src/mods/nucleoDoWorker';
+import { Porta } from '../../src/mods/protocoloDeMods';
 import { MOD_API_REFERENCE } from '../../src/mods/ModAPIReference';
 import { ModPackage, ModScript, emptyModPackage } from '../../src/mods/ModTypes';
 
@@ -34,6 +36,41 @@ function fakeHost() {
   return host;
 }
 
+/**
+ * Um `ModRuntime` com o reino de execução **no mesmo processo** — item 358.
+ *
+ * O padrão do runtime é um `Worker` de verdade, e `vitest` com jsdom não tem `Worker`. Aqui o núcleo
+ * é instalado numa porta falsa ligada à ponte: o caminho exercitado é o mesmo — protocolo,
+ * serialização, contagem de handlers relatada, erro voltando por mensagem.
+ *
+ * ## Por que a entrega é SÍNCRONA aqui, e assíncrona em `ponteDeMods.test.ts`
+ *
+ * São duas perguntas diferentes, e misturá-las estraga as duas.
+ *
+ * Lá se testa a **fronteira**: ordem de chegada, corrida entre carga e contagem, resposta casando
+ * com a pergunta certa. Isso exige entrega adiada, senão não há ordem para errar.
+ *
+ * Aqui se testa o **runtime**: contar erro, desligar script, drenar bloco, guardar log. Se cada
+ * asserção precisasse esperar a mensagem chegar, todo teste viraria um exercício de sincronização —
+ * e um teste de sincronização mal calibrado não falha, ele **fica intermitente**, que é a pior
+ * coisa que uma suíte pode ter.
+ *
+ * A entrega síncrona muda *quando* a mensagem chega, não *o que* ela faz.
+ */
+function runtimeDeTeste(host: ModHostBridge): ModRuntime {
+  return new ModRuntime(host, () => {
+    const a: Porta = { postMessage: () => {}, onmessage: null };
+    const b: Porta = { postMessage: () => {}, onmessage: null };
+    a.postMessage = (m) => b.onmessage?.({ data: m });
+    b.postMessage = (m) => a.onmessage?.({ data: m });
+    instalarNucleo(a);
+    return b;
+  });
+}
+
+/** Deixa resolver o que depende de microtarefa — handlers que usam `await`. */
+const assentar = () => new Promise((r) => setTimeout(r, 0));
+
 function modComScript(code: string, key = 'main'): ModPackage {
   const pkg = emptyModPackage('mod-teste', 'Teste');
   pkg.scripts = [{ key, name: key, code, enabled: true } as ModScript];
@@ -46,7 +83,7 @@ describe('ModRuntime — carga de script', () => {
 
   beforeEach(() => {
     host = fakeHost();
-    rt = new ModRuntime(host);
+    rt = runtimeDeTeste(host);
   });
 
   it('carrega um script e registra o handler', async () => {
@@ -106,7 +143,7 @@ describe('ModRuntime — isolamento de erro', () => {
   let host: ReturnType<typeof fakeHost>;
   let rt: ModRuntime;
 
-  beforeEach(() => { host = fakeHost(); rt = new ModRuntime(host); });
+  beforeEach(() => { host = fakeHost(); rt = runtimeDeTeste(host); });
 
   it('CRÍTICO: exceção num handler não escapa para o chamador', async () => {
     await rt.loadMod(modComScript(`api.on('tick', () => { throw new Error('boom'); });`));
@@ -143,7 +180,7 @@ describe('ModRuntime — isolamento de erro', () => {
     let chamadas = 0;
     const host2 = fakeHost();
     host2.toast = () => { chamadas++; };
-    const rt2 = new ModRuntime(host2);
+    const rt2 = runtimeDeTeste(host2);
 
     rt2.loadMod(modComScript(`api.on('tick', () => { api.ui.toast('x'); throw new Error('boom'); });`));
     for (let i = 0; i < 20; i++) rt2.tickAll(0.016);
@@ -164,7 +201,7 @@ describe('ModRuntime — isolamento de erro', () => {
 describe('ModRuntime — a superfície é fechada', () => {
   let host: ReturnType<typeof fakeHost>;
   let rt: ModRuntime;
-  beforeEach(() => { host = fakeHost(); rt = new ModRuntime(host); });
+  beforeEach(() => { host = fakeHost(); rt = runtimeDeTeste(host); });
 
   it('CRÍTICO: o script não recebe window, fetch nem document', async () => {
     await rt.loadMod(modComScript(`
@@ -200,7 +237,7 @@ describe('ModRuntime — a superfície é fechada', () => {
 describe('ModRuntime — orçamento', () => {
   let host: ReturnType<typeof fakeHost>;
   let rt: ModRuntime;
-  beforeEach(() => { host = fakeHost(); rt = new ModRuntime(host); });
+  beforeEach(() => { host = fakeHost(); rt = runtimeDeTeste(host); });
 
   it('laço sem limite para de escrever ao estourar o orçamento de blocos', async () => {
     await rt.loadMod(modComScript(`
@@ -227,7 +264,7 @@ describe('ModRuntime — orçamento', () => {
 describe('ModRuntime — API funcional', () => {
   let host: ReturnType<typeof fakeHost>;
   let rt: ModRuntime;
-  beforeEach(() => { host = fakeHost(); rt = new ModRuntime(host); });
+  beforeEach(() => { host = fakeHost(); rt = runtimeDeTeste(host); });
 
   it('setBlock aceita id, nome da paleta e chave do mod', async () => {
     const pkg = modComScript(`
@@ -246,13 +283,17 @@ describe('ModRuntime — API funcional', () => {
   });
 
   it('fillBox devolve quantos blocos colocou, e oco poupa o miolo', async () => {
+    // `fillBox` é escrita por natureza e **leitura por contrato**: devolve a contagem, e por isso
+    // atravessa a fronteira ida e volta. Daí o `await` — sem ele o mod imprimiria "[object
+    // Promise]", que é exatamente o erro que a referência da API existe para evitar (item 1365).
     await rt.loadMod(modComScript(`
-      api.on('load', () => {
-        const cheio = api.world.fillBox(0,0,0, 2,2,2, api.B.STONE, false);
-        const oco   = api.world.fillBox(10,0,0, 12,2,2, api.B.STONE, true);
+      api.on('load', async () => {
+        const cheio = await api.world.fillBox(0,0,0, 2,2,2, api.B.STONE, false);
+        const oco   = await api.world.fillBox(10,0,0, 12,2,2, api.B.STONE, true);
         api.ui.toast(cheio + '/' + oco);
       });
     `));
+    await assentar();
     expect(host.chamadas.toasts[0]).toBe('27/26');
   });
 
@@ -281,7 +322,8 @@ describe('ModRuntime — API funcional', () => {
 
   it('api.time reflete a hora do host', async () => {
     host.setTime(0.9);
-    await rt.loadMod(modComScript(`api.on('load', () => api.ui.toast('noite=' + api.time.isNight()));`));
+    await rt.loadMod(modComScript(`api.on('load', async () => api.ui.toast('noite=' + await api.time.isNight()));`));
+    await assentar();
     expect(host.chamadas.toasts[0]).toBe('noite=true');
   });
 
@@ -317,7 +359,7 @@ describe('Referência da API — precisa acompanhar o código', () => {
 
   it('os exemplos da referência realmente compilam e rodam', async () => {
     const host2 = fakeHost();
-    const rt2 = new ModRuntime(host2);
+    const rt2 = runtimeDeTeste(host2);
     for (const [nome, codigo] of Object.entries(MOD_API_REFERENCE.exemplos)) {
       const r = await rt2.loadMod(modComScript(codigo, nome));
       expect(r[0].ok, `o exemplo "${nome}" não compila: ${r[0].error}`).toBe(true);
@@ -347,7 +389,7 @@ describe('mods assíncronos — o pré-requisito do Worker (item 1251)', () => {
 
   beforeEach(() => {
     host = fakeHost();
-    rt = new ModRuntime(host);
+    rt = runtimeDeTeste(host);
   });
 
   /** Deixa as promessas pendentes resolverem antes de olhar o resultado. */
@@ -421,6 +463,10 @@ describe('mods assíncronos — o pré-requisito do Worker (item 1251)', () => {
     `)).then(async () => {
       rt.tickAll(0.016);
       await assentar();
+      // Um segundo `tickAll` porque a drenagem é POR QUADRO: a escrita do handler assíncrono chega
+      // depois de o primeiro já ter passado. É o comportamento certo — o atraso máximo é um quadro —
+      // e o teste diz isso em vez de escondê-lo numa espera generosa.
+      rt.tickAll(0.016);
       expect(escritos.length).toBeGreaterThan(0);
     });
   });
@@ -456,7 +502,7 @@ describe('reentrância de tick assíncrono (item 1251)', () => {
     // disputando o mesmo `api.storage` — e o sintoma não é lentidão, é o estado do mod embaralhado
     // por si mesmo.
     const host = fakeHost();
-    const rt = new ModRuntime(host);
+    const rt = runtimeDeTeste(host);
     await rt.loadMod(modComScript(`
       let entradas = 0;
       let solta;
@@ -475,7 +521,7 @@ describe('reentrância de tick assíncrono (item 1251)', () => {
     // Sem isto, "consertar" a reentrância seria trivial e inútil: bastaria nunca chamar de novo, e
     // o primeiro `await` de um mod desligaria o `tick` dele para sempre.
     const host = fakeHost();
-    const rt = new ModRuntime(host);
+    const rt = runtimeDeTeste(host);
     await rt.loadMod(modComScript(`
       api.on('tick', async () => { await 0; api.ui.toast('voltei'); });
     `));
@@ -511,7 +557,7 @@ describe('handler em voo depois do descarregamento (item 1366)', () => {
     // os blocos seriam gravados e replicados em nome de um mod que já não existe, e o desfazer não
     // os alcançaria: eles chegaram depois de a atribuição ter sido apagada.
     const host = fakeHost();
-    const rt = new ModRuntime(host);
+    const rt = runtimeDeTeste(host);
     const escritos: any[] = [];
     rt.onBlocksChanged = (_id, changes) => escritos.push(...changes);
 
@@ -534,7 +580,7 @@ describe('handler em voo depois do descarregamento (item 1366)', () => {
 
   it('o mod VIVO continua gravando — a guarda não pode matar o recurso', async () => {
     const host = fakeHost();
-    const rt = new ModRuntime(host);
+    const rt = runtimeDeTeste(host);
     const escritos: any[] = [];
     rt.onBlocksChanged = (_id, changes) => escritos.push(...changes);
 
@@ -547,6 +593,7 @@ describe('handler em voo depois do descarregamento (item 1366)', () => {
 
     rt.tickAll(0.016);
     await new Promise((r) => setTimeout(r, 20));
+    rt.tickAll(0.016); // a drenagem é por quadro; a escrita do handler assíncrono chega depois
     expect(escritos.length).toBeGreaterThan(0);
   });
 });

@@ -28,13 +28,18 @@
 // A consequência que mais importa: é uma lista de **permitidos**, não de negados. O que ninguém
 // previu — uma API nova do navegador, ou uma que eu esqueci — já nasce bloqueada.
 //
-// **Não é uma fronteira de segurança contra código hostil.** Continua havendo saída por
-// `[].constructor.constructor('return globalThis')()` e parentes. A fronteira de verdade é
-// rodar em Web Worker sem `fetch` (item 358 do checklist), e ela segue pendente. O teste abaixo
-// documenta a brecha em vez de fingir que ela não existe.
+// **Este arquivo testa o escopo, não a fronteira.** A fronteira de verdade é o Web Worker de
+// `modWorker.ts` (item 358), e ela existe desde que o `ModRuntime` passou a executar lá. O escopo
+// virou a segunda camada: dentro do Worker, é ele que impede um script de alcançar por engano o que
+// sobrou do global daquele reino.
+//
+// A saída por `[].constructor.constructor('return globalThis')()` continua funcionando — aqui, no
+// reino do teste. É o último bloco de testes, e ele explica por que isso deixou de importar.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { GLOBAIS_BLOQUEADOS, compilarScriptDeMod } from '../../src/mods/sandbox';
+import { GLOBAIS_A_APAGAR } from '../../src/mods/protocoloDeMods';
 
 /**
  * Roda um script e devolve o que ele reportou pela `api`.
@@ -131,18 +136,49 @@ describe('modo estrito no corpo do script', async () => {
   });
 });
 
-describe('a brecha que CONTINUA aberta — documentada, não escondida', () => {
-  it('o sombreamento não impede a saída pelo construtor', async () => {
-    // Este teste passa quando a fuga FUNCIONA, e é intencional. Ele existe para que ninguém leia
-    // os testes acima e conclua que o sandbox é uma fronteira de segurança — não é.
+describe('a fuga pelo construtor — o que mudou não foi a tranca, foi o cofre', () => {
+  it('a fuga CONTINUA funcionando, e passou a não servir para nada', async () => {
+    // Este teste passa quando a fuga funciona, e continua sendo intencional — mas agora por um
+    // motivo diferente do de antes.
     //
-    // `[].constructor` é `Array`; `Array.constructor` é `Function`; e `Function('return this')()`
-    // devolve o objeto global, porque a função criada é avaliada no escopo global.
+    // Antes ele existia para que ninguém lesse os testes acima e concluísse que o sandbox era uma
+    // fronteira de segurança. Não era: `[].constructor` é `Array`, `Array.constructor` é `Function`,
+    // e `Function('return this')()` devolve o objeto global — porque a função criada assim é
+    // avaliada no escopo global **do reino em que roda**.
     //
-    // Fechar isto exige rodar em outro reino de execução — Web Worker sem `fetch`, ou iframe com
-    // sandbox. É o item 358 do checklist, e segue pendente. Quando ele for feito, este teste deve
-    // ser invertido.
+    // Continua verdade, e é justamente o ponto. Aqui, no reino do teste, ela devolve um global cheio.
+    // Em produção o script não roda mais aqui: roda no Worker de `modWorker.ts`, cujo global foi
+    // esvaziado antes de existir um único script. A mesma fuga devolve o global de **lá**.
+    //
+    // A defesa deixou de ser "eu lembrei de bloquear esse nome" e passou a ser "não existe nada para
+    // alcançar" — a diferença entre uma tranca melhor e um cofre vazio.
     const escapou = await rodar('api.registrar(typeof [].constructor.constructor("return this")())');
     expect(escapou).toBe('object');
+  });
+
+  it('CRÍTICO: o reino de produção é um Worker, não este', () => {
+    // A afirmação acima só vale se o script de verdade for mesmo para outro reino. Sem esta
+    // verificação, alguém poderia trocar o padrão do `ModRuntime` de volta para execução local e
+    // todos os testes deste arquivo continuariam verdes — descrevendo uma proteção desligada.
+    const fonte = readFileSync(new URL('../../src/mods/ModRuntime.ts', import.meta.url), 'utf8');
+    expect(fonte).toMatch(/criarPorta: \(\) => Porta = criarPortaDeWorker/);
+    expect(fonte).toMatch(/new Worker\(new URL\('\.\/modWorker\.ts'/);
+  });
+
+  it('CRÍTICO: o Worker apaga o que torna a fuga perigosa', () => {
+    // O global do Worker não é vazio por natureza: `fetch` e `indexedDB` existem lá. O segundo é o
+    // mais grave — é onde moram os mundos salvos e o cofre de chaves, na mesma origem.
+    for (const critico of ['fetch', 'indexedDB', 'XMLHttpRequest', 'WebSocket', 'importScripts']) {
+      expect(GLOBAIS_A_APAGAR).toContain(critico);
+    }
+    const casca = readFileSync(new URL('../../src/mods/modWorker.ts', import.meta.url), 'utf8');
+    expect(casca).toMatch(/esvaziarOReino\(\)/);
+  });
+
+  it('o `with` + Proxy continua valendo, agora como segunda camada', () => {
+    // Ele deixou de ser a única defesa e não virou inútil: dentro do Worker ele é o que impede um
+    // script de alcançar por engano o que sobrou do global de lá. Duas camadas fracas em série não
+    // somam uma forte, mas a de fora deixou de ser a única.
+    expect(GLOBAIS_BLOQUEADOS.length).toBeGreaterThan(5);
   });
 });
