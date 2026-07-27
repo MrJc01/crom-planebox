@@ -32,6 +32,7 @@ import { WorldRepository } from './storage/WorldRepository';
 import { biomasDeModRegistrados, definicaoDeBioma, limparBiomasDeMod, registrarBiomaDeMod } from './world/biomes';
 import { limparRegrasDeMod, regrasDeModRegistradas } from './world/scatter';
 import { CAMADAS, ambienteDaProfundidade, camadaNaProfundidade } from './world/camadas';
+import { avancarAmbiente, criarEstadoDoAmbiente } from './audio/ambienteDeCamada';
 import { limparTemplatesDeMod, templatesDeModRegistrados } from './crafting/StructureTemplates';
 import { RedeDeMods } from './mods/RedeDeMods';
 import { pedirCapacidade } from './ui/PedidoDeCapacidade';
@@ -543,6 +544,8 @@ async function bootstrap() {
   // que entrega 900 KB. O contexto nasce suspenso — navegador não deixa tocar antes de um gesto
   // do usuário —, então é despertado no primeiro clique ou tecla.
   const audio = new AudioSystem();
+  /** Relógio do som de ambiente da camada — item 1438. */
+  const estadoDoAmbiente = criarEstadoDoAmbiente();
   const despertarAudio = () => audio.despertar();
   addEventListener('pointerdown', despertarAudio, { once: false });
   addEventListener('keydown', despertarAudio, { once: false });
@@ -2307,6 +2310,7 @@ async function bootstrap() {
     const superficieAqui = gen.column(Math.floor(player.pos.x), Math.floor(player.pos.z)).height;
     const profundidade = (superficieAqui - player.pos.y) / SCALE;
     const camada = ambienteDaProfundidade(profundidade);
+    const camadaAqui = camadaNaProfundidade(profundidade);
     const dentroDaTerra = Math.max(0, Math.min(1, profundidade / CAMADAS[1].inicio));
 
     const corBioma = misturarCor(pesosBioma, 'neblina');
@@ -2320,6 +2324,21 @@ async function bootstrap() {
       misturar(misturarEscalar(pesosBioma, 'alcanceNeblina'), camada.alcance),
       dt,
     );
+
+    // E a luz junto com a névoa — item 1437.
+    //
+    // A névoa sozinha mudava de cor e o mundo continuava tão claro ao meio-dia quanto era em cima:
+    // as três luzes da cena são globais e seguiam só o `sunScale`, então uma caverna a quarenta
+    // metros era duas vezes mais clara ao meio-dia que à meia-noite. A luz por voxel já estava
+    // certa; o que ela multiplicava é que não estava.
+    gs.setLayerLight(camada.luzMinima, dentroDaTerra);
+
+    // E o som — item 1438. A névoa mudou, a luz mudou, e o silêncio era o mesmo em toda
+    // profundidade. Metade do "onde estou" é sonora: uma caverna silenciosa não é uma caverna, é um
+    // corredor com a luz apagada. Sons esporádicos e sorteados, no canal `ambient`, sem posição:
+    // a rocha assentando não vem de um ponto, vem de todo lado.
+    const somDaCamada = avancarAmbiente(estadoDoAmbiente, camadaAqui.id, dt);
+    if (somDaCamada) audio.play(somDaCamada, { channel: 'ambient', dedupeKey: 'camada' });
 
     // Precipitação. `clima.particulas` já vem interpolado entre o clima que sai e o que entra,
     // então a chuva engrossa e afina junto com a transição, sem nenhum tratamento aqui.

@@ -95,7 +95,12 @@ export const CAMADAS: CamadaDef[] = [
     id: 'superficie', nome: 'Superfície', inicio: 0,
     // A superfície não impõe névoa própria: quem manda ali é o bioma, e sobrepor isto apagaria a
     // diferença entre deserto e tundra que o sistema de biomas existe para criar.
-    neblina: [0.62, 0.70, 0.80], alcanceNeblina: 1, luzMinima: 0,
+    // O piso da superfície é o que a luz ambiente já valia de dia (0,60 ÷ `AMBIENTE_POR_PISO`).
+    // Foi 0 por um tempo, com "zero quer dizer: o sol manda" — e esse sentinela criava um degrau
+    // de 0,40 no instante em que o piso deixava de ser zero, porque a mistura já estava a dois
+    // terços do caminho quando o valor ainda era nulo. Um número de verdade aqui torna a descida
+    // contínua sem nenhum caso especial. Ver `luzDeCamada.ts`: a camada só pode escurecer.
+    neblina: [0.62, 0.70, 0.80], alcanceNeblina: 1, luzMinima: 0.12,
     exclusivos: [], perigo: 1,
   },
   {

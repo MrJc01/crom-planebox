@@ -4,6 +4,7 @@
 // baixo na borda, como na vida real.
 import * as THREE from 'three';
 import { Sky } from './sky';
+import { luzesEm } from './luzDeCamada';
 import { claridadeNoturna } from '../world/moon';
 import { Gradacao } from './grading';
 
@@ -208,6 +209,13 @@ export interface GameScene {
    * `luz` escurece o céu; `alcance` fecha a névoa.
    */
   setWeather(luz: number, alcance: number, nuvens?: number): void;
+  /**
+   * Profundidade do jogador, para as luzes globais pararem de seguir o sol debaixo da terra.
+   *
+   * `piso` é o `luzMinima` da camada já interpolado (0 = superfície, "o sol manda") e `dentro` vai
+   * de 0 a 1 ao longo dos primeiros metros. Não remonta chunk nenhum: são três intensidades.
+   */
+  setLayerLight(piso: number, dentro: number): void;
   /**
    * Cor multiplicativa da folhagem e da grama, e o quanto o chão está molhado.
    * Não remonta chunk: só troca uniforms lidos pelo canal `aTint` do mesher.
@@ -536,13 +544,28 @@ export function createScene(container: HTMLElement): GameScene {
     aplicarLuzes();
   }
 
+  /**
+   * Profundidade do jogador, para as luzes pararem de seguir o sol debaixo da terra — item 1437.
+   *
+   * `pisoDaCamada` é o `luzMinima` já interpolado; 0 quer dizer "a superfície manda". A conta mora
+   * em `luzDeCamada.ts` para poder ser conferida sem WebGL.
+   */
+  let pisoDaCamada = 0;
+  let dentroDaTerra = 0;
+  function setLayerLight(piso: number, dentro: number): void {
+    pisoDaCamada = piso;
+    dentroDaTerra = dentro;
+    aplicarLuzes();
+  }
+
   function aplicarLuzes(): void {
-    sun.intensity = 1.75 * sunScale + clarao * 3.4;
-    hemi.intensity = 0.9 * Math.max(0.3, sunScale) + clarao * 2.2;
     // Piso de 0,26 mesmo na noite mais fechada: é o mínimo para uma parede virada para longe da
     // lua continuar sendo uma parede, e não um recorte preto. Escuro o bastante para a tocha
     // continuar valendo a pena.
-    ambiente.intensity = 0.26 + 0.34 * sunScale + clarao * 1.2;
+    const l = luzesEm(sunScale, pisoDaCamada, dentroDaTerra, clarao);
+    sun.intensity = l.sol;
+    hemi.intensity = l.hemisferica;
+    ambiente.intensity = l.ambiente;
     if (clarao > 0) {
       (scene.background as THREE.Color).copy(tmpSky).lerp(BRANCO, clarao * 0.7);
     } else {
@@ -610,5 +633,5 @@ export function createScene(container: HTMLElement): GameScene {
 
   setTimeOfDay(0.35); // começa de manhã
 
-  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, setGrading, getSunElevation, criarMaterialFade, setMaterialFade, setLightningFlash, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
+  return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, setGrading, getSunElevation, criarMaterialFade, setMaterialFade, setLightningFlash, setLayerLight, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }

@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1444 itens)
+# Checklist Mestre — Painel de Especialistas (1453 itens)
 
-> **Estado em 27/07/2026** — 777 de 1444 itens tratados (54%), com **1182 testes** passando,
+> **Estado em 27/07/2026** — 785 de 1453 itens tratados (54%), com **1212 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 684 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 667 | Pendente. |
+> | `[~]` | 692 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 668 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -4689,12 +4689,8 @@ Invertida, a ordem faria um bioma rico em diamante produzi-lo acima do abismo.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1437 `P1` **O piso de luz da camada não é aplicado** — está declarado em `luzMinima` e nenhum
-  módulo o consulta ainda. O motor de luz é por voxel e assado no mesh; somar um piso ali exige
-  decidir se ele entra no mesh (barato, exige re-mesh ao trocar de camada) ou no shader (contínuo,
-  mais caro por fragmento)
-- [ ] 1438 `P1` **Não há som próprio de camada** — a névoa mudou, o silêncio não. Metade do "onde
-  estou" continua ausente
+- [~] 1437 `P1` **O piso de luz da camada é aplicado** — e a caverna deixou de pulsar com o sol
+- [~] 1438 `P1` **Som próprio de camada**, esporádico e sorteado, sintetizado como todo o resto
 - [~] 1439 `P2` **A camada desloca a mistura de espécies** — não a troca: o zumbi continua no
   abismo, só deixa de ser o mais comum
 
@@ -4873,3 +4869,57 @@ Verificado: `8a71c2b1` nos dois lados, 50 chunks em duas sementes.
 
 - [ ] 1457 `P1` **`isCave` ainda é 75% do custo** — 30 dos 40 ms. O que sobra é aritmética de interpolação, não hash: quatro amostras por voxel de rocha. Cortar mais exige decidir se o campo de câmaras precisa ser consultado em todo voxel que reprovou nos túneis
 - [ ] 1458 `P2` **O perfil de geração vive num script de rascunho** — as medidas de 131/78/45/40 ms não estão em lugar nenhum que o repositório execute, então a próxima regressão de desempenho passa sem ninguém ver
+
+## 81. A profundidade que se vê e se ouve — itens 1437 e 1438
+
+O item 1437 pedia para aplicar o `luzMinima` das camadas, que estava declarado e sem leitor. Ao ir
+ligá-lo apareceu um defeito maior por trás dele: **as três luzes da cena são globais e seguiam só o
+`sunScale`**. Debaixo de quarenta metros de rocha o sol continuava mandando — uma caverna profunda
+era *duas vezes mais clara ao meio-dia que à meia-noite*.
+
+A luz por voxel do `lighting.ts` estava certa o tempo todo: a caverna tem `sky = 0` e o
+multiplicador desaba para o piso. O que não estava certo era **o que esse piso multiplica**.
+
+A nota do item dizia para escolher entre mesh e shader. Nenhum dos dois: a profundidade que importa
+é a do jogador, igual à da névoa, e a névoa já resolve isso há duas seções com três intensidades por
+quadro e zero remontagem. Escolher entre as duas opções da nota teria custado um re-mesh por
+fronteira cruzada para resolver um problema que não era o que estava escrito.
+
+### O sentinela que criou um degrau
+
+A superfície declarava `luzMinima: 0` com o sentido "aqui o sol manda". A primeira versão respeitou
+isso com um `piso > 0 ? piso * K : diurno` — e o teste de continuidade acusou um salto de **0,40** no
+instante em que o piso deixava de ser zero, porque a mistura já estava a dois terços do caminho
+quando o valor ainda era nulo. Duas rampas independentes, desalinhadas.
+
+A cura foi tirar o sentinela: a superfície ganhou um piso de verdade (0,12, que é o que a luz
+ambiente já valia de dia) e a camada passou a só poder **escurecer**, nunca clarear. Sem esse `min`,
+descer à meia-noite *acenderia* o mundo até os seis metros — o "teto que satura" de sempre,
+invertido.
+
+### O som
+
+`AMBIENTES` dá a cada camada sons esporádicos e sorteados, sintetizados como todo o resto — nenhum
+arquivo de áudio. Ritmo acompanhando o `perigo`: o abismo fala a cada 6–13 s, o subsolo a cada
+14–30. A superfície é muda de propósito, pelo mesmo motivo que não impõe névoa: lá quem manda é o
+bioma.
+
+**Um teste passou por um motivo ruim e escondeu um buraco.** A primeira versão reiniciava o relógio
+ao trocar de camada, e o teste "vaivém não acumula disparos" esperava zero sons — e recebeu zero.
+Só que quem *caminha* sobre uma fronteira (um piso a exatamente catorze metros) troca de camada a
+cada quadro, e o relógio reiniciado nunca chegava a zero: o ambiente ficava **mudo justamente onde
+deveria estar trocando de identidade**, com sintoma idêntico a "o áudio está desligado". O relógio
+agora desconta sempre, e a troca só apara o teto.
+
+- [~] 1459 `P1` **`luzDeCamada.ts`**, puro e sem Three.js — a regra de luz é conferível sem WebGL
+- [~] 1460 `P1` **`setLayerLight` na cena**, três intensidades por quadro e nenhum chunk remontado
+- [~] 1461 `P1` **`superficie.luzMinima` = 0,12** no lugar do sentinela, e `min` com o diurno
+- [~] 1462 `P1` **`ambienteDeCamada.ts`** com sons por camada e relógio sorteado
+- [~] 1463 `P2` **`dt` limitado a 0,25 s** — voltar de uma aba em segundo plano não dispara na hora
+- [~] 1464 `P1` **30 testes** entre luz e som, incluindo os quatro laços de fiação que leem `main.ts`
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1465 `P2` **A luz de camada é global, pela profundidade do jogador** — quem está a dez metros olhando pela boca de um túnel vê a superfície com a luz do subsolo. É o mesmo compromisso que a névoa já assume, e sair dele exige uma textura de alturas que o shader hoje não tem
+- [ ] 1466 `P2` **Nenhum dos sons novos foi ouvido** — as especificações são conferidas em faixa e em ritmo, e o que sai da Web Audio API não é conferido por nada. É o mesmo furo do GLSL que ninguém compila
+- [ ] 1467 `P3` **O ambiente não conhece o abrigo** — quem está numa sala selada a vinte metros ouve o abismo igual a quem está numa galeria aberta, e `abrigo.ts` já sabe responder a diferença
