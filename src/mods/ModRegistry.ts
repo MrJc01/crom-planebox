@@ -17,6 +17,7 @@ import {
   unregisterCustomBlock,
 } from '../world/blocks';
 import { ModBlockDef, ModPackage, ModStructureBlock } from './ModTypes';
+import { definicaoDeBioma, registrarBiomaDeMod } from '../world/biomes';
 
 const KEY_PATTERN = /^[a-z0-9][a-z0-9_]*$/;
 
@@ -150,6 +151,37 @@ export function conflitoDeContraste(
   return verificarContraste(corDeHex(topo), existentes);
 }
 
+/**
+ * Registra os biomas de um mod — item 676.
+ *
+ * Devolve os erros, sem estourar: um bioma recusado (centro fora do plano, colisão de nome) não
+ * pode impedir os blocos e as criaturas do mesmo mod de carregarem. Um mod meio aplicado é ruim;
+ * um mod inteiro perdido por causa de um número errado num bioma é pior.
+ */
+export function applyModBiomes(pkg: ModPackage): string[] {
+  const erros: string[] = [];
+  for (const b of pkg.biomes || []) {
+    const base = definicaoDeBioma('planicie');
+    const cor = (v: ColorInput | undefined, padrao: [number, number, number]): [number, number, number] =>
+      v === undefined ? padrao : (corDeHex(v as any) as [number, number, number]);
+    const erro = registrarBiomaDeMod({
+      id: `${pkg.id}:${b.key}`,
+      nome: b.nome,
+      temp: b.temp,
+      moist: b.moist,
+      grama: cor(b.grama, base.grama),
+      folhagem: cor(b.folhagem, base.folhagem),
+      neblina: cor(b.neblina, base.neblina),
+      alcanceNeblina: b.alcanceNeblina ?? base.alcanceNeblina,
+      saturacao: b.saturacao ?? base.saturacao,
+      sazonal: b.sazonal ?? true,
+      minerios: b.minerios,
+    });
+    if (erro) erros.push(`bioma "${b.key}": ${erro}`);
+  }
+  return erros;
+}
+
 /** Registra os blocos de um mod no array global `BLOCKS`, nos ids que o pacote já carrega. */
 export function applyModBlocks(pkg: ModPackage): number[] {
   const applied: number[] = [];
@@ -202,6 +234,7 @@ export function applyAllMods(mods: ModPackage[]): { blocksApplied: number; modsA
   for (const mod of mods) {
     if (!mod.enabled) continue;
     blocksApplied += applyModBlocks(mod).length;
+    applyModBiomes(mod);
     modsApplied++;
   }
   return { blocksApplied, modsApplied };

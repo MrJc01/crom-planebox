@@ -73,6 +73,13 @@ export interface ModHostBridge {
    * seguro. Um `?.` que devolvesse `undefined` em silêncio faria o mod receber uma resposta vazia e
    * seguir em frente; por isso a `api` recusa com mensagem quando o host não oferece o recurso.
    */
+  /**
+   * Registra um bioma declarado por um mod. Devolve a mensagem de erro, ou `null` se entrou.
+   *
+   * `undefined` significa que este host não implementa biomas de mod — diferente de `null`, que é
+   * sucesso. Sem essa distinção, um host sem o recurso pareceria ter aceitado o bioma.
+   */
+  registrarBioma?(modId: string, def: unknown): string | null;
   modFetch?(modId: string, endereco: string, opcoes?: { metodo?: string; cabecalhos?: Record<string, string>; corpo?: string }): Promise<{ status: number; ok: boolean; texto: string }>;
 }
 
@@ -289,6 +296,22 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
 
     ui: {
       toast: (msg: string) => host.toast(String(msg).slice(0, 200)),
+    },
+
+    biomes: {
+      /**
+       * Registra um bioma novo — item 676.
+       *
+       * Devolve `true` se entrou. O erro vai para o log do mod em vez de estourar: um bioma
+       * recusado não deve derrubar o script inteiro, e quem escreveu (com frequência uma IA) precisa
+       * ler o motivo para corrigir.
+       */
+      define: (def: any) => {
+        const erro = host.registrarBioma?.(mod.id, def);
+        if (erro === undefined) { ctx.log('warn', 'este mundo não aceita biomas de mod'); return false; }
+        if (erro) { ctx.log('error', `bioma recusado: ${erro}`); return false; }
+        return true;
+      },
     },
 
     net: {

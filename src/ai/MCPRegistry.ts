@@ -397,6 +397,39 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'define_mod_biome',
+      description:
+        'Cria um BIOMA novo — item 676. temp e moist são o CENTRO dele no plano de clima (ambos de -1 a 1), '
+        + 'e é isso que decide onde ele aparece no mundo: temp -1 é o mais frio, +1 o mais quente; moist -1 o '
+        + 'mais seco, +1 o mais úmido. Escolha um ponto que ainda não esteja ocupado por um bioma nativo, senão '
+        + 'o seu nascerá espremido entre os vizinhos. Só afeta terreno AINDA NÃO gerado — o mundo já explorado '
+        + 'continua como está.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mod_id: { type: 'string', description: 'Id do mod. Omita para editar o mod desta sessão de chat.' },
+          key: { type: 'string', description: 'Chave curta única no mod, ex.: "cristal"' },
+          name: { type: 'string', description: 'Nome exibido, ex.: "Campo de Cristal"' },
+          temp: { type: 'number', description: 'Centro de temperatura, -1 (gelado) a 1 (escaldante)' },
+          moist: { type: 'number', description: 'Centro de umidade, -1 (árido) a 1 (encharcado)' },
+          grass_color: { type: 'string', description: 'Cor da grama em hexadecimal, ex.: "#7fd4e8"' },
+          foliage_color: { type: 'string', description: 'Cor da folhagem em hexadecimal' },
+          fog_color: { type: 'string', description: 'Cor da névoa — é o que mais distingue um bioma de longe' },
+          fog_range: { type: 'number', description: 'Multiplicador do alcance da névoa: <1 fecha o horizonte, >1 abre (padrão 1)' },
+          saturation: { type: 'number', description: 'Saturação da gradação de cor: <1 lavado, >1 vivo (padrão 1)' },
+          seasonal: { type: 'boolean', description: 'Responde às estações do ano (padrão true)' },
+          ores: {
+            type: 'object',
+            description: 'Abundância de minério neste bioma, como multiplicador: {"diamante": 0} significa que NÃO existe aqui. Chaves: carvao, ferro, ouro, diamante',
+          },
+        },
+        required: ['name', 'temp', 'moist'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'define_mod_entity',
       description: 'Adiciona uma ESPÉCIE de criatura/NPC a um mod, montando a anatomia 3D com caixas (partes) e um script de comportamento opcional. Isto define o molde e o salva no mundo; use spawn_mod_entity para colocar indivíduos no mapa.',
       parameters: {

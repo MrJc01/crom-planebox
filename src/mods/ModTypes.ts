@@ -102,6 +102,29 @@ export interface ModScript {
   enabled: boolean;
 }
 
+/**
+ * Bioma declarado por um mod — item 676.
+ *
+ * Guardado no pacote, como os blocos: é **dado**, não comportamento. Isso é o que faz o bioma
+ * sobreviver a fechar o navegador, viajar na exportação e chegar aos convidados pelo P2P — sem
+ * depender de um script rodar na ordem certa.
+ */
+export interface ModBiomeDef {
+  /** Chave curta única no mod. O id final ganha o prefixo do mod. */
+  key: string;
+  nome: string;
+  /** Centro no plano de clima, ambos de -1 a 1. É o que decide ONDE o bioma aparece. */
+  temp: number;
+  moist: number;
+  grama?: ColorInput;
+  folhagem?: ColorInput;
+  neblina?: ColorInput;
+  alcanceNeblina?: number;
+  saturacao?: number;
+  sazonal?: boolean;
+  minerios?: Partial<Record<'carvao' | 'ferro' | 'ouro' | 'diamante', number>>;
+}
+
 export interface ModPackage {
   /** Identificador estável, ex.: 'mod-rubi'. Único por mundo. */
   id: string;
@@ -115,6 +138,8 @@ export interface ModPackage {
   structures: ModStructureDef[];
   /** Ausente em mods criados antes do runtime — tratado como lista vazia. */
   scripts?: ModScript[];
+  /** Biomas declarados por este mod (item 676). Ausente em mods anteriores a ele. */
+  biomes?: ModBiomeDef[];
 
   /**
    * **Esquema** do `mod.env`: quais chaves existem e para que servem. Parte do mod, viaja na

@@ -1,11 +1,23 @@
 // Web Worker: gera chunks fora da main thread para não travar o frame.
 import { WorldGen } from './worldgen';
+import { limparBiomasDeMod, registrarBiomaDeMod } from './biomes';
 
 let gen: WorldGen | null = null;
 
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   if (msg.type === 'init') {
+    // Os biomas de mod vêm JUNTO com a semente, e não numa mensagem seguinte — item 676.
+    //
+    // O worker começa a gerar assim que recebe `init`. Uma lista que chegasse depois faria os
+    // primeiros chunks nascerem sem os biomas do mod e os seguintes com eles: o mundo teria uma
+    // costura invisível em volta do spawn, e ninguém ligaria isso à ordem de duas mensagens.
+    //
+    // `limpar` antes de registrar é o que impede o mod do mundo anterior de contaminar o próximo
+    // aberto na mesma sessão — o worker é reaproveitado, e o sintoma seria terreno errado num
+    // mundo que nunca teve aquele mod.
+    limparBiomasDeMod();
+    for (const b of msg.biomasDeMod ?? []) registrarBiomaDeMod(b);
     gen = new WorldGen(msg.seed);
     return;
   }

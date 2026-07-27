@@ -1067,8 +1067,8 @@ detalhe.
 - [ ] 673 `P1` Transição suave de altura entre biomas vizinhos
 - [ ] 674 `P1` Mob hostil característico por bioma
 - [ ] 675 `P1` Temperatura do bioma afetando o jogador (item 128)
-- [ ] 676 `P0` **Mods podem registrar biomas** — a base para o agente criar biomas
-- [ ] 677 `P0` `define_mod_biome` como ferramenta MCP
+- [~] 676 `P0` **Mods registram biomas** — dado do pacote, replicado ao Worker de geração. Ver a seção 75
+- [~] 677 `P0` **`define_mod_biome`** — a descrição explica o plano de clima, porque `temp`/`moist` é a única parte que o agente erra sem saber que errou
 - [ ] 678 `P1` Bioma de mod entra na seleção em igualdade com os base
 - [ ] 679 `P1` Nome do bioma atual no HUD e em `query_world_area`
 - [ ] 680 `P2` Mapa de biomas consultável pelo agente antes de construir
@@ -4496,3 +4496,75 @@ não antes.
 - [ ] 1414 `P1` **A voz não é espacial** — todos se ouvem no mesmo volume, a qualquer distância. Num jogo de mundo aberto isso apaga a noção de estar perto de alguém
 - [ ] 1415 `P1` **Não há como emudecer outro jogador** — só a si mesmo. Num mundo público isso é a diferença entre jogar e sair
 - [ ] 1416 `P2` **Nenhum indicador de quem está falando** — o jogador ouve uma voz e não sabe de quem é
+
+---
+
+## 75 — Mods criam biomas (itens 676, 677)
+
+Um bioma de mod é **dado do pacote**, como um bloco — não efeito de script. É isso que o faz
+sobreviver a fechar o navegador, viajar na exportação e chegar aos convidados pelo P2P, sem depender
+de um script rodar na ordem certa.
+
+### O lugar onde isso quase deu errado
+
+O worldgen roda **noutro reino de execução** (`genWorker.ts`). Um bioma registrado só no thread
+principal existiria na cor da grama e da névoa e **não** no terreno: o jogador veria o horizonte
+mudar e o chão não. É o defeito mais confuso que este recurso poderia ter, porque se parece com um
+problema de shader.
+
+A lista viaja **junto com a semente**, na mesma mensagem de `init`. Numa mensagem seguinte, o worker
+já teria começado a gerar: os primeiros chunks nasceriam sem os biomas do mod e os seguintes com
+eles, e o mundo teria uma costura invisível em volta do spawn que ninguém ligaria à ordem de duas
+mensagens.
+
+E o worker **esquece** os biomas ao receber um `init` novo. Ele é reaproveitado entre mundos; sem
+limpar, um mod de "bioma de cristal" instalado num mundo faria terreno estranho num mundo que nunca
+o teve.
+
+### Quatro recusas, e o que cada uma protege
+
+**Substituir um bioma nativo.** Redefinir `deserto` mudaria o terreno de todo mundo salvo que já tem
+deserto, e a mudança apareceria como "meu mundo está diferente" sem ninguém ligar ao mod recém
+instalado. Registrar é aditivo; substituir é reescrever o passado.
+
+**Centro fora de -1..1.** O bioma existiria na tabela com peso zero em todo ponto — presente e
+invisível. Um mod que "não funciona" sem nenhum erro é o pior resultado para quem o escreveu, que em
+geral é uma IA relendo o log em busca do que fazer diferente.
+
+**Chave repetida no mesmo mod.**
+
+**Gravar antes de validar.** `addBiome` registra **antes** de persistir: o registro é quem valida o
+centro, e gravar um bioma que nunca vai aparecer deixaria o mod com uma promessa morta dentro.
+
+### Duas decisões de convivência
+
+**O id ganha o prefixo do mod.** Dois mods podem querer um bioma chamado `cristal`, e sem prefixo o
+segundo seria recusado por colisão — punindo quem instalou os dois por uma escolha de nome que
+nenhum dos autores fez em conjunto.
+
+**Bioma desconhecido cai na planície em vez de estourar.** O caso real é um save que menciona um
+bioma cujo mod foi desinstalado; derrubar o carregamento do mundo por causa de cor de grama seria
+trocar um problema estético por um mundo inacessível.
+
+E `applyModBiomes` devolve os erros em vez de lançar: um bioma recusado não pode impedir os blocos e
+as criaturas do mesmo mod de carregarem. Um mod meio aplicado é ruim; um mod inteiro perdido por
+causa de um número errado num bioma é pior.
+
+### A descrição da ferramenta faz parte da correção
+
+`define_mod_biome` explica o plano de clima na própria descrição — que `temp: -1` é o mais frio e
+`+1` o mais quente, e que convém escolher um ponto ainda não ocupado, senão o bioma novo nasce
+espremido entre os vizinhos. É a única parte que o agente erra **sem saber que errou**: o bioma
+entra, não dá erro, e quase não aparece.
+
+- [~] 1417 `P0` **Registro de biomas de mod**, com lista separada da nativa para poder limpar e restaurar
+- [~] 1418 `P0` **Replicação ao Worker de geração**, junto da semente
+- [~] 1419 `P1` **`api.biomes.define`** e **`define_mod_biome`**, com o bioma persistido no pacote
+- [~] 1420 `P1` **8 testes de bioma de mod**, incluindo "a soma dos pesos continua 1" — a propriedade que sustenta toda a mistura de cor e névoa
+- [~] 1421 `P1` **4 travas de fiação**, sendo a principal a que confere que o bioma chega ao Worker
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1422 `P1` **O terreno já gerado não é refeito** ao registrar um bioma — assumido (refazer travaria o jogo por segundos e mudaria o chão sob o jogador), mas o jogador não é avisado de que precisa explorar para ver
+- [ ] 1423 `P1` **O bioma de mod não escolhe bloco de superfície nem árvore** — ele muda cor, névoa, saturação e minério, mas o chão continua o da planície
+- [ ] 1424 `P2` **Nada valida colisão de centro** entre um bioma de mod e um nativo: declarar `temp: 0.6, moist: -0.8` em cima do deserto é aceito e produz um bioma que quase nunca ganha

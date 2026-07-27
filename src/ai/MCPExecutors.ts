@@ -648,6 +648,25 @@ export class MCPExecutors {
         return { result: res.message };
       }
 
+      case 'define_mod_biome': {
+        const alvo = this.targetMod(args, 'criar um bioma');
+        if ('erro' in alvo) return { result: alvo.erro };
+        const res = await this.modService.addBiome(alvo.modId, {
+          key: String(args.key || args.name || 'bioma'),
+          nome: String(args.name || 'Bioma'),
+          temp: Number(args.temp ?? 0),
+          moist: Number(args.moist ?? 0),
+          grama: args.grass_color,
+          folhagem: args.foliage_color,
+          neblina: args.fog_color,
+          alcanceNeblina: args.fog_range,
+          saturacao: args.saturation,
+          sazonal: args.seasonal,
+          minerios: args.ores,
+        });
+        return { result: res.message };
+      }
+
       case 'define_mod_entity': {
         const alvo = this.targetMod(args, 'criar uma criatura');
         if ('erro' in alvo) return { result: alvo.erro };

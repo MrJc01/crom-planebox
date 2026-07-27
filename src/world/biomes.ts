@@ -25,9 +25,18 @@
 
 import { clamp, smoothstep } from '../core/rng';
 
+/**
+ * Identificador de bioma.
+ *
+ * A união nomeia os nativos — é o que dá autocompletar e pega um erro de digitação em `'planicei'`.
+ * O `(string & {})` no fim abre para os biomas que um mod registra (item 676), sem que isso apague
+ * as sugestões dos nativos, que é o que aconteceria com um `string` puro.
+ */
 export type BiomeId =
   | 'tundra' | 'taiga' | 'planicie' | 'floresta' | 'selva'
-  | 'savana' | 'deserto' | 'pantano' | 'montanha' | 'praia' | 'oceano';
+  | 'savana' | 'deserto' | 'pantano' | 'montanha' | 'praia' | 'oceano'
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {});
 
 export interface BiomeDef {
   id: BiomeId;
@@ -145,10 +154,68 @@ const POR_ID = new Map<BiomeId, BiomeDef>();
 for (const b of BIOMAS_CLIMA) POR_ID.set(b.id, b);
 for (const b of Object.values(BIOMAS_RELEVO)) POR_ID.set(b.id, b);
 
+/**
+ * Biomas registrados por mods — item 676.
+ *
+ * ## Lista separada, e não `BIOMAS_CLIMA.push(...)`
+ *
+ * Duas razões, e as duas doem se ignoradas. **Limpar** precisa ser possível ao trocar de mundo: um
+ * mod de "bioma de cristal" instalado num mundo não pode contaminar o próximo aberto na mesma
+ * sessão — e o sintoma seria terreno errado num mundo que nunca teve aquele mod. E **restaurar** o
+ * conjunto nativo precisa ser trivial: com `push`, voltar ao estado original exigiria lembrar
+ * quantos foram acrescentados.
+ */
+const BIOMAS_DE_MOD: BiomeDef[] = [];
+
+/** Todos os biomas de clima em jogo: os nativos mais os que os mods registraram. */
+export function biomasDeClima(): readonly BiomeDef[] {
+  return BIOMAS_DE_MOD.length === 0 ? BIOMAS_CLIMA : [...BIOMAS_CLIMA, ...BIOMAS_DE_MOD];
+}
+
+/**
+ * Registra um bioma de mod. Devolve o erro, ou `null` se entrou.
+ *
+ * ## Por que sobrescrever um nativo é recusado
+ *
+ * Deixar um mod redefinir `deserto` mudaria o terreno de todo mundo salvo que já tem deserto — e a
+ * mudança apareceria como "meu mundo está diferente", sem ninguém ligar ao mod recém-instalado.
+ * Registrar um bioma novo é aditivo; substituir um existente é reescrever o passado.
+ */
+export function registrarBiomaDeMod(def: BiomeDef): string | null {
+  if (!def?.id || typeof def.id !== 'string') return 'bioma sem id';
+  if (POR_ID.has(def.id)) {
+    return BIOMAS_DE_MOD.some((b) => b.id === def.id)
+      ? `o bioma "${def.id}" já foi registrado`
+      : `"${def.id}" é um bioma nativo e não pode ser substituído`;
+  }
+  // Fora do plano, o bioma existiria na tabela e **nunca** apareceria no mundo: peso zero em todo
+  // ponto. Um mod que "não funciona" sem nenhum erro é o pior resultado possível para quem o
+  // escreveu — em geral uma IA, que vai reler o log procurando o que fazer diferente.
+  if (!Number.isFinite(def.temp) || Math.abs(def.temp) > 1) return `temp precisa estar entre -1 e 1 (recebido ${def.temp})`;
+  if (!Number.isFinite(def.moist) || Math.abs(def.moist) > 1) return `moist precisa estar entre -1 e 1 (recebido ${def.moist})`;
+
+  BIOMAS_DE_MOD.push(def);
+  POR_ID.set(def.id, def);
+  return null;
+}
+
+/** Esquece os biomas de mod. Chamado ao trocar de mundo, junto de `limparPerfis`. */
+export function limparBiomasDeMod(): void {
+  for (const b of BIOMAS_DE_MOD) POR_ID.delete(b.id);
+  BIOMAS_DE_MOD.length = 0;
+}
+
+/** Os biomas de mod atualmente registrados, para o worldgen replicá-los no Worker. */
+export function biomasDeModRegistrados(): readonly BiomeDef[] {
+  return BIOMAS_DE_MOD;
+}
+
 export function definicaoDeBioma(id: BiomeId): BiomeDef {
   const d = POR_ID.get(id);
-  if (!d) throw new Error(`bioma desconhecido: ${id}`);
-  return d;
+  // Um bioma desconhecido cai na planície em vez de estourar. O caso real é um save que menciona
+  // um bioma cujo mod foi desinstalado: derrubar o carregamento do mundo por causa de cor de grama
+  // seria trocar um problema estético por um mundo inacessível.
+  return d ?? POR_ID.get('planicie')!;
 }
 
 export interface PesoBioma {
@@ -205,7 +272,7 @@ export function pesosDeBioma(ctx: ContextoBioma): PesoBioma[] {
   // --- Camada de clima ---
   const brutos: PesoBioma[] = [];
   let soma = 0;
-  for (const b of BIOMAS_CLIMA) {
+  for (const b of biomasDeClima()) {
     const dt = ctx.temp - b.temp;
     const dm = ctx.moist - b.moist;
     const d = Math.sqrt(dt * dt + dm * dm);
@@ -262,7 +329,7 @@ export function biomaDominanteRapido(ctx: ContextoBioma): BiomeId {
     let soma = 0;
     let topo = 0;
     let topoId: BiomeId = 'planicie';
-    for (const b of BIOMAS_CLIMA) {
+    for (const b of biomasDeClima()) {
       const dt = ctx.temp - b.temp;
       const dm = ctx.moist - b.moist;
       const d = Math.sqrt(dt * dt + dm * dm);

@@ -29,6 +29,7 @@ import { foodValueOf, isEdible } from './game/SurvivalSystem';
 import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
+import { biomasDeModRegistrados, definicaoDeBioma, limparBiomasDeMod, registrarBiomaDeMod } from './world/biomes';
 import { RedeDeMods } from './mods/RedeDeMods';
 import { pedirCapacidade } from './ui/PedidoDeCapacidade';
 import { prepareWorld } from './storage/SaveMigration';
@@ -227,8 +228,50 @@ async function bootstrap() {
   let inflight = 0;
   let savedChunks = new Map<string, Uint8Array>();
 
+  /**
+   * Normaliza um bioma vindo de mod para o formato interno.
+   *
+   * O id ganha o prefixo do mod (`meumod:cristal`) por um motivo de convivência: dois mods podem
+   * querer um bioma chamado `cristal`, e sem prefixo o segundo seria recusado por colisão com o
+   * primeiro — punindo quem instalou os dois por uma escolha de nome que nenhum dos autores fez em
+   * conjunto.
+   *
+   * Os campos ausentes caem em valores da planície, e não em zeros: um bioma com névoa preta e
+   * saturação zero seria aceito e apareceria como um buraco visual no mundo, sem erro nenhum.
+   */
+  function normalizarBiomaDeMod(modId: string, def: any): any {
+    const base = definicaoDeBioma('planicie');
+    const cor = (v: any, padrao: [number, number, number]): [number, number, number] =>
+      Array.isArray(v) && v.length === 3 && v.every((n: any) => typeof n === 'number')
+        ? [v[0], v[1], v[2]] : padrao;
+    return {
+      id: `${modId}:${String(def?.id ?? 'bioma')}`,
+      nome: String(def?.nome ?? def?.id ?? 'Bioma de mod'),
+      temp: Number(def?.temp ?? 0),
+      moist: Number(def?.moist ?? 0),
+      grama: cor(def?.grama, base.grama),
+      folhagem: cor(def?.folhagem, base.folhagem),
+      neblina: cor(def?.neblina, base.neblina),
+      alcanceNeblina: Number(def?.alcanceNeblina ?? base.alcanceNeblina),
+      saturacao: Number(def?.saturacao ?? base.saturacao),
+      sazonal: def?.sazonal ?? true,
+      minerios: def?.minerios,
+    };
+  }
+
+  /**
+   * Refaz a geração com a lista de biomas atual.
+   *
+   * Os chunks já gerados **não** são refeitos: reconstruir o mundo inteiro na hora em que um mod
+   * carrega travaria o jogo por segundos, e o terreno já visitado mudaria debaixo do jogador. O
+   * bioma novo aparece no que ainda não foi gerado, que é a única forma de isto não ser destrutivo.
+   */
+  function reiniciarGeracao(): void {
+    worker.postMessage({ type: 'init', seed, biomasDeMod: biomasDeModRegistrados() });
+  }
+
   function initWorker(): void {
-    worker.postMessage({ type: 'init', seed });
+    worker.postMessage({ type: 'init', seed, biomasDeMod: biomasDeModRegistrados() });
     worker.onmessage = (ev) => {
       const msg = ev.data;
       if (msg.type !== 'chunk') return;
@@ -602,6 +645,14 @@ async function bootstrap() {
       audio.play(spec, { position: posicao, volume, dedupeKey: `mod:${nome}` });
     },
     modFetch: (modId, endereco, opcoes) => redeDeMods.chamar(modId, endereco, opcoes ?? {}),
+    registrarBioma: (modId, def) => {
+      const erro = registrarBiomaDeMod(normalizarBiomaDeMod(modId, def));
+      if (erro) return erro;
+      // O worldgen roda noutro reino e já tem uma cópia da lista. Sem reiniciá-lo, o bioma existiria
+      // na cor da névoa e **não** no terreno — o jogador veria o horizonte mudar e o chão não.
+      reiniciarGeracao();
+      return null;
+    },
   };
 
   /**
@@ -1442,6 +1493,10 @@ async function bootstrap() {
     // "inverno eterno" contaminaria o próximo mundo aberto na mesma sessão — e o sintoma
     // (estações erradas) apareceria longe de qualquer coisa que o jogador tenha feito ali.
     limparPerfis();
+    // Biomas de mod são por mundo: sem limpar, um mod de "bioma de cristal" instalado num mundo
+    // contaminaria o próximo aberto na mesma sessão, e o sintoma seria terreno errado num mundo
+    // que nunca teve aquele mod.
+    limparBiomasDeMod();
     relampago.reset();
     void sincronizarGlobaisDeIA();
     for (const key of Array.from(materiaisFade.keys())) encerrarFade(key);
@@ -1461,7 +1516,7 @@ async function bootstrap() {
     savedChunks.clear();
 
     seed = wRecord.seed || (Math.random() * 0xffffffff) >>> 0;
-    worker.postMessage({ type: 'init', seed });
+    worker.postMessage({ type: 'init', seed, biomasDeMod: biomasDeModRegistrados() });
 
     // Os mods vêm ANTES dos blocos salvos: eles registram os blocos customizados nos ids que o
     // save referencia. Na ordem inversa, o mundo aplicaria ids sem definição e o mesher

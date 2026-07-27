@@ -75,6 +75,8 @@ export const MOD_API_REFERENCE = {
 
     'api.weather.set(clima|null)': "impõe um clima para o mundo todo; null devolve à sequência natural. Nomes: 'limpo','nublado','chuva','tempestade','neve','neblina'",
 
+    'await api.biomes.define({id, nome, temp, moist, grama, folhagem, neblina, alcanceNeblina, saturacao, sazonal, minerios})':
+      "registra um bioma novo. `temp` e `moist` são o centro dele no plano de clima, ambos entre -1 e 1 — é isso que decide ONDE ele aparece no mundo. Cores em [r,g,b] de 0 a 1. O id ganha o prefixo do mod. Só afeta o terreno ainda não gerado",
     'api.ui.toast(texto)': 'mensagem curta na tela',
     'await api.net.fetch(url, {metodo, cabecalhos, corpo})': "ÚNICA porta de rede. Só funciona se o mod declarar o host em capacidades.rede.hosts E o jogador autorizar. Devolve { status, ok, texto }. Enviar dados (POST, ou qualquer corpo) exige capacidades.rede.envia = true. Sem redirecionamento, sem cookies, 10 s de limite e 2 MB de resposta",
     'capacidades (no pacote do mod)': "{ versao: 1, rede: { hosts: ['api.exemplo.com' ou '.exemplo.com'], motivo: 'uma frase que o jogador leia', envia?: true } } — curinga não é aceito",

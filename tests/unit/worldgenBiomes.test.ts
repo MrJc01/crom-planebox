@@ -1,4 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  biomaDominante, biomasDeModRegistrados, definicaoDeBioma,
+  limparBiomasDeMod, pesosDeBioma, registrarBiomaDeMod,
+} from '../../src/world/biomes';
 import { B } from '../../src/world/blocks';
 import { CX, CZ, SCALE } from '../../src/world/chunk';
 import { estruturasNaRegiao } from '../../src/world/scatter';
@@ -223,5 +227,76 @@ describe('as construções espalhadas existem no mundo gerado', () => {
     const data = g.generateChunk(999, 999);
     expect(data.length).toBeGreaterThan(0);
     expect(data.some((b) => b !== B.AIR)).toBe(true);
+  });
+});
+
+describe('biomas registrados por mod — item 676', () => {
+  const CRISTAL: any = {
+    id: 'meumod:cristal', nome: 'Cristal', temp: 0.2, moist: 0.9,
+    grama: [0.5, 0.8, 0.9], folhagem: [0.4, 0.7, 0.9],
+    neblina: [0.6, 0.8, 0.95], alcanceNeblina: 1.1, saturacao: 1.2, sazonal: false,
+  };
+
+  afterEach(() => limparBiomasDeMod());
+
+  it('CRÍTICO: um bioma de mod entra na mistura', () => {
+    expect(registrarBiomaDeMod(CRISTAL)).toBeNull();
+    const pesos = pesosDeBioma({ temp: 0.2, moist: 0.9, montanha: 0, acimaDoMar: 20 });
+    expect(pesos.some((p) => p.id === 'meumod:cristal')).toBe(true);
+  });
+
+  it('CRÍTICO: e domina onde o centro dele está', () => {
+    // Registrar sem influenciar seria o pior resultado: o mod carrega, o log não diz nada, e o
+    // bioma existe na tabela sem nunca aparecer no mundo.
+    registrarBiomaDeMod(CRISTAL);
+    const pesos = pesosDeBioma({ temp: 0.2, moist: 0.9, montanha: 0, acimaDoMar: 20 });
+    expect(biomaDominante(pesos)).toBe('meumod:cristal');
+  });
+
+  it('CRÍTICO: a soma dos pesos continua 1 com bioma de mod', () => {
+    // A propriedade que sustenta toda a mistura de cor e névoa. Um bioma novo que a quebrasse faria
+    // o mundo inteiro escurecer ou estourar de saturação, longe de onde ele foi registrado.
+    registrarBiomaDeMod(CRISTAL);
+    for (let t = -1; t <= 1; t += 0.25) {
+      for (let m = -1; m <= 1; m += 0.25) {
+        const soma = pesosDeBioma({ temp: t, moist: m, montanha: 0, acimaDoMar: 20 })
+          .reduce((a, p) => a + p.peso, 0);
+        expect(soma, `t=${t} m=${m}`).toBeCloseTo(1, 6);
+      }
+    }
+  });
+
+  it('CRÍTICO: substituir um bioma nativo é recusado', () => {
+    // Redefinir `deserto` mudaria o terreno de todo mundo salvo que já tem deserto, e a mudança
+    // apareceria como "meu mundo está diferente" sem ninguém ligar ao mod recém-instalado.
+    expect(registrarBiomaDeMod({ ...CRISTAL, id: 'deserto' })).toMatch(/nativo/);
+  });
+
+  it('CRÍTICO: centro fora do plano é recusado, dizendo o valor', () => {
+    // Fora de -1..1 o bioma teria peso zero em todo ponto: existiria na tabela e nunca no mundo.
+    expect(registrarBiomaDeMod({ ...CRISTAL, temp: 5 })).toMatch(/temp/);
+    expect(registrarBiomaDeMod({ ...CRISTAL, moist: -3 })).toMatch(/moist/);
+  });
+
+  it('registrar duas vezes é recusado', () => {
+    registrarBiomaDeMod(CRISTAL);
+    expect(registrarBiomaDeMod(CRISTAL)).toMatch(/já foi registrado/);
+  });
+
+  it('CRÍTICO: limpar devolve o conjunto nativo', () => {
+    // É o que impede um mod de um mundo de contaminar o próximo aberto na mesma sessão.
+    registrarBiomaDeMod(CRISTAL);
+    limparBiomasDeMod();
+    const pesos = pesosDeBioma({ temp: 0.2, moist: 0.9, montanha: 0, acimaDoMar: 20 });
+    expect(pesos.some((p) => p.id === 'meumod:cristal')).toBe(false);
+    expect(biomasDeModRegistrados()).toEqual([]);
+  });
+
+  it('bioma desconhecido cai na planície em vez de estourar', () => {
+    // O caso real é um save que menciona um bioma cujo mod foi desinstalado. Derrubar o
+    // carregamento do mundo por causa de cor de grama seria trocar um problema estético por um
+    // mundo inacessível.
+    expect(() => definicaoDeBioma('sumiu:faz-tempo')).not.toThrow();
+    expect(definicaoDeBioma('sumiu:faz-tempo').id).toBe('planicie');
   });
 });

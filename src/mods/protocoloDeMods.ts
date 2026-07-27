@@ -67,6 +67,9 @@ export const MEMBROS_DA_API: Readonly<Record<string, EstiloDeChamada>> = {
   'player.give': 'escrita',
 
   'ui.toast': 'escrita',
+  // Leitura: o script precisa saber se o bioma entrou. Registrar e não conferir faria o mod seguir
+  // construindo em cima de um bioma que não existe.
+  'biomes.define': 'leitura',
   // Leitura: o mod precisa da resposta. É a chamada mais cara da fronteira e a única que pode
   // demorar segundos — daí o `await` obrigatório e o timeout do lado de cá.
   'net.fetch': 'leitura',

@@ -19,6 +19,7 @@ import {
   ModBlockDef,
   ModEntityDef,
   ModPackage,
+  ModBiomeDef,
   ModStructureDef,
   emptyModPackage,
   stripLocalState,
@@ -28,6 +29,7 @@ import { SecretVault } from './SecretVault';
 import {
   allocateBlockIds,
   applyModBlocks,
+  applyModBiomes,
   conflitoDeContraste,
   normalizeKey,
   resolveStructureBlocks,
@@ -544,6 +546,39 @@ export class ModService {
     candidate.revision = (mod.revision ?? 1) + 1;
     await this.persist(candidate);
     return { ok: true, message: `Script "${key}" ${enabled ? 'ligado' : 'desligado'}.` };
+  }
+
+  /**
+   * Acrescenta um bioma ao mod — item 676.
+   *
+   * O bioma é **dado do pacote**, não efeito de script: é isso que o faz sobreviver a fechar o
+   * navegador, viajar na exportação e chegar aos convidados pelo P2P sem depender de um script
+   * rodar na ordem certa.
+   */
+  public async addBiome(modId: string, biome: ModBiomeDef): Promise<ModApplyResult> {
+    const mod = this.getMod(modId);
+    if (!mod) return { ok: false, message: `Mod "${modId}" não encontrado. Use create_mod primeiro.` };
+
+    const key = normalizeKey(biome.key || biome.nome);
+    if (!key) return { ok: false, message: 'O bioma precisa de uma chave ou nome válido.' };
+    if ((mod.biomes || []).some((b) => b.key === key)) {
+      return { ok: false, message: `O mod "${modId}" já tem um bioma com a chave "${key}".` };
+    }
+
+    const candidato: ModPackage = { ...mod, biomes: [...(mod.biomes || []), { ...biome, key }] };
+
+    // Registra ANTES de gravar. O registro é quem valida o centro no plano de clima, e gravar um
+    // bioma que nunca vai aparecer deixaria o mod com uma promessa morta dentro — o autor veria a
+    // ferramenta responder "criado" e o bioma não existiria em lugar nenhum do mundo.
+    const erros = applyModBiomes({ ...candidato, biomes: [{ ...biome, key }] });
+    if (erros.length > 0) return { ok: false, message: `Bioma inválido: ${erros.join(' ')}` };
+
+    await this.persist(candidato);
+    return {
+      ok: true,
+      message: `Bioma "${biome.nome}" criado como "${modId}:${key}", com centro em temp ${biome.temp} / moist ${biome.moist}. `
+        + 'Ele aparece no terreno ainda não gerado — o mundo já explorado continua como está.',
+    };
   }
 
   public async addStructure(modId: string, structure: ModStructureDef): Promise<ModApplyResult> {

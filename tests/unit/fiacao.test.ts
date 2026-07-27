@@ -475,6 +475,38 @@ describe('voz P2P — o microfone está ligado ao jogo (itens 927-932)', () => {
   });
 });
 
+describe('biomas de mod — o registro chega ao terreno (item 676)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: `api.biomes.define` chega ao registro', () => {
+    const api = FONTE.find((f) => f.arquivo.endsWith('mods/ModAPI.ts'))!.texto;
+    expect(/host\.registrarBioma\?\.\(/.test(api), 'a api não chama o host').toBe(true);
+    expect(/registrarBioma: \(modId, def\)/.test(main), 'o host não implementa').toBe(true);
+  });
+
+  it('CRÍTICO: o bioma novo chega ao Worker que gera o terreno', () => {
+    // Sem isto, o bioma existiria na cor da névoa e **não** no terreno: o jogador veria o horizonte
+    // mudar e o chão não. É o defeito mais confuso possível, porque parece um problema de shader.
+    expect(/biomasDeMod: biomasDeModRegistrados\(\)/.test(main), 'a lista não é enviada').toBe(true);
+    const gw = FONTE.find((f) => f.arquivo.endsWith('world/genWorker.ts'))!.texto;
+    expect(/registrarBiomaDeMod\(b\)/.test(gw), 'o worker recebe e ignora').toBe(true);
+  });
+
+  it('CRÍTICO: o worker esquece os biomas do mundo anterior', () => {
+    // O worker é reaproveitado entre mundos. Sem limpar, um mod de um mundo faria terreno estranho
+    // num mundo que nunca o teve.
+    const gw = FONTE.find((f) => f.arquivo.endsWith('world/genWorker.ts'))!.texto;
+    expect(/limparBiomasDeMod\(\)/.test(gw)).toBe(true);
+    expect(/limparBiomasDeMod\(\)/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: registrar durante a partida refaz a geração', () => {
+    // O worker já tem uma cópia da lista de quando foi iniciado. Sem reiniciá-lo, o bioma só
+    // existiria na próxima vez que o mundo abrisse.
+    expect(/reiniciarGeracao\(\)/.test(main)).toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos
