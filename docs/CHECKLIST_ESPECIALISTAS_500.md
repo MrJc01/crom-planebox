@@ -1323,14 +1323,14 @@ se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já
 }
 ```
 
-- [ ] 761 `P0` Manifesto de capacidades por mod, declarativo e versionado
+- [~] 761 `P0` **Manifesto no `ModPackage`** — viaja com o mod (quem importa precisa ver o pedido antes de instalar); o consentimento **não** viaja junto
 - [~] 762 `P0` **Allowlist de hosts** — `hostCasa`, com as duas únicas formas aceitas (exato e `.dominio.com`) e 28 testes. Ver a seção 71
-- [ ] 763 `P0` Consentimento explícito do usuário na primeira ativação, host a host
-- [ ] 764 `P0` `fetch` do mod passa por um wrapper que aplica a allowlist
+- [~] 763 `P0` **Consentimento host a host**, por mundo, com tabela `modConsents` (v9 do banco)
+- [~] 764 `P0` **`RedeDeMods`** — quatro verificações em ordem, `redirect: 'error'` e `credentials: 'omit'`. Ver a seção 72
 - [~] 765 `P0` **Mod não alcança mais o `fetch` global** por acesso direto — com a mesma ressalva do 359
 - [ ] 766 `P0` Capacidade sensível (microfone, geolocalização) exige consentimento separado
-- [ ] 767 `P0` Revogar capacidade a qualquer momento, sem desinstalar o mod
-- [ ] 768 `P0` Log de auditoria: que mod chamou que host, quando, com que volume
+- [~] 767 `P0` **Revogação é apagar a linha** — ausência é o padrão seguro, e um campo booleano criaria estado indefinido
+- [~] 768 `P0` **`modNetLog`** — registra também o que foi **recusado**, e nunca a query
 - [ ] 769 `P1` Painel mostrando as capacidades ativas por mod, em linguagem simples
 - [ ] 770 `P1` Importar mod de terceiro exibe as capacidades pedidas **antes** de instalar
 - [ ] 771 `P1` Rate limit e cota de chamadas por mod, por sessão
@@ -4272,8 +4272,76 @@ prova de que nada sai.
 
 ### O que falta na frente B
 
-- [ ] 1395 `P0` **Guardar o manifesto no `ModPackage` e no banco** (item 761) — hoje o módulo valida algo que ninguém armazena
-- [ ] 1396 `P0` **`api.net.fetch` através da ponte**, aplicando allowlist, `envia`, teto e timeout (item 764)
-- [ ] 1397 `P0` **Consentimento por host, persistido e revogável** (itens 763 e 767)
-- [ ] 1398 `P0` **Log de auditoria**: que mod chamou que host, quando, com que volume (item 768)
+- [~] 1395 `P0` **Manifesto no pacote, e duas tabelas novas** (`modConsents`, `modNetLog`)
+- [~] 1396 `P0` **`RedeDeMods` pronta e testada** (19 testes). **Falta ligá-la** ao `api.net.fetch` e ao banco — item 1400
+- [~] 1397 `P0` **Modelo de consentimento definido** e no banco; a pergunta ao jogador é um callback, e a tela dela é o item 1399
+- [~] 1398 `P0` **Registro de auditoria implementado**, com o que passou e o que foi barrado
 - [ ] 1399 `P1` **Tela mostrando capacidades ativas e permitindo revogar** (itens 769 e 770)
+
+---
+
+## 72 — A porta de rede: quatro perguntas, nesta ordem (itens 761, 763, 764, 767, 768)
+
+`RedeDeMods` é a única forma de um mod alcançar a rede — não por disciplina, mas porque o reino onde
+ele roda não tem `fetch` com que abrir um segundo caminho.
+
+### A ordem das verificações é uma decisão, não uma consequência
+
+1. o manifesto declara este host?
+2. o jogador consentiu com este host?
+3. a chamada envia dados, e o mod declarou que envia?
+4. cabe nos tetos de tamanho e tempo?
+
+A pergunta ao jogador é a operação mais cara que existe aqui — **interrompe a partida** — e por isso
+vem depois da checagem barata do manifesto. Um mod pedindo um host não declarado nunca deve gerar uma
+caixa de diálogo: isso ensinaria ao jogador que o manifesto não significa nada, e é justamente a
+lição oposta à que ele existe para dar. Virou teste.
+
+### As duas linhas mais importantes do `fetch`
+
+**`redirect: 'error'`.** Com `follow`, um host autorizado poderia redirecionar para um host **não**
+autorizado, e o conteúdo dele voltaria ao mod como se fosse do host permitido. A allowlist seria
+contornável por quem controla o servidor que ela autoriza — ou seja, por exatamente quem ela deveria
+conter.
+
+**`credentials: 'omit'`.** A chamada é do mod, não do jogador. Mandar cookies de sessão faria o mod
+agir em nome dele em qualquer serviço onde ele esteja logado.
+
+### Três decisões de modelo
+
+**Consentimento por MUNDO.** O mesmo mod em dois mundos pode ter propósitos diferentes, e um mundo
+compartilhado não deve herdar o que foi permitido no privado.
+
+**Consentimento por HOST, não por mod.** Um mod com três hosts pode ter propósito legítimo em dois e
+duvidoso no terceiro. Consentir por mod tornaria a decisão tudo ou nada — e a resposta racional para
+tudo ou nada é sempre "tudo": quem quer o mod aceita o pacote inteiro sem olhar.
+
+**Revogar é apagar a linha, não marcar um campo.** Ausência é o padrão seguro; um booleano cria a
+possibilidade de uma linha em estado indefinido, e um `undefined` lido como falso viraria
+consentimento concedido por acidente.
+
+**O manifesto viaja com o mod; o consentimento não.** Quem recebe um mod importado precisa ver o
+pedido **antes** de instalar. Se o consentimento viajasse junto, importar um mod traria a permissão
+que outra pessoa concedeu — precisamente o que a permissão existe para impedir.
+
+### O log guarda o que foi barrado, e nunca a query
+
+Um log que só registra o que deu certo responde à pergunta errada: quem audita quer ver o que o mod
+**tentou**, principalmente quando foi barrado.
+
+E a query fica de fora do registro. Ela pode conter exatamente o que o mod está mandando para fora, e
+o log existe para o jogador ver com quem o mod falou — não para virar uma segunda cópia dos dados que
+saíram.
+
+### A pergunta que não vira enxurrada
+
+Três chamadas ao mesmo host no mesmo quadro gerariam três caixas de diálogo idênticas empilhadas, e
+da segunda em diante seriam clicadas sem leitura. Todas esperam a mesma resposta.
+
+- [~] 1401 `P0` **`RedeDeMods`** com 19 testes, incluindo redirecionamento, credenciais e a enxurrada de perguntas
+- [~] 1402 `P1` **Banco na v9** com `modConsents` e `modNetLog` — duas tabelas, porque o consentimento se lê inteiro e o log cresce sem parar
+
+### O que falta para a frente B estar ligada
+
+- [ ] 1400 `P0` **Ligar `api.net.fetch`** — expor no protocolo e na `buildModAPI`, e amarrar a `RedeDeMods` ao repositório e à UI de consentimento. Enquanto isto não existir, a porta está construída e **fechada**: nenhum mod alcança a rede, que é o padrão seguro, mas também não é o recurso entregue
+- [ ] 1399 `P1` **Tela de capacidades ativas**, com revogação por host (itens 769 e 770)

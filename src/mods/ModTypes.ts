@@ -1,4 +1,5 @@
 import { EsquemaEnv } from './ModEnv';
+import { ManifestoDeCapacidades } from './capacidades';
 // Formato do "pacote de mod" — a unidade que a IA cria, o mundo salva e o jogo reaplica.
 //
 // Um mod é declarativo de propósito: são dados serializáveis (blocos, espécies de entidade,
@@ -125,6 +126,20 @@ export interface ModPackage {
    * no cofre (`modSecrets`, em `src/storage/Database.ts`).
    */
   env?: EsquemaEnv;
+
+  /**
+   * O que este mod **pede** para poder fazer — item 761.
+   *
+   * Viaja com o mod, como o `env`: quem recebe um mod importado ou vindo do anfitrião precisa ver o
+   * que ele pede **antes** de instalar. Um pedido que só aparecesse depois seria um pedido que
+   * ninguém avalia.
+   *
+   * Pedir não é ter: o consentimento do jogador é guardado separado, por mundo e por host
+   * (`modConsents`, em `src/storage/Database.ts`), e **não** viaja com o mod. Se viajasse, importar
+   * um mod traria junto a permissão que outra pessoa concedeu — que é precisamente a coisa que a
+   * permissão existe para impedir.
+   */
+  capacidades?: ManifestoDeCapacidades;
   createdAt: number;
   updatedAt: number;
 

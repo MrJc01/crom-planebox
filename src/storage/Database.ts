@@ -83,6 +83,61 @@ export interface PlayerRecord {
   updatedAt: number;
 }
 
+/**
+ * Consentimento do jogador para um mod falar com um host — itens 763 e 767.
+ *
+ * ## Por que é por MUNDO, e não global
+ *
+ * O mesmo mod instalado em dois mundos pode ter propósitos diferentes, e um mundo compartilhado com
+ * outra pessoa não deve herdar o que foi permitido no mundo privado. Amarrar ao mundo mantém a
+ * decisão perto do contexto em que ela foi tomada.
+ *
+ * ## Por que é por HOST, e não por mod
+ *
+ * Um mod que declara três hosts pode ter um propósito legítimo em dois e um duvidoso no terceiro.
+ * Consentir por mod obrigaria a decisão a ser tudo ou nada, e a resposta racional para tudo ou nada
+ * é sempre "tudo" — quem quer o mod aceita o pacote inteiro sem olhar.
+ *
+ * ## Por que a revogação é uma linha apagada, e não um campo `revogado`
+ *
+ * Ausência é o padrão seguro. Um campo booleano cria a possibilidade de existir uma linha em estado
+ * indefinido — e um `undefined` lido como falso viraria consentimento concedido por acidente.
+ */
+export interface ModConsentRecord {
+  /** `${worldId}|${modId}|${host}` — a chave composta, para revogar uma sem tocar nas outras. */
+  id: string;
+  worldId: string;
+  modId: string;
+  host: string;
+  /** Quando o jogador disse sim. Aparece na tela de capacidades. */
+  grantedAt: number;
+  /** O mod declarava enviar dados quando isto foi concedido — mudou? Então pergunte de novo. */
+  envia: boolean;
+}
+
+/**
+ * Uma chamada de rede que um mod fez — item 768.
+ *
+ * Guardado no banco e não só em memória: o valor de um log de auditoria é responder "o que este mod
+ * andou fazendo enquanto eu não estava olhando", e isso é uma pergunta feita depois, possivelmente
+ * numa sessão seguinte.
+ */
+export interface ModNetLogRecord {
+  id?: number;
+  worldId: string;
+  modId: string;
+  host: string;
+  /** Caminho sem a query: a query pode conter o que o mod está mandando, e o log não é lugar de guardar isso. */
+  caminho: string;
+  metodo: string;
+  quando: number;
+  /** Status HTTP, ou 0 quando a chamada nem saiu. */
+  status: number;
+  bytes: number;
+  /** Motivo da recusa, quando a chamada foi barrada antes de sair. */
+  recusa?: string;
+}
+
 export interface ChatThreadRecord {
   id: string;
   worldId: string;
@@ -211,6 +266,8 @@ export class VoxelDatabase extends Dexie {
   profiles!: Table<PlayerProfileRecord, string>;
   modRevisions!: Table<ModRevisionRecord, [string, string]>;
   modSecrets!: Table<ModSecretRecord, string>;
+  modConsents!: Table<ModConsentRecord, string>;
+  modNetLog!: Table<ModNetLogRecord, number>;
 
   constructor() {
     super('CromPlaneboxDB');
@@ -251,6 +308,14 @@ export class VoxelDatabase extends Dexie {
     // v8: cofre de segredos do `mod.env`. Tabela separada de propósito — ver `ModSecretRecord`.
     this.version(8).stores({
       modSecrets: 'key, worldId, [worldId+modId]'
+    });
+    // v9: consentimento de rede por mod e por host, e o log de auditoria das chamadas.
+    //
+    // Duas tabelas e não uma: o consentimento é um punhado de linhas que se lê inteiro, e o log
+    // cresce sem parar. Juntá-los faria toda leitura de permissão varrer o histórico.
+    this.version(9).stores({
+      modConsents: 'id, worldId, [worldId+modId]',
+      modNetLog: '++id, worldId, [worldId+modId], quando'
     });
   }
 }
