@@ -1,4 +1,4 @@
-import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord, ModRevisionRecord } from './Database';
+import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord, ModRevisionRecord, ModConsentRecord, ModNetLogRecord } from './Database';
 import { ModPackage, ModRevision } from '../mods/ModTypes';
 import { Appearance, sanitizeAppearance } from '../player/Appearance';
 
@@ -574,5 +574,54 @@ Você NÃO possui atalhos nem templates estáticos. Você deve PROGRAMAR TUDO DO
 
   static async clearUICustomizations(worldId: string): Promise<void> {
     await db.uiCustomizations.where('worldId').equals(worldId).delete();
+  }
+
+  // --- Capacidades de rede dos mods (itens 763, 767, 768) ---------------------
+
+  static async getConsents(worldId: string): Promise<ModConsentRecord[]> {
+    return await db.modConsents.where('worldId').equals(worldId).toArray();
+  }
+
+  static async grantConsent(worldId: string, modId: string, host: string, envia: boolean): Promise<void> {
+    await db.modConsents.put({
+      id: `${worldId}|${modId}|${host}`, worldId, modId, host, envia, grantedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Revogar é **apagar a linha**, não marcar um campo.
+   *
+   * Ausência é o padrão seguro: um booleano criaria a possibilidade de uma linha em estado
+   * indefinido, e um `undefined` lido como falso viraria consentimento concedido por acidente.
+   */
+  static async revokeConsent(worldId: string, modId: string, host: string): Promise<void> {
+    await db.modConsents.delete(`${worldId}|${modId}|${host}`);
+  }
+
+  /** Tira todo consentimento de um mod — usado ao desinstalá-lo. */
+  static async revokeAllConsents(worldId: string, modId: string): Promise<void> {
+    await db.modConsents.where('[worldId+modId]').equals([worldId, modId]).delete();
+  }
+
+  static async logModNetCall(rec: Omit<ModNetLogRecord, 'id'>): Promise<void> {
+    await db.modNetLog.add(rec as ModNetLogRecord);
+    // Poda para não crescer sem fim. O log de auditoria responde "o que este mod andou fazendo",
+    // e essa pergunta é sobre o passado recente: guardar um ano de chamadas custaria espaço para
+    // responder pior, porque o que importa ficaria enterrado.
+    const total = await db.modNetLog.where('worldId').equals(rec.worldId).count();
+    if (total > 2_000) {
+      const velhas = await db.modNetLog.where('worldId').equals(rec.worldId)
+        .sortBy('quando');
+      const aRemover = velhas.slice(0, total - 2_000).map((v) => v.id!).filter((id) => id !== undefined);
+      if (aRemover.length > 0) await db.modNetLog.bulkDelete(aRemover);
+    }
+  }
+
+  static async getModNetLog(worldId: string, modId?: string, limit = 100): Promise<ModNetLogRecord[]> {
+    const base = modId
+      ? db.modNetLog.where('[worldId+modId]').equals([worldId, modId])
+      : db.modNetLog.where('worldId').equals(worldId);
+    const todas = await base.toArray();
+    return todas.sort((a, b) => b.quando - a.quando).slice(0, limit);
   }
 }

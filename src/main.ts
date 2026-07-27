@@ -29,6 +29,8 @@ import { foodValueOf, isEdible } from './game/SurvivalSystem';
 import { PlayerController } from './player/controller';
 import { Interaction } from './player/interaction';
 import { WorldRepository } from './storage/WorldRepository';
+import { RedeDeMods } from './mods/RedeDeMods';
+import { pedirCapacidade } from './ui/PedidoDeCapacidade';
 import { prepareWorld } from './storage/SaveMigration';
 import { MCPExecutors } from './ai/MCPExecutors';
 import { OpenRouterClient } from './ai/OpenRouterClient';
@@ -65,7 +67,7 @@ import { PeerSync } from './net/PeerSync';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
 import { hashAppearance } from './net/codec';
-import { WorldRecord, CURRENT_SAVE_VERSION } from './storage/Database';
+import { ModConsentRecord, WorldRecord, CURRENT_SAVE_VERSION } from './storage/Database';
 
 const MAX_INFLIGHT = 6;     // simultaneous generations in worker
 const LAST_WORLD_KEY = 'crom:lastWorldId';
@@ -598,7 +600,38 @@ async function bootstrap() {
       if (!spec) return; // nome inválido é ignorado, não quebra o script
       audio.play(spec, { position: posicao, volume, dedupeKey: `mod:${nome}` });
     },
+    modFetch: (modId, endereco, opcoes) => redeDeMods.chamar(modId, endereco, opcoes ?? {}),
   };
+
+  /**
+   * Consentimentos já concedidos, em memória.
+   *
+   * Um espelho da tabela, carregado ao abrir o mundo. A verificação acontece dentro de uma chamada
+   * de mod, que pode ser sessenta vezes por segundo — consultar o IndexedDB ali tornaria cada
+   * chamada assíncrona por um dado que muda uma vez por sessão.
+   */
+  let consentimentos: ModConsentRecord[] = [];
+
+  const redeDeMods = new RedeDeMods({
+    manifestoDe: (modId) => mcpExecutors.modService.getMod(modId)?.capacidades,
+    hostsConsentidos: (modId) => consentimentos.filter((c) => c.modId === modId).map((c) => c.host),
+    pedirConsentimento: async (modId, host, motivo, envia) => {
+      const mod = mcpExecutors.modService.getMod(modId);
+      const permitido = await pedirCapacidade({
+        nomeDoMod: mod?.name ?? modId, host, motivo, envia,
+      });
+      if (!permitido || !currentWorld.id) return false;
+      await WorldRepository.grantConsent(currentWorld.id, modId, host, envia);
+      consentimentos = await WorldRepository.getConsents(currentWorld.id);
+      return true;
+    },
+    registrar: (linha) => {
+      if (!currentWorld.id) return;
+      // Sem `await`: a auditoria não pode atrasar a resposta ao mod. Uma linha perdida numa falha
+      // de escrita é melhor que uma chamada de rede que espera o disco.
+      void WorldRepository.logModNetCall({ worldId: currentWorld.id, ...linha });
+    },
+  });
 
   const modRuntime = new ModRuntime(modBridge);
 
@@ -1440,6 +1473,11 @@ async function bootstrap() {
     // significam nada.
     const pr = savedPlayer?.pontoDeRenascimento;
     pontoDeRenascimento = pr ? new THREE.Vector3(pr.x, pr.y, pr.z) : null;
+
+    // Consentimentos de rede deste mundo. Sem esta linha, todo mod pediria permissão de novo a cada
+    // vez que o mundo fosse aberto — e uma permissão que se repete é uma permissão que se clica sem
+    // ler, que é o hábito que ela existe para evitar.
+    consentimentos = await WorldRepository.getConsents(worldId);
 
     localStorage.setItem(LAST_WORLD_KEY, worldId);
 

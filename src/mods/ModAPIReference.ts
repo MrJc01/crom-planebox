@@ -76,6 +76,8 @@ export const MOD_API_REFERENCE = {
     'api.weather.set(clima|null)': "impõe um clima para o mundo todo; null devolve à sequência natural. Nomes: 'limpo','nublado','chuva','tempestade','neve','neblina'",
 
     'api.ui.toast(texto)': 'mensagem curta na tela',
+    'await api.net.fetch(url, {metodo, cabecalhos, corpo})': "ÚNICA porta de rede. Só funciona se o mod declarar o host em capacidades.rede.hosts E o jogador autorizar. Devolve { status, ok, texto }. Enviar dados (POST, ou qualquer corpo) exige capacidades.rede.envia = true. Sem redirecionamento, sem cookies, 10 s de limite e 2 MB de resposta",
+    'capacidades (no pacote do mod)': "{ versao: 1, rede: { hosts: ['api.exemplo.com' ou '.exemplo.com'], motivo: 'uma frase que o jogador leia', envia?: true } } — curinga não é aceito",
     'api.audio.play(nome, posicao?, volume?)': 'toca som do catálogo; veja api.audio.nomes',
     'api.audio.nomes': 'catálogo de sons válidos (dano, acerto, pegarItem, craftar, splash…)',
     'api.storage.get/set/has/keys': 'chave-valor do mod, isolado dos outros, dura a sessão',
@@ -86,7 +88,7 @@ export const MOD_API_REFERENCE = {
 
   naoExiste: [
     'window, globalThis, document — sem acesso ao DOM',
-    'fetch, XMLHttpRequest, WebSocket — rede só existirá via capacidade declarada (ver checklist seção 30)',
+    'fetch, XMLHttpRequest, WebSocket — a rede existe SÓ por api.net.fetch, com host declarado no manifesto e autorizado pelo jogador',
     'setTimeout, setInterval — use o evento tick com api.storage para acumular tempo',
     'import, require — a API injetada é tudo que há',
     'localStorage, IndexedDB — use api.storage',

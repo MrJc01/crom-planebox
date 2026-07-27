@@ -4343,5 +4343,42 @@ da segunda em diante seriam clicadas sem leitura. Todas esperam a mesma resposta
 
 ### O que falta para a frente B estar ligada
 
-- [ ] 1400 `P0` **Ligar `api.net.fetch`** — expor no protocolo e na `buildModAPI`, e amarrar a `RedeDeMods` ao repositório e à UI de consentimento. Enquanto isto não existir, a porta está construída e **fechada**: nenhum mod alcança a rede, que é o padrão seguro, mas também não é o recurso entregue
+- [~] 1400 `P0` **`api.net.fetch` ligado** — protocolo, `buildModAPI`, repositório, tela de consentimento e referência da API. A porta está aberta e guardada
 - [ ] 1399 `P1` **Tela de capacidades ativas**, com revogação por host (itens 769 e 770)
+
+### Continuação da 72 — a porta ligada, e a tela que decide
+
+`api.net.fetch` atravessa agora o caminho inteiro: Worker sem `fetch` → protocolo → ponte →
+`RedeDeMods` → manifesto → consentimento → auditoria → rede.
+
+**A tela de consentimento não é um `confirm()`**, e isso é a diferença entre pedir permissão e
+cumprir formalidade. O `confirm()` do navegador não mostra o motivo declarado pelo mod, não distingue
+ler de enviar, e apresenta a mesma frase para qualquer pergunta. Uma permissão que se apresenta igual
+para "buscar a previsão do tempo" e para "mandar o seu mundo para um servidor" está pedindo para ser
+clicada sem leitura.
+
+O que a tela mostra, e por quê:
+
+- **O host em destaque.** "Este mod usa a internet" não é julgável; `api.previsao-do-tempo.com` é.
+- **O motivo declarado pelo autor** — é o que a validação do manifesto obriga a existir, e a única
+  parte que explica *para quê*.
+- **O aviso de envio, separado**, quando o mod declarou `envia`. Ler de um endereço e mandar coisas
+  para ele são permissões diferentes; juntá-las numa frase apagaria a mais séria das duas.
+
+Três detalhes de comportamento, todos apontando para o mesmo lado:
+
+**Fechar sem escolher é não.** Quem fecha a caixa não disse sim, e tratar silêncio como
+consentimento é o oposto do que a permissão garante.
+
+**Escape recusa.** É o reflexo de quem quer sair da caixa, e o reflexo precisa cair no lado seguro.
+
+**"Não permitir" recebe o foco inicial.** Um Enter distraído não deve conceder acesso à rede.
+
+E o consentimento é **recarregado ao abrir o mundo**: sem isso, todo mod pediria permissão de novo a
+cada sessão — e uma permissão que se repete é uma permissão que se clica sem ler, exatamente o hábito
+que ela existe para evitar.
+
+- [~] 1403 `P0` **`PedidoDeCapacidade`** — tela própria, com escape de teclado caindo no "não"
+- [~] 1404 `P1` **Consentimento espelhado em memória** — a verificação acontece dentro de uma chamada de mod, e consultar o IndexedDB ali tornaria cada chamada assíncrona por um dado que muda uma vez por sessão
+- [~] 1405 `P1` **Poda do log de auditoria em 2.000 linhas por mundo** — a pergunta que ele responde é sobre o passado recente; guardar um ano faria o que importa ficar enterrado
+- [~] 1406 `P1` **4 travas de fiação** e a referência da API ensinando `capacidades` e `await api.net.fetch`

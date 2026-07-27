@@ -377,6 +377,36 @@ describe('o reino dos mods — item 358 e a queda dele', () => {
   });
 });
 
+describe('rede de mod — a porta está ligada (itens 761-768)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: `api.net.fetch` chega à `RedeDeMods`', () => {
+    // `RedeDeMods` é uma classe pura com 19 testes que passariam com ela desligada — e desligada
+    // significa mod nenhum alcançando a rede, o que é seguro e não é o recurso.
+    expect(/modFetch: \(modId, endereco, opcoes\)/.test(main), 'o host não oferece rede').toBe(true);
+    expect(/new RedeDeMods\(/.test(main), 'ninguém constrói o serviço').toBe(true);
+    const api = FONTE.find((f) => f.arquivo.endsWith('mods/ModAPI.ts'))!.texto;
+    expect(/host\.modFetch\(/.test(api), 'a api não chama o host').toBe(true);
+  });
+
+  it('CRÍTICO: o consentimento é PERSISTIDO e RECARREGADO', () => {
+    // Gravar sem recarregar faz todo mod pedir permissão de novo a cada vez que o mundo abre — e
+    // uma permissão que se repete é uma permissão que se clica sem ler.
+    expect(/grantConsent\(/.test(main), 'não grava').toBe(true);
+    expect(/getConsents\(/.test(main), 'não recarrega').toBe(true);
+  });
+
+  it('CRÍTICO: a auditoria é gravada', () => {
+    expect(/logModNetCall\(/.test(main), 'nada é auditado').toBe(true);
+  });
+
+  it('CRÍTICO: a pergunta ao jogador tem tela própria', () => {
+    // Sem ela, `pedirConsentimento` teria que devolver `false` sempre — a porta ficaria construída
+    // e permanentemente fechada, sem nada dizendo por quê.
+    expect(/pedirCapacidade\(/.test(main), 'ninguém pergunta').toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos

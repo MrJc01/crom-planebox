@@ -66,6 +66,14 @@ export interface ModHostBridge {
   defineSeasonProfile(bioma: string, perfis: Record<string, Record<string, number>>): boolean;
   /** Toca um som do catálogo, opcionalmente posicionado no mundo. */
   playSound(nome: string, posicao?: { x: number; y: number; z: number }, volume?: number): void;
+  /**
+   * Rede do mod, com todas as verificações aplicadas — ver `RedeDeMods`.
+   *
+   * Opcional: um host que não implementa isto é um mundo **sem rede para mods**, e esse é o padrão
+   * seguro. Um `?.` que devolvesse `undefined` em silêncio faria o mod receber uma resposta vazia e
+   * seguir em frente; por isso a `api` recusa com mensagem quando o host não oferece o recurso.
+   */
+  modFetch?(modId: string, endereco: string, opcoes?: { metodo?: string; cabecalhos?: Record<string, string>; corpo?: string }): Promise<{ status: number; ok: boolean; texto: string }>;
 }
 
 /** Teto de blocos que um único handler altera, para um laço mal escrito não travar o frame. */
@@ -281,6 +289,23 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
 
     ui: {
       toast: (msg: string) => host.toast(String(msg).slice(0, 200)),
+    },
+
+    net: {
+      /**
+       * Única porta de rede do mod (itens 761–768).
+       *
+       * O que chega aqui já passou pelo Worker sem `fetch`; o que sai daqui ainda vai passar pela
+       * allowlist do manifesto, pelo consentimento do jogador e pela auditoria.
+       *
+       * A recusa quando o host não oferece rede é **explícita**, e não um `undefined` devolvido em
+       * silêncio: o mod precisa distinguir "a resposta veio vazia" de "este mundo não dá rede a
+       * mods", e só a segunda tem uma correção possível do lado do autor.
+       */
+      fetch: (endereco: string, opcoes?: { metodo?: string; cabecalhos?: Record<string, string>; corpo?: string }) => {
+        if (!host.modFetch) return Promise.reject(new Error('rede indisponível para mods neste mundo'));
+        return host.modFetch(mod.id, String(endereco), opcoes);
+      },
     },
 
     audio: {
