@@ -33,8 +33,34 @@ export const SPAWN_LIGHT_THRESHOLD = 6;
 export const MIN_SPAWN_DISTANCE = 14;
 /** Nem além disto: fora do alcance visível é desperdício de simulação. */
 export const MAX_SPAWN_DISTANCE = 42;
-/** Teto de hostis simultâneos. */
+/** Teto de hostis simultâneos na superfície. */
 export const MAX_HOSTILES = 18;
+
+/**
+ * Teto absoluto, qualquer que seja a camada.
+ *
+ * O limite aqui não é de jogo, é de quadro: cada hostil roda perseguição e colisão por frame. Sem um
+ * teto duro, uma camada muito perigosa transformaria "difícil" em "travado", e o jogador não teria
+ * como distinguir as duas coisas.
+ */
+export const TETO_ABSOLUTO_DE_HOSTIS = 34;
+
+/**
+ * Quantos hostis podem existir ao mesmo tempo, dada a camada — item 1443.
+ *
+ * ## O teto que saturava
+ *
+ * Com um teto único, o abismo gerando ao dobro do ritmo simplesmente **chegava ao limite mais
+ * rápido** — e ali o perigo parava de crescer. O efeito era o mesmo teto por saturação que já
+ * apareceu no `TIER_DAMAGE` deste projeto: não falha, não avisa, só deixa de recompensar. O jogador
+ * desceria mais fundo e sentiria o mesmo, concluindo que a profundidade não muda nada.
+ *
+ * O teto acompanhar o perigo é o que faz a diferença entre as camadas continuar valendo depois dos
+ * primeiros segundos.
+ */
+export function limiteDeHostis(perigo = 1): number {
+  return Math.min(TETO_ABSOLUTO_DE_HOSTIS, Math.round(MAX_HOSTILES * Math.max(0.1, perigo)));
+}
 /** Segundos entre tentativas de spawn. */
 export const SPAWN_INTERVAL = 4;
 
@@ -187,7 +213,7 @@ export function findSpawnPoint(
   rng: () => number = Math.random,
   attempts = 24,
 ): SpawnPoint | null {
-  if (ctx.hostileCount >= MAX_HOSTILES) return null;
+  if (ctx.hostileCount >= limiteDeHostis(ctx.perigo)) return null;
 
   for (let i = 0; i < attempts; i++) {
     const angle = rng() * Math.PI * 2;

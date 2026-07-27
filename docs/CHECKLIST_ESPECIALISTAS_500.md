@@ -4742,4 +4742,24 @@ uma é sobre a pressão que o jogador percebe, a outra sobre o lugar de onde a c
 
 ### Lacuna anotada nesta rodada
 
-- [ ] 1443 `P2` **O teto de hostis simultâneos é global** (`MAX_HOSTILES = 18`) — com o abismo gerando ao dobro, ele é atingido mais rápido lá, e o efeito prático é o perigo saturar em vez de crescer. Um teto por camada, ou por distância do jogador, faria a diferença continuar valendo no fundo
+- [~] 1443 `P2` **O teto passou a acompanhar a camada** — com teto absoluto por cima, porque difícil não pode virar travado
+
+### Continuação da 78 — o teto que eu mesmo criei saturando
+
+Anotei o 1443 no fim da rodada anterior e ele foi o primeiro desta, porque era um defeito que a
+própria correção do 497 tinha introduzido.
+
+Com `MAX_HOSTILES` global, o abismo gerando ao dobro do ritmo simplesmente **chegava ao limite mais
+rápido** — e ali o perigo parava de crescer. O jogador desceria mais fundo e sentiria o mesmo,
+concluindo que a profundidade não muda nada.
+
+É a terceira vez que este projeto encontra a mesma forma: `TIER_DAMAGE` saturando no índice 3,
+`WORLD_MAX_Y` com o teto de 8 voxels, e agora este. **Um teto por saturação não falha, não avisa, e
+só deixa de recompensar** — e por isso ele sobrevive a qualquer teste que verifique "funciona?" em
+vez de "continua valendo?".
+
+O teto passou a acompanhar o perigo, com um limite absoluto por cima. Esse limite não é de jogo, é de
+quadro: cada hostil roda perseguição e colisão por frame, e o jogador não teria como distinguir
+"muito difícil" de "o jogo travou".
+
+- [~] 1444 `P1` **`limiteDeHostis(perigo)`** com 5 testes, incluindo um que exige o spawner usar o teto da camada e não o global

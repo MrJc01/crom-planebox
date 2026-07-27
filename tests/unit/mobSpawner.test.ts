@@ -14,7 +14,9 @@ import {
   findSpawnPoint,
   isSpawnable,
   ESPECIES_POR_CAMADA,
+  TETO_ABSOLUTO_DE_HOSTIS,
   especieDaCamada,
+  limiteDeHostis,
 } from '../../src/entities/MobSpawner';
 import { CAMADAS } from '../../src/world/camadas';
 import { MOB_KINDS } from '../../src/entities/Combat';
@@ -345,5 +347,43 @@ describe('a camada desloca a mistura de espécies — item 1439', () => {
       expect(pesos, c.id).toBeDefined();
       expect(Object.values(pesos!).some((p) => (p ?? 0) > 0), c.id).toBe(true);
     }
+  });
+});
+
+describe('o teto que saturava — item 1443', () => {
+  // Com um teto único, o abismo gerando ao dobro do ritmo simplesmente chegava ao limite mais
+  // rápido — e ali o perigo parava de crescer. É o mesmo teto por saturação que já apareceu no
+  // TIER_DAMAGE deste projeto: não falha, não avisa, só deixa de recompensar. O jogador desceria
+  // mais fundo e sentiria o mesmo, concluindo que a profundidade não muda nada.
+
+  it('CRÍTICO: o teto acompanha o perigo da camada', () => {
+    const superficie = limiteDeHostis(CAMADAS[0].perigo);
+    const abismo = limiteDeHostis(CAMADAS[CAMADAS.length - 1].perigo);
+    expect(abismo).toBeGreaterThan(superficie);
+  });
+
+  it('CRÍTICO: existe teto absoluto — difícil não pode virar travado', () => {
+    // O limite aqui não é de jogo, é de quadro: cada hostil roda perseguição e colisão por frame. E
+    // o jogador não teria como distinguir "muito difícil" de "o jogo travou".
+    expect(limiteDeHostis(100)).toBe(TETO_ABSOLUTO_DE_HOSTIS);
+    expect(TETO_ABSOLUTO_DE_HOSTIS).toBeGreaterThanOrEqual(MAX_HOSTILES);
+  });
+
+  it('sem perigo informado, o teto é o da superfície', () => {
+    expect(limiteDeHostis()).toBe(MAX_HOSTILES);
+  });
+
+  it('CRÍTICO: o spawner respeita o teto DA CAMADA, não o global', () => {
+    // Sem isto, o abismo continuaria parando em 18 e o teto novo seria uma função que ninguém usa.
+    const acimaDoGlobal = { ...CTX, hostileCount: MAX_HOSTILES + 2, perigo: 2.2 };
+    expect(findSpawnPoint(world(), PLAYER, acimaDoGlobal, Math.random)).not.toBeNull();
+
+    const naSuperficie = { ...CTX, hostileCount: MAX_HOSTILES + 2, perigo: 1 };
+    expect(findSpawnPoint(world(), PLAYER, naSuperficie, Math.random)).toBeNull();
+  });
+
+  it('perigo absurdo não vira teto negativo nem infinito', () => {
+    expect(limiteDeHostis(0)).toBeGreaterThan(0);
+    expect(Number.isFinite(limiteDeHostis(-3))).toBe(true);
   });
 });
