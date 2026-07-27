@@ -41,6 +41,23 @@ export interface ManifestoDeCapacidades {
   rede?: CapacidadeDeRede;
 }
 
+/**
+ * As únicas capacidades que existem. Qualquer outra chave é recusada na validação.
+ *
+ * ## Por que recusar em vez de ignorar — item 766
+ *
+ * Um mod pedindo `microfone` ou `geolocalizacao` hoje seria **ignorado em silêncio**: o script roda
+ * num Worker onde `navigator` foi apagado, e não há membro de API que chegue a esses dispositivos.
+ * Ignorar parece inofensivo e não é — o autor do mod (com frequência uma IA) escreveria o pedido,
+ * veria o mod carregar sem erro, e concluiria que a permissão foi concedida. O mod então falharia
+ * mais adiante, longe da causa.
+ *
+ * Recusar aqui diz a verdade no lugar certo: **esta capacidade não existe neste jogo.** Quando
+ * alguma delas passar a existir, ela entra nesta lista junto com o consentimento separado que o
+ * item 766 pede — e não antes.
+ */
+export const CAPACIDADES_CONHECIDAS = ['versao', 'rede'] as const;
+
 export const VERSAO_DO_MANIFESTO = 1;
 
 /**
@@ -164,6 +181,13 @@ export function validarManifesto(m: unknown): string[] {
   // concederia por engano tudo o que a versão atual permite.
   if (man.versao !== VERSAO_DO_MANIFESTO) {
     erros.push(`versao precisa ser ${VERSAO_DO_MANIFESTO} (recebido: ${JSON.stringify(man.versao)})`);
+  }
+
+  for (const chave of Object.keys(m as object)) {
+    if ((CAPACIDADES_CONHECIDAS as readonly string[]).includes(chave)) continue;
+    erros.push(
+      `capacidade "${chave}" não existe neste jogo. Conhecidas: ${CAPACIDADES_CONHECIDAS.join(', ')}`,
+    );
   }
 
   if (man.rede !== undefined) {

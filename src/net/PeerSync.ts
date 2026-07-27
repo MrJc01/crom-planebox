@@ -12,6 +12,19 @@ const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 interface PeerLink {
   id: string;
   conn: RTCPeerConnection;
+  /**
+   * Estado da negociação perfeita (perfect negotiation), para renegociar sem colisão.
+   *
+   * Quando os dois lados ligam o microfone ao mesmo tempo, os dois produzem uma oferta e as duas
+   * chegam com o outro lado já no meio da própria — o "glare". Sem tratamento, a conexão trava num
+   * estado inválido e só volta caindo e reconectando.
+   *
+   * A saída padrão é um lado **educado**: ele desfaz a própria oferta e aceita a do outro. Aqui o
+   * educado é o convidado, porque o anfitrião já é a autoridade em tudo o mais — usar o mesmo
+   * critério evita ter duas noções diferentes de quem manda.
+   */
+  fazendoOferta?: boolean;
+  ignorandoOferta?: boolean;
   channel: RTCDataChannel | null;
 }
 
@@ -144,8 +157,70 @@ export class PeerSync {
     if (p?.channel) void this.deliver(p.channel, msg);
   }
 
+  /** Chamado quando chega áudio de um par. Ligado pela camada de voz. */
+  public onTrilhaRemota: (peerId: string, stream: MediaStream) => void = () => {};
+
+  /**
+   * Adiciona (ou substitui) a trilha de áudio local em **todas** as conexões abertas.
+   *
+   * Devolve quantos pares receberam. Zero não é erro: é jogar sozinho.
+   */
+  public adicionarTrilhaDeAudio(trilha: MediaStreamTrack, stream: MediaStream): number {
+    let n = 0;
+    for (const [peerId, p] of this.peers) {
+      const existente = p.conn.getSenders().find((s) => s.track?.kind === 'audio');
+      if (existente) { void existente.replaceTrack(trilha); }
+      else {
+        p.conn.addTrack(trilha, stream);
+        // Só a **primeira** trilha exige renegociar: ela muda a descrição da sessão. Trocar a
+        // trilha de um emissor que já existe não muda nada no SDP, e renegociar ali seria uma
+        // rodada de sinalização por nada.
+        void this.renegociar(peerId);
+      }
+      n++;
+    }
+    return n;
+  }
+
+  /** Tira a trilha de áudio de todas as conexões e renegocia. */
+  public removerTrilhaDeAudio(): void {
+    for (const [peerId, p] of this.peers) {
+      const emissor = p.conn.getSenders().find((s) => s.track?.kind === 'audio');
+      if (!emissor) continue;
+      p.conn.removeTrack(emissor);
+      void this.renegociar(peerId);
+    }
+  }
+
+  /**
+   * Refaz a oferta para um par cuja sessão mudou.
+   *
+   * `fazendoOferta` marca a janela em que uma oferta nossa está no ar — é o que `handleSignal` lê
+   * para decidir se uma oferta que chega é colisão.
+   */
+  private async renegociar(peerId: string): Promise<void> {
+    const p = this.peers.get(peerId);
+    if (!p) return;
+    try {
+      p.fazendoOferta = true;
+      const oferta = await p.conn.createOffer();
+      await p.conn.setLocalDescription(oferta);
+      this.signaling.sendSignal({ kind: 'offer', from: this.signaling.clientId, to: peerId, data: p.conn.localDescription });
+    } catch (err) {
+      console.warn('[PeerSync] renegociação falhou com', peerId, err);
+    } finally {
+      p.fazendoOferta = false;
+    }
+  }
+
   private newConnection(peerId: string): RTCPeerConnection {
     const conn = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    conn.ontrack = (e) => {
+      // `e.streams[0]` é o stream que o outro lado anunciou. Sem ele — caso raro de SDP sem
+      // agrupamento — monta-se um a partir da trilha, senão o áudio chega e não tem onde tocar.
+      const stream = e.streams[0] ?? new MediaStream([e.track]);
+      this.onTrilhaRemota(peerId, stream);
+    };
     conn.onicecandidate = (e) => {
       if (e.candidate) {
         this.signaling.sendSignal({ kind: 'ice-candidate', from: this.signaling.clientId, to: peerId, data: e.candidate });
@@ -251,9 +326,25 @@ export class PeerSync {
   private async handleSignal(env: { kind: string; from: string; data: any }): Promise<void> {
     const peerId = env.from;
     if (env.kind === 'offer') {
-      const conn = this.newConnection(peerId);
-      conn.ondatachannel = (e) => this.wireChannel(peerId, e.channel);
-      this.peers.set(peerId, { id: peerId, conn, channel: null });
+      // Oferta de um par **já conectado** é renegociação (alguém ligou o microfone), não uma
+      // conexão nova. Criar outra `RTCPeerConnection` aqui — como era — descartaria o canal de
+      // dados aberto e derrubaria a partida a cada vez que alguém falasse.
+      const existente = this.peers.get(peerId);
+      const conn = existente?.conn ?? this.newConnection(peerId);
+      if (!existente) {
+        conn.ondatachannel = (e) => this.wireChannel(peerId, e.channel);
+        this.peers.set(peerId, { id: peerId, conn, channel: null });
+      }
+
+      // Colisão: os dois lados ofereceram ao mesmo tempo. O educado (o convidado) desfaz a própria
+      // oferta; o impaciente (o anfitrião) ignora a que chegou e segue com a sua.
+      const link = this.peers.get(peerId)!;
+      const colidiu = !!link.fazendoOferta || conn.signalingState !== 'stable';
+      const educado = this.role === 'guest';
+      link.ignorandoOferta = !educado && colidiu;
+      if (link.ignorandoOferta) return;
+
+      if (colidiu) await conn.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit);
       await conn.setRemoteDescription(env.data);
       const answer = await conn.createAnswer();
       await conn.setLocalDescription(answer);

@@ -190,3 +190,31 @@ describe('tetos', () => {
     expect(MAX_BYTES_DE_RESPOSTA).toBeLessThanOrEqual(8 * 1024 * 1024);
   });
 });
+
+describe('capacidade que não existe é RECUSADA, não ignorada — item 766', () => {
+  it('CRÍTICO: pedir microfone é um erro explícito', () => {
+    // Ignorar em silêncio parece inofensivo e não é: o autor do mod — com frequência uma IA —
+    // escreveria o pedido, veria o mod carregar sem erro, e concluiria que a permissão foi
+    // concedida. O mod falharia mais adiante, longe da causa.
+    const erros = validarManifesto({ versao: VERSAO_DO_MANIFESTO, microfone: { motivo: 'comandos de voz' } });
+    expect(erros.join(' ')).toMatch(/microfone/);
+    expect(erros.join(' ')).toMatch(/não existe/);
+  });
+
+  it('CRÍTICO: geolocalização idem', () => {
+    const erros = validarManifesto({ versao: VERSAO_DO_MANIFESTO, geolocalizacao: {} });
+    expect(erros.join(' ')).toMatch(/geolocalizacao/);
+  });
+
+  it('a mensagem diz quais existem, para o autor saber o que pode pedir', () => {
+    const erros = validarManifesto({ versao: VERSAO_DO_MANIFESTO, inventada: true });
+    expect(erros.join(' ')).toContain('rede');
+  });
+
+  it('as capacidades reais continuam passando', () => {
+    expect(validarManifesto({
+      versao: VERSAO_DO_MANIFESTO,
+      rede: { hosts: ['api.x.com'], motivo: 'buscar dados de uma API pública de clima' },
+    })).toEqual([]);
+  });
+});

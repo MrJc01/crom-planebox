@@ -1328,7 +1328,7 @@ se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já
 - [~] 763 `P0` **Consentimento host a host**, por mundo, com tabela `modConsents` (v9 do banco)
 - [~] 764 `P0` **`RedeDeMods`** — quatro verificações em ordem, `redirect: 'error'` e `credentials: 'omit'`. Ver a seção 72
 - [~] 765 `P0` **Mod não alcança mais o `fetch` global** por acesso direto — com a mesma ressalva do 359
-- [ ] 766 `P0` Capacidade sensível (microfone, geolocalização) exige consentimento separado
+- [~] 766 `P0` **Capacidade inexistente é RECUSADA, não ignorada** — um mod pedindo `microfone` recebe erro explícito dizendo que ela não existe neste jogo. Quando existir, entra na lista junto com o consentimento separado — e não antes
 - [~] 767 `P0` **Revogação é apagar a linha** — ausência é o padrão seguro, e um campo booleano criaria estado indefinido
 - [~] 768 `P0` **`modNetLog`** — registra também o que foi **recusado**, e nunca a query
 - [~] 769 `P1` **Aba de capacidades por mod**, com o motivo declarado em destaque e o aviso de envio separado
@@ -1916,12 +1916,12 @@ push-to-talk resolve isso melhor que qualquer configuração.*
 boot, por exemplo) queima a chance: o usuário nega, e o navegador lembra da negativa. Só pedir
 quando ele clicar no botão.*
 
-- [ ] 927 `P0` Botão de microfone no HUD, **desligado por padrão**
-- [ ] 928 `P0` Push-to-talk numa tecla dedicada, além do modo alternado
-- [ ] 929 `P0` Indicador visível enquanto está captando — nunca captar sem sinal na tela
-- [ ] 930 `P0` `getUserMedia` pedido só ao clicar no botão, nunca no boot
-- [ ] 931 `P0` Track de áudio adicionada à `RTCPeerConnection` já existente (sem servidor)
-- [ ] 932 `P0` Renegociação da conexão ao ligar/desligar o microfone no meio da partida
+- [~] 927 `P0` **Botão de microfone no HUD**, desligado por padrão e visível só numa partida com outras pessoas
+- [~] 928 `P0` **Push-to-talk em [V]**, com modo alternado; soltar a tecla emudece mesmo digitando, e perder o foco também
+- [~] 929 `P0` **Três estados visíveis**: desligado, aberto e mudo, transmitindo — juntar os dois últimos apagaria a única distinção que importa
+- [~] 930 `P0` **`getUserMedia` só no clique**, com trava de fiação que reprova qualquer outra chamada no código
+- [~] 931 `P0` **Trilha na conexão que já carrega os blocos** — sem servidor de voz, sem upload
+- [~] 932 `P0` **Renegociação com negociação perfeita** — e ela revelou um defeito: `handleSignal` criava conexão nova a cada oferta
 - [ ] 933 `P1` Mensagem clara quando a permissão é negada, com como reverter
 - [ ] 934 `P1` Volume por jogador, e silenciar um jogador específico
 - [ ] 935 `P1` Indicador de quem está falando na lista de jogadores
@@ -4421,3 +4421,78 @@ não configurado"; a frase se lê como "não há o que configurar".
 ### Lacuna anotada nesta rodada
 
 - [ ] 1409 `P1` **A importação de mod ainda não mostra o manifesto antes de instalar** (metade do item 770) — o pacote já carrega as capacidades e a aba já as exibe, mas quem importa um mod de terceiro só as vê **depois** de ele estar instalado. O momento de decidir é antes
+
+---
+
+## 74 — Voz P2P: a trilha entra na conexão que já existe (itens 927–932, 766)
+
+A `RTCPeerConnection` já carregava blocos e criaturas. Voz é uma trilha de mídia na **mesma**
+conexão: sem servidor de voz, sem upload, sem terceiro no caminho.
+
+### As três regras que governam tudo
+
+**Desligado por padrão, sem exceção.** Nada liga o microfone sozinho — nem ao entrar no mundo, nem ao
+conectar, nem restaurando preferência salva.
+
+**`getUserMedia` só no clique.** Pedir no boot faria o navegador mostrar a permissão antes de o
+jogador ter contexto do porquê — e a resposta a um pedido sem contexto é "não", ou pior, um "sim" que
+ele não entendeu. Há trava de fiação reprovando qualquer outra chamada no código.
+
+**Nunca captar sem sinal na tela.** Um jogo que capta áudio sem mostrar é indistinguível de um que
+grava escondido.
+
+### Armado ≠ transmitindo, e por que são dois estados
+
+Push-to-talk exige a trilha existir **antes** da tecla: pedir o dispositivo a cada aperto custaria
+centenas de milissegundos e perderia a primeira sílaba de toda frase.
+
+**Armado** é ter o dispositivo e a trilha na conexão. **Transmitindo** é a trilha estar `enabled`. O
+indicador mostra os três estados separados — juntar "aberto e mudo" com "transmitindo" apagaria a
+única distinção que importa para quem está com o microfone aberto: *o jogo pode me ouvir* contra *o
+jogo está me ouvindo*.
+
+E desarmar chama `stop()` de verdade. Só marcar `enabled = false` deixaria o navegador mostrando
+"esta aba está usando o microfone" para sempre — **um jogador que clicou em desligar e continua vendo
+o indicador conclui, com razão, que o botão mente.**
+
+### O defeito que a voz revelou no P2P
+
+`handleSignal` criava uma `RTCPeerConnection` **nova a cada oferta recebida**. Isso funcionava porque
+só havia uma oferta por conexão, na abertura. Com renegociação, uma oferta chega numa conexão já
+estabelecida — e criar outra descartaria o canal de dados aberto: **a partida cairia toda vez que
+alguém ligasse o microfone.**
+
+Junto veio a colisão: se os dois lados ligam o microfone ao mesmo tempo, as duas ofertas chegam com o
+outro lado no meio da própria. Sem tratamento a conexão trava num estado inválido. O convidado é o
+lado **educado** — desfaz a própria oferta e aceita a do outro —, usando o mesmo critério de
+autoridade que já governa o resto, para não haver duas noções de quem manda.
+
+### Dois lugares onde o microfone ficaria aberto sozinho
+
+**`keyup` não é filtrado por "está digitando".** Um `keyup` com o mesmo filtro do `keydown` deixaria
+o microfone aberto para sempre se o jogador clicasse numa caixa de texto enquanto falava.
+
+**A janela perdendo o foco emudece.** Alt-tab com a tecla apertada nunca gera `keyup`, e o jogador
+continuaria transmitindo enquanto conversa com outra pessoa na frente do computador.
+
+### O item 766, resolvido dizendo a verdade
+
+Um mod pedindo `microfone` seria **ignorado em silêncio**: o script roda num Worker onde `navigator`
+foi apagado, e não há membro de API que alcance o dispositivo. Ignorar parece inofensivo e não é — o
+autor (com frequência uma IA) veria o mod carregar sem erro e concluiria que a permissão foi
+concedida; a falha apareceria adiante, longe da causa.
+
+Agora a validação recusa qualquer capacidade fora da lista, dizendo **quais existem**. Quando alguma
+sensível passar a existir, ela entra na lista junto com o consentimento separado que o item pede — e
+não antes.
+
+- [~] 1410 `P0` **`VozP2P`** com 18 testes, incluindo "a tecla não reabre o dispositivo a cada aperto"
+- [~] 1411 `P0` **Negociação perfeita no `PeerSync`**, com o convidado como lado educado
+- [~] 1412 `P1` **6 travas de fiação**, incluindo a que reprova `getUserMedia` fora da camada de voz
+- [~] 1413 `P1` **Capacidade desconhecida recusada** com 4 testes
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1414 `P1` **A voz não é espacial** — todos se ouvem no mesmo volume, a qualquer distância. Num jogo de mundo aberto isso apaga a noção de estar perto de alguém
+- [ ] 1415 `P1` **Não há como emudecer outro jogador** — só a si mesmo. Num mundo público isso é a diferença entre jogar e sair
+- [ ] 1416 `P2` **Nenhum indicador de quem está falando** — o jogador ouve uma voz e não sabe de quem é

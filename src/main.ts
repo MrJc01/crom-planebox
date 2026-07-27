@@ -64,6 +64,7 @@ import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
 import { idDeSala, relayDeLink } from './net/convite';
 import { PeerSync } from './net/PeerSync';
+import { VozP2P } from './net/VozP2P';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
 import { hashAppearance } from './net/codec';
@@ -996,7 +997,51 @@ async function bootstrap() {
     const p = remotePlayers.get(peerId);
     remotePlayers.delete(peerId);
     if (peerSync.role === 'host' && p) peerSync.broadcast({ type: 'player_left', playerId: peerId });
+    // O elemento de áudio daquele par vira lixo preso ao DOM se ninguém o remover — e um
+    // `srcObject` apontando para um stream morto segura o stream junto.
+    const audio = audiosRemotos.get(peerId);
+    if (audio) { audio.srcObject = null; audio.remove(); audiosRemotos.delete(peerId); }
   };
+  // --- Voz P2P (itens 927 a 932) -----------------------------------------------------------
+  //
+  // A trilha de áudio entra na `RTCPeerConnection` que já carrega os blocos. Sem servidor de voz,
+  // sem upload: o áudio vai de um navegador para o outro, como o resto do mundo compartilhado.
+  const voz = new VozP2P({
+    pedirMicrofone: () => navigator.mediaDevices.getUserMedia({
+      // `video: false` explícito, e não omitido: pedir só o que se usa é o que faz o navegador
+      // mostrar "quer usar seu microfone" em vez de "seu microfone e sua câmera".
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    }),
+    publicar: (trilha, stream) => peerSync.adicionarTrilhaDeAudio(trilha, stream),
+    despublicar: () => peerSync.removerTrilhaDeAudio(),
+    temPares: () => peerSync.peerCount > 0,
+  });
+
+  voz.aoMudar = (estado) => hud.atualizarMicrofone(estado.armado, estado.transmitindo);
+  voz.aoFalhar = (motivo) => hud.showToast(`Microfone: ${motivo}`);
+  hud.onAlternarMicrofone = () => { void voz.alternarMicrofone(); };
+
+  /**
+   * Elementos de áudio dos outros jogadores, um por par.
+   *
+   * Precisam estar no DOM e ter `autoplay`: um `MediaStream` que chega e não é ligado a um elemento
+   * simplesmente não toca, sem erro nenhum — o áudio chega pela rede e morre em silêncio.
+   */
+  const audiosRemotos = new Map<string, HTMLAudioElement>();
+  peerSync.onTrilhaRemota = (peerId, stream) => {
+    let el = audiosRemotos.get(peerId);
+    if (!el) {
+      el = document.createElement('audio');
+      el.autoplay = true;
+      el.style.display = 'none';
+      document.body.appendChild(el);
+      audiosRemotos.set(peerId, el);
+    }
+    el.srcObject = stream;
+    void el.play().catch(() => { /* o navegador pode exigir gesto do usuário; o clique no microfone serve */ });
+  };
+
   peerSync.onHostClosed = () => {
     chatOverlay.receiveWorldChatMessage('', 'O anfitrião encerrou a sessão. Você voltou a jogar localmente.', true);
   };
@@ -1757,11 +1802,37 @@ async function bootstrap() {
     inter.scrollSelect(e.deltaY > 0 ? 1 : -1);
   });
 
+  /**
+   * Tecla de push-to-talk.
+   *
+   * `KeyV` porque está livre e fica perto do polegar esquerdo em quem joga com WASD — falar não
+   * pode exigir tirar a mão do movimento.
+   */
+  const TECLA_DE_VOZ = 'KeyV';
+
+  // Soltar a tecla **sempre** emudece, mesmo com um campo de texto focado. Um `keyup` filtrado pelo
+  // mesmo `isTyping` do `keydown` deixaria o microfone aberto para sempre se o jogador clicasse
+  // numa caixa de texto enquanto falava.
+  window.addEventListener('keyup', (e) => {
+    if (e.code === TECLA_DE_VOZ) voz.definirTecla(false);
+  });
+
+  // A janela perdendo o foco também emudece: alt-tab com a tecla apertada nunca gera o `keyup`, e o
+  // jogador continuaria transmitindo enquanto conversa com outra pessoa na frente do computador.
+  window.addEventListener('blur', () => voz.definirTecla(false));
+
   window.addEventListener('keydown', (e) => {
     const activeEl = document.activeElement;
     const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
 
     if (!isTyping) {
+
+      // Push-to-talk (item 928). `repeat` é ignorado: segurar a tecla dispara `keydown` dezenas de
+      // vezes por segundo, e cada uma reavaliaria o estado da trilha por nada.
+      if (e.code === TECLA_DE_VOZ && !e.repeat) {
+        voz.definirTecla(true);
+        return;
+      }
 
       if (e.code === 'Escape') {
         e.preventDefault();
@@ -2204,6 +2275,9 @@ async function bootstrap() {
 
     hud.updateCameraMode(cameraManager.mode);
     hud.updateNetworkStatus(peerSync.role, peerSync.peerCount);
+    // O botão de microfone só existe numa partida com outras pessoas: oferecer a permissão mais
+    // invasiva que existe para um recurso que não faz nada seria pedir por pedir.
+    hud.setMicrofoneDisponivel(peerSync.peerCount > 0);
     if (rules.hasSurvival) hud.updateSurvival(survivalSystem.health, survivalSystem.maxHealth, survivalSystem.hunger, survivalSystem.maxHunger);
 
     saveAccum += dt;

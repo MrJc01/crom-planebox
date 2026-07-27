@@ -13,6 +13,7 @@ export class HUD {
   private hungerEl: HTMLDivElement;
   private objetivoEl: HTMLDivElement;
   private sonoEl: HTMLDivElement;
+  private micBadge: HTMLDivElement;
 
   constructor(cameraManager?: CameraManager) {
     if (cameraManager) this.cameraManager = cameraManager;
@@ -109,6 +110,29 @@ export class HUD {
     this.networkBadge.textContent = 'Offline (local)';
     topRightPanel.appendChild(this.networkBadge);
 
+    // Microfone (itens 927 e 929). Nasce desligado e **visível**: um botão que só aparece quando
+    // ligado esconderia justamente o estado que o jogador precisa conferir de relance.
+    this.micBadge = document.createElement('div');
+    this.micBadge.style.cssText = `
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #94a3b8;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      pointer-events: auto;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      gap: 7px;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    `;
+    this.micBadge.onclick = (e) => { e.stopPropagation(); this.onAlternarMicrofone(); };
+    this.atualizarMicrofone(false, false);
+    topRightPanel.appendChild(this.micBadge);
+
     this.container.appendChild(topRightPanel);
 
     // Controls hint bottom-right
@@ -128,7 +152,7 @@ export class HUD {
     `;
     hint.innerHTML = `
       <strong>[Ctrl+1/2/3]</strong> Câmeras &nbsp;|&nbsp; <strong>[1-9]</strong> Hotbar &nbsp;|&nbsp; <strong>[E]</strong> Inventário <br/>
-      <strong>[T]</strong> Chat IA &nbsp;|&nbsp; <strong>[ESC]</strong> Menu / Pausa
+      <strong>[T]</strong> Chat IA &nbsp;|&nbsp; <strong>[V]</strong> Falar &nbsp;|&nbsp; <strong>[ESC]</strong> Menu / Pausa
     `;
     this.container.appendChild(hint);
 
@@ -295,6 +319,42 @@ export class HUD {
 
   public setCameraManager(cameraManager: CameraManager): void {
     this.cameraManager = cameraManager;
+  }
+
+  /** Clique no botão de microfone. Ligado pelo `main`. */
+  public onAlternarMicrofone: () => void = () => {};
+
+  /**
+   * O botão de microfone só existe numa partida com outras pessoas.
+   *
+   * Oferecer microfone a quem joga sozinho seria pedir a permissão mais invasiva que existe para um
+   * recurso que não faz nada.
+   */
+  public setMicrofoneDisponivel(disponivel: boolean): void {
+    this.micBadge.style.display = disponivel ? 'inline-flex' : 'none';
+  }
+
+  /**
+   * Estado do microfone na tela — item 929.
+   *
+   * Três estados visíveis, não dois: **desligado**, **aberto e mudo** (armado, esperando a tecla) e
+   * **transmitindo**. Juntar os dois últimos num só apagaria a diferença entre "o jogo pode me ouvir
+   * a qualquer momento" e "o jogo está me ouvindo agora" — que é a única distinção que importa para
+   * quem está com o microfone aberto.
+   */
+  public atualizarMicrofone(armado: boolean, transmitindo: boolean): void {
+    const cor = transmitindo ? '#ef4444' : armado ? '#facc15' : '#94a3b8';
+    const rotulo = transmitindo ? 'Falando' : armado ? 'Microfone aberto' : 'Microfone desligado';
+    this.micBadge.style.color = cor;
+    this.micBadge.style.borderColor = armado ? `${cor}66` : 'rgba(255,255,255,0.12)';
+    this.micBadge.style.background = transmitindo ? 'rgba(239,68,68,0.16)' : 'rgba(15,23,42,0.85)';
+    this.micBadge.title = armado
+      ? 'Clique para desligar o microfone e soltar o dispositivo'
+      : 'Clique para ligar o microfone (o navegador vai pedir permissão)';
+    this.micBadge.innerHTML =
+      `<span style="width:8px; height:8px; border-radius:50%; background:${armado ? cor : 'transparent'};
+                    border:1.5px solid ${cor}; flex:0 0 auto;"></span>` +
+      `<span>${rotulo}</span>`;
   }
 
   /** Câmera Top-Down é uma visão de construção — só liberada quando este callback devolve true (Modo Criativo). */

@@ -423,6 +423,58 @@ describe('rede de mod — a porta está ligada (itens 761-768)', () => {
   });
 });
 
+describe('voz P2P — o microfone está ligado ao jogo (itens 927-932)', () => {
+  const main = FONTE.find((f) => f.arquivo.endsWith('main.ts'))!.texto;
+
+  it('CRÍTICO: `getUserMedia` só é chamado dentro da camada de voz', () => {
+    // Item 930. Um `getUserMedia` solto em qualquer outro lugar do código seria um pedido de
+    // permissão fora do clique — e um pedido sem contexto recebe "não", ou um "sim" que o jogador
+    // não entendeu.
+    // O padrão casa a CHAMADA (com abre-parênteses e objeto), não a menção: `VozP2P.ts` cita o
+    // nome no comentário que explica esta mesma regra, e um teste que casasse a menção proibiria
+    // documentar a decisão.
+    const chamadas = FONTE.filter((f) => /getUserMedia\(\{/.test(f.texto)).map((f) => f.arquivo);
+    expect(chamadas).toEqual(['main.ts']);
+    expect(/pedirMicrofone: \(\) => navigator\.mediaDevices\.getUserMedia/.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: o indicador da tela acompanha o estado', () => {
+    // Item 929. `VozP2P` avisa a cada transição; se ninguém escutar, o jogo capta áudio sem
+    // mostrar — indistinguível de um que grava escondido.
+    expect(/voz\.aoMudar = /.test(main), 'ninguém escuta as mudanças').toBe(true);
+    expect(/hud\.atualizarMicrofone\(/.test(main), 'o indicador não é atualizado').toBe(true);
+  });
+
+  it('CRÍTICO: a trilha entra na conexão que já existe', () => {
+    // Item 931. Sem servidor de voz: é a mesma `RTCPeerConnection` dos blocos.
+    expect(/peerSync\.adicionarTrilhaDeAudio\(/.test(main)).toBe(true);
+    const peer = FONTE.find((f) => f.arquivo.endsWith('net/PeerSync.ts'))!.texto;
+    expect(/conn\.addTrack\(/.test(peer)).toBe(true);
+  });
+
+  it('CRÍTICO: a renegociação reaproveita a conexão em vez de criar outra', () => {
+    // Item 932, e o defeito que a voz revelou: `handleSignal` criava uma `RTCPeerConnection` nova a
+    // cada oferta. Numa renegociação isso descartaria o canal de dados aberto — a partida cairia a
+    // cada vez que alguém ligasse o microfone.
+    const peer = FONTE.find((f) => f.arquivo.endsWith('net/PeerSync.ts'))!.texto;
+    expect(/const conn = existente\?\.conn \?\? this\.newConnection\(peerId\)/.test(peer)).toBe(true);
+  });
+
+  it('CRÍTICO: o áudio que chega é tocado', () => {
+    // Um `MediaStream` que chega e não é ligado a um elemento simplesmente não toca, sem erro
+    // nenhum: o áudio atravessa a rede e morre em silêncio.
+    expect(/peerSync\.onTrilhaRemota = /.test(main)).toBe(true);
+  });
+
+  it('CRÍTICO: soltar a tecla emudece mesmo digitando, e perder o foco também', () => {
+    // Um `keyup` filtrado pelo mesmo `isTyping` do `keydown` deixaria o microfone aberto para
+    // sempre se o jogador clicasse numa caixa de texto enquanto falava. E alt-tab com a tecla
+    // apertada nunca gera `keyup`.
+    expect(/addEventListener\('keyup'[\s\S]{0,200}definirTecla\(false\)/.test(main)).toBe(true);
+    expect(/addEventListener\('blur'[\s\S]{0,120}definirTecla\(false\)/.test(main)).toBe(true);
+  });
+});
+
 describe('o próprio varredor é confiável', () => {
   it('encontra arquivos de verdade', () => {
     // Um teste que varre o fonte e não acha nada passaria vazio e daria falsa segurança — todos
