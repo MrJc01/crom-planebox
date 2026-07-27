@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1280 itens)
+# Checklist Mestre — Painel de Especialistas (1444 itens)
 
-> **Estado em 26/07/2026** — 607 de 1280 itens tratados (47%), com **860 testes** passando,
-> `tsc --noEmit` limpo e build funcionando.
+> **Estado em 27/07/2026** — 777 de 1444 itens tratados (54%), com **1182 testes** passando,
+> `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 88 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 519 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 673 | Pendente. |
+> | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 684 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 667 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -4832,5 +4832,44 @@ testes que juravam verificá-lo.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1450 `P1` **Gerar um chunk custa 128 ms** — era 76 antes e nunca foi rápido. O gargalo é uma amostra de ruído 3D por voxel abaixo da superfície. Amostrar o campo de cavernas em resolução menor e interpolar cortaria a maior parte, com perda de detalhe a decidir
+- [~] 1450 `P1` **Gerar um chunk: 131 ms → 40 ms**, com o mundo byte a byte idêntico
 - [ ] 1451 `P2` **90 MB de dados de bloco no pior caso** — paletização de chunk (item 033) reduziria isso a uma fração, e agora tem motivo
+
+## 80. O ruído recalculado — item 1450
+
+O item dizia para amostrar o campo de cavernas em resolução menor e interpolar, aceitando perda de
+detalhe. Medindo primeiro, a premissa estava errada de um jeito útil: `isCave` era **87%** do custo,
+mas não por estar superamostrado de forma irreparável — por recalcular os **mesmos oito cantos do
+reticulado** para cada voxel.
+
+A frequência do campo é por metro (0,045); a amostragem é por mini-voxel (3 por metro). Uma célula
+do reticulado tem 22 metros em x/z — **67 mini-voxels, mais larga que o chunk inteiro, que tem 32**.
+Em y cobre 33. E o gerador percorre coluna a coluna: x e z ficam parados por 140 voxels seguidos.
+Uma coluna atravessava cinco células e fazia cento e quarenta vezes o trabalho de cinco.
+
+Então não era preciso perder detalhe nenhum. `Value3` guarda, por oitava, tudo o que não depende da
+fração de y: os oito hashes, os `floor` e `fade` de x e z, e as quatro interpolações em x.
+
+- 131 ms → 78 ms com os cantos memorizados
+- 78 → 45 colapsando também em z — **e aqui quase passou um erro**
+- 45 → 57 desfazendo esse colapso, e 57 → 40 com o memo num bloco contíguo
+
+O colapso em z trocava `lerp(lerp(a,b,w), lerp(c,d,w), v)` por `lerp(lerp(a,c,v), lerp(b,d,v), w)`.
+É a mesma álgebra e **não é o mesmo double**. Os cinquenta chunks que eu já tinha comparado saíram
+byte a byte iguais, e eu teria fechado o item ali; foi o teste novo, comparando com `toBe` contra o
+caminho sem cache, que acusou um ULP de diferença. Um ULP não é nada até cair em cima do limiar de
+caverna — aí é uma parede que existe ou não existe. O hash igual só dizia que nenhum voxel estava na
+navalha *naqueles* chunks, não que nenhum esteja.
+
+Verificado: `8a71c2b1` nos dois lados, 50 chunks em duas sementes.
+
+- [~] 1452 `P1` **Memo do reticulado em `Value3`**, exato por construção e conferido com `toBe`
+- [~] 1453 `P1` **`DONO_DO_MINERIO` resolvido na carga do módulo** — era um `find` aninhado por minério por voxel; as consultas de camada e bioma eram 7,3 dos 10,5 ms de `oreAt`
+- [~] 1454 `P2` **`camadaNaProfundidade` com laço indexado** — o iterador do `for...of` aparecia no perfil nesse volume
+- [~] 1455 `P1` **8 testes de exatidão do memo**, incluindo o caso da célula compartilhada e o da disputa de slot entre oitavas
+- [~] 1456 `P2` **Teste de ordem de varredura** — varrer por camada em vez de por coluna anula o cache inteiro sem que nenhum teste de mundo reprove
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1457 `P1` **`isCave` ainda é 75% do custo** — 30 dos 40 ms. O que sobra é aritmética de interpolação, não hash: quatro amostras por voxel de rocha. Cortar mais exige decidir se o campo de câmaras precisa ser consultado em todo voxel que reprovou nos túneis
+- [ ] 1458 `P2` **O perfil de geração vive num script de rascunho** — as medidas de 131/78/45/40 ms não estão em lugar nenhum que o repositório execute, então a próxima regressão de desempenho passa sem ninguém ver

@@ -118,13 +118,34 @@ export const CAMADAS: CamadaDef[] = [
   },
 ];
 
-/** A camada de uma profundidade em **metros** abaixo da superfície. */
+/**
+ * A camada de uma profundidade em **metros** abaixo da superfície.
+ *
+ * Laço indexado e não `for...of` porque isto roda uma vez por minério candidato por voxel de
+ * pedra — centenas de milhares de vezes por chunk. Um iterador alocado por chamada nesse volume
+ * aparece no perfil.
+ */
 export function camadaNaProfundidade(metros: number): CamadaDef {
   let atual = CAMADAS[0];
-  for (const c of CAMADAS) {
-    if (metros >= c.inicio) atual = c; else break;
+  for (let i = 1; i < CAMADAS.length; i++) {
+    if (metros >= CAMADAS[i].inicio) atual = CAMADAS[i]; else break;
   }
   return atual;
+}
+
+/**
+ * Quem é dono de cada minério exclusivo, resolvido uma vez na carga do módulo.
+ *
+ * Era um `CAMADAS.find(c => c.exclusivos.includes(chave))` dentro da consulta, e a resposta nunca
+ * muda: é uma varredura aninhada sobre uma tabela estática, refeita por minério por voxel. Medido,
+ * as consultas de camada e bioma eram 7,3 dos 10,5 ms de `oreAt`.
+ *
+ * `set` só quando ainda não existe, para preservar o "primeiro dono vence" do `find` — a
+ * unicidade é garantida por teste, e o empate mudo seria pior que o custo.
+ */
+const DONO_DO_MINERIO = new Map<string, CamadaId>();
+for (const c of CAMADAS) {
+  for (const e of c.exclusivos) if (!DONO_DO_MINERIO.has(e)) DONO_DO_MINERIO.set(e, c.id);
 }
 
 /** A camada de um ponto, dados o y do ponto e a altura da superfície — ambos em mini-voxels. */
@@ -144,9 +165,9 @@ export function mineriroPermitidoNaProfundidade(
   chave: 'carvao' | 'ferro' | 'ouro' | 'diamante',
   metros: number,
 ): boolean {
-  const dono = CAMADAS.find((c) => c.exclusivos.includes(chave));
-  if (!dono) return true;
-  return camadaNaProfundidade(metros).id === dono.id;
+  const dono = DONO_DO_MINERIO.get(chave);
+  if (dono === undefined) return true;
+  return camadaNaProfundidade(metros).id === dono;
 }
 
 /**
