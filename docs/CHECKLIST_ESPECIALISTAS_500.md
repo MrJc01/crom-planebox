@@ -1324,7 +1324,7 @@ se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já
 ```
 
 - [ ] 761 `P0` Manifesto de capacidades por mod, declarativo e versionado
-- [ ] 762 `P0` **Allowlist de hosts por mod** — sem host declarado, sem rede
+- [~] 762 `P0` **Allowlist de hosts** — `hostCasa`, com as duas únicas formas aceitas (exato e `.dominio.com`) e 28 testes. Ver a seção 71
 - [ ] 763 `P0` Consentimento explícito do usuário na primeira ativação, host a host
 - [ ] 764 `P0` `fetch` do mod passa por um wrapper que aplica a allowlist
 - [~] 765 `P0` **Mod não alcança mais o `fetch` global** por acesso direto — com a mesma ressalva do 359
@@ -1337,7 +1337,7 @@ se conhecer); a vertical vem da estrutura do mod, que permanece a hierarquia já
 - [ ] 772 `P1` Timeout e retry com backoff no wrapper, para o jogo não travar na rede
 - [ ] 773 `P1` Falha de rede não derruba o mod — degrada para o comportamento offline
 - [ ] 774 `P1` Modo offline global desliga toda integração externa de uma vez
-- [ ] 775 `P0` **Nada do mundo é enviado sem o mod declarar que envia** (dados de saída também são capacidade)
+- [~] 775 `P0` **`enviaDados`** — corpo ou verbo de escrita exigem `envia: true`. A query string continua descoberta, e isso está dito no código em vez de omitido
 - [ ] 776 `P1` Resposta de API externa é tratada como **não confiável**: nunca vira código nem instrução para o agente
 - [ ] 777 `P1` Sanitizar resposta externa antes de exibir na UI ou no chat
 - [ ] 778 `P1` Documentar o modelo de ameaça de mods com rede em `docs/`
@@ -4210,3 +4210,70 @@ nenhuma pista. Passou a ser gravado no contexto **novo**, depois da recarga.
 
 - [ ] 1391 `P2` **`api.console` não é cobrado do orçamento** — é de propósito (o aviso de estouro precisa passar), e o log é limitado a 300 linhas, mas um mod pode gastar mensagens ali sem teto
 - [ ] 1392 `P2` **A recarga depois da queda não restaura o `api.storage`** — ele vivia no reino e morreu junto. Persistir o storage deste lado resolveria, e custaria uma ida e volta por escrita
+
+---
+
+## 71 — Frente B começa: a allowlist que só agora faz sentido (itens 762, 775)
+
+Até o item 358, um invólucro de `fetch` seria decoração: o script rodava neste reino e pegava o
+`fetch` de verdade pela fuga do construtor. O invólucro só atrapalharia quem **não** estava tentando
+burlar nada.
+
+Com os scripts no Worker e o global de lá esvaziado, não existe `fetch` para alcançar. A única rede
+possível atravessa a ponte — e uma checagem na ponte é uma checagem de verdade. É por isso que esta
+frente vinha depois daquela, e não por ordem de importância.
+
+### Capacidade declarada, e não "pergunte na hora"
+
+Perguntar a cada chamada treina o jogador a dizer sim: a quinta caixa de diálogo idêntica é clicada
+sem leitura. Declarar no manifesto move a decisão para **antes de instalar**, quando o jogador ainda
+está avaliando o mod em vez de estar no meio de uma partida.
+
+E dá o que a pergunta na hora nunca dá: a lista de hosts é **auditável** — dá para mostrá-la numa
+tela, comparar com o que o mod diz que faz, e revogar depois.
+
+### Duas formas de casar host, e nenhuma terceira
+
+`api.exemplo.com` casa exatamente. `.exemplo.com` casa com subdomínios e com ele mesmo. Não há
+curinga, prefixo nem casamento por conteúdo — e o motivo é um ataque barato: com casamento por
+conteúdo, `exemplo.com` liberaria `exemplo.com.servidor-do-atacante.net`, que qualquer pessoa
+registra em cinco minutos. O ponto inicial obrigatório é o que impede `naoexemplo.com` de passar por
+`.exemplo.com`. Os dois casos são teste.
+
+`*` é recusado na validação. É o pedido que mais aparece e o único que não dá para conceder: uma
+allowlist que permite tudo é uma allowlist que não existe, e o jogador estaria consentindo com o
+vazio.
+
+### Três decisões que valem o registro
+
+**`https` só, com uma exceção nomeada.** `http` é interceptável e alterável por qualquer um no
+caminho, e a resposta vira entrada de um script. A exceção é `localhost` — um modelo de linguagem
+local, ou o relay deste projeto, vivem lá; recusar isso empurraria quem desenvolve a desligar a
+checagem inteira, que é bem pior que abrir a exceção com nome.
+
+**Manifesto sem versão é inválido, não "versão 1".** Tratar a ausência como a versão atual concederia
+por engano tudo o que a versão atual permite a um manifesto escrito antes de essas permissões
+existirem.
+
+**Motivo curto demais é recusado.** Sem uma frase legível, a tela de consentimento vira "este mod
+quer acessar a internet: sim/não" — exatamente a pergunta que treina o jogador a clicar sim.
+
+### O que `enviaDados` alcança, e o que não (775)
+
+Pega o que importa: corpo de requisição e verbos de escrita. Um mod sem `envia: true` não faz um POST
+com o mundo dentro. **Não alcança a query string** — `GET https://host/?dados=<o mundo>` passa,
+porque distinguir parâmetro legítimo de vazamento exigiria entender o significado do endereço.
+
+Está escrito no código em vez de omitido: `envia` é uma barreira contra o caminho fácil, não uma
+prova de que nada sai.
+
+- [~] 1393 `P0` **`capacidades.ts`** com 28 testes, incluindo os dois ataques de casamento de host
+- [~] 1394 `P1` **Tetos de resposta (2 MB) e timeout (10 s)** — sem eles, um arquivo gigante num host autorizado trava a aba e nenhuma outra regra o impede
+
+### O que falta na frente B
+
+- [ ] 1395 `P0` **Guardar o manifesto no `ModPackage` e no banco** (item 761) — hoje o módulo valida algo que ninguém armazena
+- [ ] 1396 `P0` **`api.net.fetch` através da ponte**, aplicando allowlist, `envia`, teto e timeout (item 764)
+- [ ] 1397 `P0` **Consentimento por host, persistido e revogável** (itens 763 e 767)
+- [ ] 1398 `P0` **Log de auditoria**: que mod chamou que host, quando, com que volume (item 768)
+- [ ] 1399 `P1` **Tela mostrando capacidades ativas e permitindo revogar** (itens 769 e 770)
