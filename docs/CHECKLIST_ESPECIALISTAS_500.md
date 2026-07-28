@@ -1,6 +1,6 @@
-# Checklist Mestre — Painel de Especialistas (1579 itens)
+# Checklist Mestre — Painel de Especialistas (1620 itens)
 
-> **Estado em 28/07/2026** — 869 de 1579 itens tratados (55%), com **1512 testes** passando,
+> **Estado em 28/07/2026** — 872 de 1620 itens tratados (54%), com **1527 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
@@ -5678,3 +5678,169 @@ nenhum dos dois. Quem quer todos os blocos abre o inventário criativo, que é o
 - [ ] 1591 `P1` **`beforeunload` para o que não dá para impedir** — Ctrl+W e Alt+F4 continuam fechando a partida sem confirmação, e o "tem certeza?" nativo é o máximo que a plataforma oferece
 - [ ] 1592 `P2` **A tela de configurações não lista os atalhos** — `listarRoubadas` e `FORA_DO_ALCANCE` existem e nenhuma tela os mostra ainda (parte do item 1553)
 - [ ] 1593 `P1` **O jogador começa sem ferramenta nenhuma** — com a barra vazia, o primeiro tronco tem de ser quebrado com a mão, e é preciso conferir se `velocidadeDeQuebra` deixa isso viável ou se o começo virou um muro
+
+---
+
+# PARTE VIII — Mundo, ferramentas e distância (28/07/2026)
+
+## 101. Os biomas eram todos minúsculos — medido
+
+Antes de mexer, varri quatro quilômetros em seis linhas e medi o comprimento de cada trecho contíguo
+do mesmo bioma:
+
+| | trechos | mediana | média | maior |
+|---|---|---|---|---|
+| biomas de clima | 206 | 32 m | 58 m | 364 m |
+| biomas de relevo (praia, oceano, montanha) | 381 | 16 m | 31 m | 352 m |
+
+**Um bioma de trinta e dois metros não é um bioma — é uma mancha.** O jogador atravessa seis num
+minuto, e nenhum tem tempo de significar nada: não dá para "estar no deserto" quando o deserto acaba
+em vinte passos.
+
+### A causa não era a frequência do ruído
+
+O ruído de clima já era de 700 metros. Dois outros campos é que mandavam nele:
+
+1. **A temperatura era modulada pela ALTURA** — `temp -= max(0, h - 26) * 0.03`, com o mar em 46
+   metros. **Toda** a terra firme estava acima do limiar, então o termo valia sempre e carregava
+   junto todo o ruído de relevo: colinas de 50 m e cordilheiras com 17 m de amplitude. Meio ponto de
+   temperatura oscilando na escala do terreno.
+2. **A umidade levava `+ river * 0.3`** — e rio é estreito. Cada travessia produzia uma faixa de
+   bioma diferente com a largura da margem, e o resultado era uma fita de pântano acompanhando cada
+   rio do mundo.
+
+- [~] 1594 `P1` **`escalaDeBioma.ts` com três escalas** — continental (2,9 km), regional (625 m) e
+  local (133 m), com pesos 1 / 0,34 / 0,11: o continental manda, o resto tempera
+- [~] 1595 `P1` **A altitude só esfria a partir de 58 m**, e com um terço da força — a montanha
+  continua fria e a colina de dois metros deixa de decidir o bioma
+- [~] 1596 `P1` **A margem de rio umedece 0,12 em vez de 0,3** — mais úmida sim, outro bioma não
+
+### O resultado, também medido — e é honesto dizer que é parcial
+
+| | antes | depois |
+|---|---|---|
+| média do trecho de clima | 58 m | **68 m** |
+| maior trecho | 364 m | **476 m** |
+| mediana | 32 m | 32 m |
+
+A média subiu 17% e o maior subiu 31%, mas **a mediana não se moveu**, e sei por quê: a
+classificação continua sendo um limiar sobre um campo contínuo. Por mais liso que o campo fique,
+todo campo passeia em volta de um limiar de vez em quando, e cada passeio produz um trecho curto. Um
+campo mais suave alonga os trechos longos e não elimina os curtos.
+
+- [ ] 1597 `P1` **Regiões celulares em vez de limiar** — o que de fato resolve a mediana. Centros de
+  região semeados com espaçamento **declarado**, cada um sorteando um clima, e cada ponto tomando o
+  bioma do centro mais próximo com a fronteira perturbada por ruído. O tamanho do bioma passa a ser
+  um parâmetro, e não uma consequência acidental de onde os limiares caíram
+- [ ] 1598 `P1` **Espaçamento variável por tipo** — é isto que atende "biomas enormes E pequenos" de
+  propósito, em vez de por acaso: oceano e deserto com centros a quilômetros, bosque e oásis com
+  centros a dezenas de metros
+- [ ] 1599 `P2` **A costa é fractal demais** — 381 trechos de relevo contra 206 de clima, com
+  mediana de 16 m. As colinas de alta frequência atravessam o nível do mar repetidas vezes e cada
+  travessia vira uma praia. Suavizar a altura **perto do nível do mar** resolveria os dois
+
+## 102. Árvores
+
+Hoje há duas formas, escritas à mão, sem nenhuma variação além de altura e raio: o carvalho é um
+tronco 2×2 com uma copa elipsoide, e o pinheiro é um tronco de um voxel com camadas de losango. Não
+há galho, não há inclinação, não há assimetria — e a floresta inteira é feita de dois carimbos.
+
+- [ ] 1600 `P1` **Árvore paramétrica** — tronco, galhos e copa saindo de parâmetros (altura,
+  inclinação, número de galhos, ângulo, densidade da copa, irregularidade) em vez de dois blocos de
+  código
+- [ ] 1601 `P1` **Galhos de verdade** — é o que separa "árvore" de "poste com uma bola em cima", e
+  é a diferença mais visível de todas a curta distância
+- [ ] 1602 `P1` **Perfil por espécie**, declarado como dado — carvalho, pinheiro, palmeira, morta,
+  velha — para um bioma novo (ou um mod) ganhar árvore própria sem tocar no gerador
+- [ ] 1603 `P2` **Tronco que se estreita** e raízes na base
+- [ ] 1604 `P2` **Árvores caídas e tocos** — o que faz uma floresta parecer ter história em vez de
+  ter sido plantada
+- [ ] 1605 `P2` **Idade** — a mesma espécie em três tamanhos, para o bosque não parecer um pomar
+- [ ] 1606 `P3` **A copa responde à luz** — mais larga onde há espaço, mais estreita no meio da mata
+
+## 103. Cavernas
+
+O campo atual é bom no que faz — dois `ridged` em interseção dão túneis que se cruzam, e um `fbm`
+abre câmaras. Mas é **uma coisa só** repetida por todo o subsolo: não há tipo de caverna, não há
+acidente, não há razão para uma caverna ser diferente da outra.
+
+- [ ] 1607 `P1` **Fendas verticais** — o corte estreito e profundo que muda a leitura de um subsolo
+  inteiro, e que hoje não existe em nenhuma forma
+- [ ] 1608 `P1` **Cavernas grandes com identidade** — salão, galeria, poço —, e não só "mais vazio"
+- [ ] 1609 `P1` **Lagos e rios subterrâneos**, aproveitando os fluidos finitos que já existem
+- [ ] 1610 `P2` **Entradas visíveis da superfície** — hoje achar uma caverna é cavar até encontrar;
+  uma boca na encosta é o que transforma explorar numa decisão
+- [ ] 1611 `P2` **Formações** — estalactite, coluna, pedra solta no chão
+- [ ] 1612 `P2` **A caverna respeita a camada** — o abismo devia ter cavernas diferentes das do
+  subsolo, e hoje `camadas.ts` só muda névoa, luz, som e minério
+
+## 104. Ferramentas de construção — inspiração declarada: Lay of the Land
+
+Pesquisado a pedido. O que aquele jogo faz e que aqui não existe:
+
+- **Escultura de terreno** — levantar e baixar o chão com uma ferramenta, desenhar caminhos direto
+  sobre o solo, em vez de colocar e quebrar bloco a bloco
+- **Formas procedurais, não presas à grade** — cilindro, cone, telhado inclinado, estruturas
+  orgânicas. Aqui tudo é caixa, e o item 044 acabou de provar que até a caixa era três cópias
+- **Redimensionar uma estrutura pronta**
+- **Modo planta (blueprint)** — salvar uma forma e reusá-la, que é vizinho do editor do item 1564
+- **Física real** — estruturas desabam sob carga. Existe `structural` na paleta e um colapso; falta
+  ser o mesmo sistema que as ferramentas de construção
+
+- [ ] 1613 `P1` **Pincel de terreno** — levantar, baixar, alisar e nivelar, com raio ajustável
+- [ ] 1614 `P1` **Ferramenta de caminho** — desenhar sobre o chão e o terreno se acomoda
+- [ ] 1615 `P1` **Formas: cilindro, cone, esfera, cunha**, com o mesmo percurso do `caixa.ts` — a
+  geometria num lugar só, como o item 044 já estabeleceu
+- [ ] 1616 `P1` **Telhado inclinado** como forma de primeira classe
+- [ ] 1617 `P2` **Redimensionar e mover uma seleção**
+- [ ] 1618 `P2` **Modo planta**, com o mesmo formato dos templates de estrutura (item 1567)
+- [ ] 1619 `P2` **Pré-visualização fantasma** antes de confirmar — hoje `fill_box` da IA já escreve
+  direto, e um erro de dígito é um `Ctrl+Z` de milhares de blocos
+- [ ] 1620 `P3` **Simetria e espelho**, que é o que multiplica o trabalho de quem constrói
+
+## 105. As nuvens
+
+Três defeitos, todos do mesmo lugar: elas são um efeito de clima, e não parte do céu.
+
+- [ ] 1621 `P1` **Aparecem e somem com a chuva** — a cobertura é derivada de `clima.luz`, então o
+  céu limpa e enche conforme o tempo muda, em vez de as nuvens **serem** o tempo. Nuvem devia
+  existir sempre, com densidade variável, e a chuva ser consequência dela
+- [ ] 1622 `P1` **São chapadas** — a grade é `CELULA = 12` com três camadas de espessura e um limiar
+  sobre `fbm2`, o que dá manchas de mesma altura e mesma espessura em todo lugar. Falta variação
+  vertical, base e topo próprios, e forma que não seja um recorte de mapa de altura
+- [ ] 1623 `P1` **Não são maiores que a névoa nem que o alcance de render** — a grade cobre
+  `12 × 44 = 528` voxels e a névoa fecha em ~240. O resultado é que a nuvem **termina** dentro do
+  campo de visão e lê como perto, não como longe. Uma nuvem tem de estar sempre além de tudo
+- [ ] 1624 `P2` **Camadas** — nuvem alta fina e nuvem baixa densa são coisas diferentes e hoje são a
+  mesma
+- [ ] 1625 `P2` **Sombra no chão** (item 1205, ainda aberto) — é o que amarra a nuvem ao mundo
+
+## 106. Distância: borrar e baratear, como os mods de Minecraft fazem
+
+Pesquisado a pedido. A técnica que os mods de alcance de visão usam (Distant Horizons é o exemplo
+mais conhecido) é sempre a mesma ideia: **o que está longe não precisa da mesma fidelidade**. Ao
+longe, geometria simplificada, cor média em vez de bloco, e uma transição que esconde a troca.
+
+Aqui isso resolve dois problemas de uma vez — o alcance curto e o custo por chunk — e liga-se
+diretamente à paletização do item 1579, porque a mesma estrutura em seções dá o nível grosso de
+graça.
+
+- [ ] 1626 `P1` **Malha de LOD por distância** (item 031) — além de N chunks, um bloco de 2×2×2 ou
+  4×4×4 vira uma face só, com a cor dominante da seção
+- [ ] 1627 `P1` **O LOD vem da seção paletizada** — a paleta de uma seção já é a resposta de "qual a
+  cor média disto", e calculá-la de novo seria refazer o que o item 1579 vai produzir
+- [ ] 1628 `P1` **Transição sem estalo** — trocar de nível na frente do jogador é o defeito clássico
+  desses sistemas; a névoa que já existe é o lugar certo para esconder a troca
+- [ ] 1629 `P2` **Alcance de render muito maior** — o LOD existe para isso; sem aumentar o alcance
+  depois de tê-lo, o trabalho não aparece para o jogador
+- [ ] 1630 `P2` **Desfoque por distância** — o que os mods chamam de *distance blur*; barato como
+  passe de fragmento e é o que vende a profundidade
+- [ ] 1631 `P2` **Orçamento de LOD separado do de malha** — o `OrcamentoDeQuadro` de hoje é um só, e
+  um chunk distante barato competindo com um chunk perto caro faz o perto chegar tarde
+
+### Uma observação sobre o vídeo
+
+Não consigo assistir vídeo, e baixá-lo não mudaria isso. Consegui o título — *Lay of the Land -
+Official Gameplay Trailer* — e pesquisei o jogo em texto; o que está registrado na seção 104 vem
+dessa pesquisa, não do vídeo. Se houver algo específico ali que não apareça na descrição do jogo,
+duas frases descrevendo valem mais do que qualquer coisa que eu consiga extrair sozinho.

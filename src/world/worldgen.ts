@@ -16,6 +16,7 @@ import { B } from './blocks';
 import { CX, CY, CZ, SCALE, blockIndex } from './chunk';
 import { UndergroundGen } from './underground';
 import { BiomeId, biomaDominanteRapido } from './biomes';
+import { climaEm } from './escalaDeBioma';
 import { SitioDeEstrutura, SondaDeTerreno, estruturasNaRegiao } from './scatter';
 import { getStructureTemplate } from '../crafting/StructureTemplates';
 
@@ -179,9 +180,14 @@ export class WorldGen {
       path = 1 - smoothstep(pWidth, pWidth * 2.2, pn);
     }
 
-    // camada 6 — clima
-    const temp = this.nTemp.fbm(x * 0.0014, z * 0.0014, 2) - Math.max(0, h - 26) * 0.03;
-    const moist = this.nMoist.fbm(x * 0.0017 + 311, z * 0.0017 - 47, 2) + river * 0.3;
+    // camada 6 — clima, em três escalas.
+    //
+    // Medido antes: o trecho contíguo de um mesmo bioma tinha **mediana de 24 metros**. A causa não
+    // era a frequência do ruído de clima (700 m), e sim dois campos de alta frequência que
+    // mandavam nele: a temperatura era modulada pela ALTURA — que carrega colinas de 50 m e
+    // cordilheiras de 17 m de amplitude — e a umidade levava um empurrão por rio grande o bastante
+    // para trocar o bioma na largura da margem. Ver `escalaDeBioma.ts`.
+    const { temp, moist } = climaEm(this.nTemp, this.nMoist, x, z, h, river);
     const forest = smoothstep(-0.15, 0.5, moist) * smoothstep(0.85, 0.4, mMask);
 
     // metros → mini-voxels
