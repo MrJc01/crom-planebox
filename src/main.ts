@@ -75,6 +75,9 @@ import { SignalingClient } from './net/SignalingClient';
 import { idDeSala, relayDeLink } from './net/convite';
 import { PeerSync } from './net/PeerSync';
 import { VozP2P } from './net/VozP2P';
+import { MixerDeVoz } from './net/MixerDeVoz';
+import { SilenciadosDeVoz, misturaDaVoz } from './net/vozEspacial';
+import { interpretarComandoDeSilencio } from './net/comandoDeSilencio';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
 import { hashAppearance } from './net/codec';
@@ -902,6 +905,15 @@ async function bootstrap() {
   }
 
   chatOverlay.onCommand = async (raw) => {
+    // `/mudo` e `/ouvir` são resolvidos AQUI, antes de qualquer despacho — item 1415.
+    //
+    // Emudecer alguém é uma decisão sobre os meus ouvidos, não sobre a sessão. Mandá-la ao
+    // anfitrião a tornaria uma coisa que ele sabe, que ele pode negar, e que para de funcionar
+    // quando ele cai — as três inaceitáveis para o recurso cuja função é dar autonomia a quem está
+    // num mundo público.
+    const silencio = interpretarComandoDeSilencio(raw, avatars.presentes(), silenciados);
+    if (silencio.tratado) return { ok: true, message: silencio.mensagem ?? '' };
+
     if (peerSync.role === 'guest') {
       peerSync.sendToHost({ type: 'command', playerId: localPlayerId, raw });
       return { ok: true, message: 'Comando enviado ao anfitrião...' };
@@ -1075,8 +1087,8 @@ async function bootstrap() {
     if (peerSync.role === 'host' && p) peerSync.broadcast({ type: 'player_left', playerId: peerId });
     // O elemento de áudio daquele par vira lixo preso ao DOM se ninguém o remover — e um
     // `srcObject` apontando para um stream morto segura o stream junto.
-    const audio = audiosRemotos.get(peerId);
-    if (audio) { audio.srcObject = null; audio.remove(); audiosRemotos.delete(peerId); }
+    mixerDeVoz?.desconectar(peerId);
+    trilhasPendentes.delete(peerId);
   };
   // --- Voz P2P (itens 927 a 932) -----------------------------------------------------------
   //
@@ -1104,18 +1116,35 @@ async function bootstrap() {
    * Precisam estar no DOM e ter `autoplay`: um `MediaStream` que chega e não é ligado a um elemento
    * simplesmente não toca, sem erro nenhum — o áudio chega pela rede e morre em silêncio.
    */
-  const audiosRemotos = new Map<string, HTMLAudioElement>();
+  /**
+   * Vozes remotas, posicionadas no mundo — itens 1414 e 1415.
+   *
+   * Antes era um `<audio autoplay>` por par e mais nada: todo mundo se ouvia no mesmo volume, de
+   * qualquer distância e de qualquer direção. Num mundo aberto isso apaga a única informação que a
+   * voz carrega além das palavras, que é *onde a pessoa está*.
+   *
+   * O mixer só nasce depois do primeiro gesto do usuário, que é quando o `AudioContext` existe. Até
+   * lá as trilhas ficam guardadas e são ligadas assim que ele aparecer — perder a voz de quem entrou
+   * antes do primeiro clique seria um silêncio impossível de diagnosticar.
+   */
+  let mixerDeVoz: MixerDeVoz | null = null;
+  const trilhasPendentes = new Map<string, MediaStream>();
+  const silenciados = new SilenciadosDeVoz(typeof localStorage !== 'undefined' ? localStorage : undefined);
+
+  function garantirMixerDeVoz(): MixerDeVoz | null {
+    if (mixerDeVoz) return mixerDeVoz;
+    const ctx = audio.contexto;
+    if (!ctx) return null;
+    mixerDeVoz = new MixerDeVoz(ctx as any, document.body);
+    for (const [id, s] of trilhasPendentes) mixerDeVoz.conectar(id, s);
+    trilhasPendentes.clear();
+    return mixerDeVoz;
+  }
+
   peerSync.onTrilhaRemota = (peerId, stream) => {
-    let el = audiosRemotos.get(peerId);
-    if (!el) {
-      el = document.createElement('audio');
-      el.autoplay = true;
-      el.style.display = 'none';
-      document.body.appendChild(el);
-      audiosRemotos.set(peerId, el);
-    }
-    el.srcObject = stream;
-    void el.play().catch(() => { /* o navegador pode exigir gesto do usuário; o clique no microfone serve */ });
+    const mixer = garantirMixerDeVoz();
+    if (mixer) mixer.conectar(peerId, stream);
+    else trilhasPendentes.set(peerId, stream);
   };
 
   peerSync.onHostClosed = () => {
@@ -2097,6 +2126,21 @@ async function bootstrap() {
       playerModel.update(dt, speed, player.onGround ?? true, player.yaw, primeiraPessoa ? 0 : player.pitch);
     }
     avatars.update(dt);
+
+    // A voz acompanha o corpo — itens 1414 e 1415.
+    //
+    // Depois do `avatars.update`, e isso importa: a posição usada é a **exibida**, a mesma que o
+    // jogador está vendo. Com a posição-alvo recebida da rede, a voz chegaria de um ponto adiante
+    // do avatar, e a diferença é audível quando alguém corre.
+    if (mixerDeVoz) {
+      const ouvinte = { x: player.pos.x, y: player.pos.y, z: player.pos.z, yaw: player.yaw };
+      for (const peerId of mixerDeVoz.pares) {
+        mixerDeVoz.aplicar(
+          peerId,
+          misturaDaVoz(ouvinte, avatars.posicaoDe(peerId), silenciados.estaSilenciado(peerId)),
+        );
+      }
+    }
 
     // Ciclo dia/noite. A luz de céu está assada na cor dos vértices, então o mundo só é
     // re-meshado quando `sunScale` muda o suficiente para ser perceptível — algumas vezes por

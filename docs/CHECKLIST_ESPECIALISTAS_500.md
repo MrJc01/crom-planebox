@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1477 itens)
+# Checklist Mestre — Painel de Especialistas (1486 itens)
 
-> **Estado em 27/07/2026** — 807 de 1477 itens tratados (55%), com **1325 testes** passando,
+> **Estado em 27/07/2026** — 814 de 1486 itens tratados (55%), com **1355 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 714 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 670 | Pendente. |
+> | `[~]` | 721 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 672 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -4493,8 +4493,8 @@ não antes.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1414 `P1` **A voz não é espacial** — todos se ouvem no mesmo volume, a qualquer distância. Num jogo de mundo aberto isso apaga a noção de estar perto de alguém
-- [ ] 1415 `P1` **Não há como emudecer outro jogador** — só a si mesmo. Num mundo público isso é a diferença entre jogar e sair
+- [~] 1414 `P1` **Voz espacial**: distância, panorâmica pelo olhar e zona íntima
+- [~] 1415 `P1` **`/mudo` e `/ouvir`**, locais e persistentes — nunca passam pelo anfitrião
 - [ ] 1416 `P2` **Nenhum indicador de quem está falando** — o jogador ouve uma voz e não sabe de quem é
 
 ---
@@ -5084,3 +5084,54 @@ fechou. Crescimento rasteiro se desfaz com um clique; uma árvore não.
 - [ ] 1489 `P2` **O gelo não é escorregadio nem quebra sob peso** — é um bloco sólido comum com outra cor, e o jogador vai esperar as duas coisas
 - [ ] 1490 `P2` **A hora aparente é do bioma do JOGADOR** — dois pares em biomas de força sazonal diferente veem o sol em posições diferentes na mesma hora do mundo
 - [ ] 1491 `P3` **Nada avisa que a estação virou** — a neve chega devagar e sem anúncio, e quem estava numa caverna sai para um mundo diferente sem transição
+
+## 85. A voz tem lugar — itens 1414 e 1415
+
+Cada par recebia um `<audio autoplay>` e nada mais. Todo mundo se ouvia no mesmo volume, de qualquer
+distância e de qualquer direção: quatro pessoas espalhadas por quatrocentos metros soavam
+exatamente como quatro pessoas na mesma sala. A única informação que a voz carrega além das
+palavras — *onde você está* — se perdia inteira.
+
+### O elemento `<audio>` continua existindo, mudo
+
+A tentação é jogá-lo fora e ligar o `MediaStream` direto no Web Audio. Não funciona: no Chrome, um
+stream vindo de `RTCPeerConnection` **não flui** para um `MediaStreamAudioSourceNode` se não estiver
+também ligado a um elemento de mídia. É um defeito conhecido e antigo, e o sintoma é o pior
+possível — nenhum erro, nenhum aviso, silêncio absoluto.
+
+Então o elemento fica com `muted = true`: existe para o stream correr, e quem produz som é o grafo.
+
+### Duas decisões que os testes travam
+
+**Zona íntima.** Abaixo de três voxels a voz sai centrada e cheia. Sem ela, quem está a meio metro
+tem a voz saltando de lado a cada movimento do mouse — a panorâmica vem da direção do olhar, e a
+direção de alguém muito perto muda por completo com um giro pequeno.
+
+**Quem ainda não mandou posição é ouvido.** A primeira coisa que alguém faz ao entrar é falar;
+emudecê-lo até o primeiro `player_state` o receberia com um silêncio indiagnosticável.
+
+### O silêncio nunca sai da máquina
+
+Todo comando do chat é despachado ao anfitrião. Este não pode seguir esse caminho, e não por
+desempenho — por significado. Emudecer alguém é uma decisão sobre **os meus ouvidos**. Passando pelo
+anfitrião, viraria uma coisa que ele sabe (quem não gosta de quem), que ele pode negar, e que para
+de funcionar quando ele cai. As três inaceitáveis justamente no recurso cuja função é dar autonomia
+a quem está num mundo público.
+
+Resolve por nome, guarda por id: guardar por nome deixaria o silêncio furado por quem trocasse de
+apelido, e é a primeira coisa que alguém tenta. E persiste, porque se caísse ao reconectar o jogador
+refaria a escolha toda vez que a conexão oscilasse — que é exatamente quando ele menos quer mexer em
+menu.
+
+- [~] 1492 `P1` **`vozEspacial.ts`**, puro: a regra do que se ouve é conferível sem navegador
+- [~] 1493 `P1` **`MixerDeVoz`**, um grafo por par, fora do teto de 24 vozes do `AudioSystem`
+- [~] 1494 `P1` **`comandoDeSilencio.ts`**, interceptado antes do despacho
+- [~] 1495 `P2` **`AvatarManager.posicaoDe` e `.presentes()`** — a voz sai da posição exibida, não da recebida
+- [~] 1496 `P1` **30 testes**, incluindo sete laços de fiação
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1497 `P1` **Não há lista de jogadores na interface** — `/mudo` é a única porta para o item 1415, e quem não sabe que o comando existe não tem nenhuma. Liga-se ao item 1192
+- [ ] 1498 `P2` **Só se pode silenciar quem está presente** — quem saiu não pode ser silenciado preventivamente, e a lista de `/mudo` mostra o id cru de quem não está por perto
+- [ ] 1499 `P2` **A voz não é abafada por parede** — dois jogadores separados por vinte metros de rocha se ouvem como se estivessem no mesmo corredor, e `abrigo.ts` já sabe responder se há caminho
+- [ ] 1500 `P3` **Nada indica quem está falando** — sem um sinal no avatar ou na lista, uma sessão com quatro pessoas vira um jogo de adivinhar

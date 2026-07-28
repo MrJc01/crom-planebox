@@ -131,6 +131,33 @@ export class AvatarManager {
   public get count(): number {
     return this.avatars.size;
   }
+
+  /**
+   * Onde este jogador está agora, ou `null` se ele não está sendo mostrado.
+   *
+   * Devolve a posição **exibida** e não a última recebida: é onde o avatar está desenhado, e a voz
+   * tem de sair da boca que o jogador está vendo. Com a posição-alvo, a voz chegaria antes do corpo
+   * e a diferença é audível quando alguém corre.
+   */
+  public posicaoDe(playerId: string): { x: number; y: number; z: number } | null {
+    const a = this.avatars.get(playerId);
+    return a ? { x: a.shown.x, y: a.shown.y, z: a.shown.z } : null;
+  }
+
+  /** Os ids sendo mostrados agora. */
+  public idsVisiveis(): string[] {
+    return Array.from(this.avatars.keys());
+  }
+
+  /**
+   * Quem está por perto, com id e nome.
+   *
+   * Existe para o comando de silêncio poder resolver um nome digitado em id — o silêncio é
+   * guardado por id, que é o que não muda quando alguém troca de apelido.
+   */
+  public presentes(): { id: string; nome: string }[] {
+    return Array.from(this.avatars.entries()).map(([id, a]) => ({ id, nome: a.name }));
+  }
 }
 
 function makeNameLabel(name: string): THREE.Sprite {

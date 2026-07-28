@@ -92,6 +92,18 @@ export class AudioSystem {
     return buf;
   }
 
+  /**
+   * O contexto, para quem precisa montar um grafo próprio e duradouro — hoje só o mixer de voz.
+   *
+   * `null` antes do primeiro gesto do usuário. Expor o contexto em vez de embutir a voz no `play`
+   * é deliberado: `play` toca especificações curtas e descarta os nós, com um teto de 24 vozes
+   * simultâneas. Uma fala é um grafo que vive enquanto o par estiver conectado, e passar por esse
+   * teto faria a voz de alguém ser descartada no meio de um desmoronamento.
+   */
+  public get contexto(): AudioContext | null {
+    return this.ctx;
+  }
+
   public setListener(x: number, y: number, z: number, yaw: number): void {
     this.listener = { x, y, z, yaw };
   }
