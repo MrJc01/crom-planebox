@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SurvivalSystem, FOOD_VALUE, foodValueOf, isEdible } from '../../src/game/SurvivalSystem';
+import { RESERVA_DE_AR_S, SurvivalSystem, FOOD_VALUE, foodValueOf, isEdible } from '../../src/game/SurvivalSystem';
 import { B } from '../../src/world/blocks';
 import type { PlayerController } from '../../src/player/controller';
 
@@ -42,13 +42,18 @@ describe('SurvivalSystem', () => {
     expect(s.health).toBeLessThan(s.maxHealth);
   });
 
-  it('afogamento só causa dano depois de ~3s com a cabeça submersa', () => {
+  it('afogamento só causa dano depois de a reserva de ar acabar', () => {
+    // Eram 3 segundos cravados, e o número mudou para `RESERVA_DE_AR_S` quando o ar ganhou uma
+    // barra (item 126): com três, cada bolha valeria 0,3 s e o indicador pularia de cheio a vazio
+    // sem passar pelo meio. O teste passa a ler a constante em vez de repetir o número — repeti-lo
+    // faria a próxima calibração reprovar aqui sem que nada estivesse errado.
     const player = makePlayer({ headUnder: true });
     const s = new SurvivalSystem(player);
-    s.update(1);
-    s.update(1);
-    expect(s.health).toBe(s.maxHealth); // ainda dentro da tolerância de ar
-    s.update(1.5); // passa de 3s acumulados
+    s.update(RESERVA_DE_AR_S - 1);
+    expect(s.health).toBe(s.maxHealth); // ainda há ar
+    expect(s.ar).toBeGreaterThan(0);
+    s.update(2);
+    expect(s.ar).toBe(0);
     expect(s.health).toBeLessThan(s.maxHealth);
   });
 

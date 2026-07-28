@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1486 itens)
+# Checklist Mestre — Painel de Especialistas (1494 itens)
 
-> **Estado em 27/07/2026** — 814 de 1486 itens tratados (55%), com **1355 testes** passando,
+> **Estado em 27/07/2026** — 826 de 1494 itens tratados (55%), com **1376 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 721 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 672 | Pendente. |
+> | `[x]` | 98 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 728 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 668 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -221,10 +221,10 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [x] 099 `P1` Geração fora da thread principal em worker
 - [~] 100 `P0` **Cavernas conectadas por ruído 3D (túneis ridged em interseção + câmaras) — `src/world/underground.ts`**
 - [~] 101 `P0` **Veios de minério por profundidade e raridade (carvão → ferro → ouro → diamante)**
-- [ ] 102 `P1` Mapa de biomas por temperatura × umidade em vez de ruído único
-- [ ] 103 `P1` Transições suaves entre biomas (blend de altura e cor)
+- [x] 102 `P1` **Já existia** — `pesosDeBioma` mistura por temp × umidade sobre uma camada de relevo. Auditado
+- [x] 103 `P1` **Já existia** — `misturarCor`/`misturarEscalar` por peso, e a altura vem de máscaras contínuas. Auditado
 - [ ] 104 `P1` Rios e lagos conectados seguindo o gradiente do terreno
-- [ ] 105 `P1` Praias geradas na fronteira água/terra
+- [x] 105 `P1` **Já existia** — o bioma `praia` toma peso na faixa do nível do mar. Auditado
 - [ ] 106 `P2` Montanhas com penhascos e camadas de rocha expostas
 - [ ] 107 `P2` Estruturas geradas: vilas, ruínas, masmorras
 - [ ] 108 `P2` Baús de tesouro com loot table por estrutura
@@ -248,8 +248,8 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [x] 123 `P1` Tier de ferramenta exigido para dropar minérios — `minToolTier`
 - [~] 124 `P0` **Comida real: itens comestíveis restaurando fome (tecla F) — `FOOD_VALUE`**
 - [~] 125 `P0` **Regeneração de vida com fome alta — verificado em teste**
-- [ ] 126 `P1` Afogamento com barra de oxigênio embaixo d'água
-- [ ] 127 `P1` Dano por lava e por queimadura persistente
+- [~] 126 `P1` **Reserva de ar de 12 s com barra de bolhas**, que aparece só quando importa
+- [x] 127 `P1` **Já existia** — lava contínua e queimadura que só a água apaga. Auditado
 - [ ] 128 `P1` Temperatura por bioma exigindo abrigo ou roupa
 - [~] 129 `P1` **Durabilidade de ferramentas com quebra, e barra de desgaste na hotbar**
 - [ ] 130 `P1` Armadura reduzindo dano recebido
@@ -265,7 +265,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [ ] 140 `P2` Sede como terceiro recurso (opcional por mundo)
 - [ ] 141 `P2` Dificuldade configurável afetando dano e spawn
 - [ ] 142 `P2` Modo hardcore com mundo apagado na morte
-- [ ] 143 `P1` HUD mostrando causa da morte
+- [~] 143 `P1` **Causa da morte em palavras** — ela era entregue e descartada na assinatura
 - [ ] 144 `P2` Estatísticas por mundo (blocos quebrados, distância, mortes)
 
 ## 07 — Designer de Combate
@@ -323,7 +323,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [ ] 189 `P2` Entidade transportando itens
 - [ ] 190 `P3` Comportamento gerado por LLM em tempo real com cache
 - [ ] 191 `P1` Orçamento de tempo por frame para scripts de comportamento
-- [ ] 192 `P1` Isolar erro de script de uma entidade sem derrubar as demais
+- [x] 192 `P1` **Já existia** — `onUpdate` roda dentro de `try/catch` por entidade. Auditado
 
 ## 09 — Designer de Crafting & Economia
 
@@ -5135,3 +5135,52 @@ menu.
 - [ ] 1498 `P2` **Só se pode silenciar quem está presente** — quem saiu não pode ser silenciado preventivamente, e a lista de `/mudo` mostra o id cru de quem não está por perto
 - [ ] 1499 `P2` **A voz não é abafada por parede** — dois jogadores separados por vinte metros de rocha se ouvem como se estivessem no mesmo corredor, e `abrigo.ts` já sabe responder se há caminho
 - [ ] 1500 `P3` **Nada indica quem está falando** — sem um sinal no avatar ou na lista, uma sessão com quatro pessoas vira um jogo de adivinhar
+
+## 86. O que o jogo sabia e não dizia — itens 126 e 143
+
+Auditei primeiro. Cinco itens marcados como pendentes já estavam feitos e ninguém tinha voltado
+para marcá-los: **102** (bioma por temp × umidade), **103** (mistura por peso), **105** (praia),
+**127** (lava e queimadura) e **192** (erro de script isolado por entidade). Estão com `[x]`.
+
+Os outros dois eram reais, e os dois são a mesma doença: **o jogo já calculava a informação e não a
+mostrava.**
+
+### 126 — três segundos mudos
+
+O afogamento já causava dano. O que não havia era aviso: `airTime` era um campo privado que só
+existia para comparar com 3, e o jogador mergulhava e o dano simplesmente começava. A única forma de
+aprender o limite era morrer nele.
+
+A reserva passou a doze segundos, e o motivo é a barra: com três, cada bolha vale 0,3 s e o
+indicador pula de cheio a vazio sem passar pelo meio — que é exatamente a informação que ele existe
+para dar. A barra some quando o ar está cheio, porque um indicador permanente vira ruído e um que
+aparece por causa de alguma coisa é lido.
+
+O teste antigo cravava os três segundos. Atualizei-o para ler a constante em vez de repetir o
+número — repetir faria a próxima calibração reprovar ali sem nada estar errado.
+
+### 143 — a causa entregue e jogada fora
+
+`SurvivalSystem.onDeath(cause)` **sempre** entregou a causa. O `main` a recebia como `() => {}`: o
+parâmetro chegava e morria na assinatura. Sete causas calculadas com cuidado viravam a mesma frase.
+
+Não é estético. Morrer sem saber do quê é a diferença entre "eu errei" e "o jogo me matou" — na
+primeira o jogador muda o que faz, na segunda ele fecha a aba. E há causas literalmente invisíveis:
+a queimadura mata **depois** de sair da lava, e quem morre a dez metros dela não tem nenhuma pista
+de que o fogo ainda estava pegando.
+
+Descobri de passagem que o dano de criatura emitia `'ataque inimigo'` enquanto o resto do sistema
+usa nomes de uma palavra — dois nomes para a mesma coisa, e a tela cairia no texto genérico sem que
+nada reprovasse.
+
+- [~] 1501 `P1` **`RESERVA_DE_AR_S` e `ar` públicos**, com a HUD desenhando bolhas
+- [~] 1502 `P1` **Ícone `bolha`** em `icons.ts` — traçado, não emoji
+- [~] 1503 `P1` **`causaDaMorte.ts`** com frase e dica por causa, e queda para "Você morreu"
+- [~] 1504 `P2` **`'criatura'` no lugar de `'ataque inimigo'`** na emissão do dano
+- [~] 1505 `P1` **21 testes**, incluindo sete laços de fiação
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1506 `P2` **A causa da morte aparece num toast** que some em segundos, e não numa tela de morte — quem estava olhando para outro canto perde a única explicação que o jogo dá
+- [ ] 1507 `P2` **A dica de morte repete toda vez** — na décima morte por fome ela já ensinou o que tinha para ensinar e vira barulho
+- [ ] 1508 `P3` **A barra de ar não pisca no fim** — as últimas bolhas somem no mesmo ritmo das primeiras, e o momento em que o dano vai começar não é destacado

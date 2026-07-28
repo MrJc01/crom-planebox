@@ -9,6 +9,7 @@ export class HUD {
   private networkBadge: HTMLDivElement;
   private cameraManager: CameraManager | null = null;
   private survivalBar: HTMLDivElement;
+  private arEl!: HTMLDivElement;
   private healthEl: HTMLDivElement;
   private hungerEl: HTMLDivElement;
   private objetivoEl: HTMLDivElement;
@@ -172,6 +173,12 @@ export class HUD {
     this.healthEl.style.cssText = 'display: flex; gap: 3px; font-size: 18px; text-shadow: 0 2px 3px rgba(0,0,0,0.6);';
     this.hungerEl = document.createElement('div');
     this.hungerEl.style.cssText = 'display: flex; gap: 3px; font-size: 18px; text-shadow: 0 2px 3px rgba(0,0,0,0.6);';
+    // Barra de ar — item 126. Acima das outras duas e oculta por padrão: ela só existe enquanto o
+    // jogador está sem ar ou recuperando. Um indicador permanente vira ruído; um que aparece por
+    // causa de alguma coisa é lido.
+    this.arEl = document.createElement('div');
+    this.arEl.style.cssText = 'display: none; gap: 3px; font-size: 18px; text-shadow: 0 2px 3px rgba(0,0,0,0.6);';
+    this.survivalBar.appendChild(this.arEl);
     this.survivalBar.appendChild(this.healthEl);
     this.survivalBar.appendChild(this.hungerEl);
     this.container.appendChild(this.survivalBar);
@@ -273,6 +280,28 @@ export class HUD {
     this.container.style.display = visible ? 'block' : 'none';
   }
 
+  /**
+   * Ar restante, 0..1 — item 126.
+   *
+   * A barra some quando o ar está cheio. Ela é a única das três que aparece e desaparece, e isso é
+   * o que a torna um aviso em vez de um enfeite.
+   */
+  public updateAr(ar: number): void {
+    if (ar >= 0.999) {
+      this.arEl.style.display = 'none';
+      return;
+    }
+    this.arEl.style.display = 'flex';
+    const total = 10;
+    let html = '';
+    for (let i = 0; i < total; i++) {
+      const restante = ar * total - i;
+      const estado = restante >= 0.999 ? 'cheio' : restante > 0 ? 'meio' : 'vazio';
+      html += this.iconeVital('bolha', estado, '#38bdf8');
+    }
+    this.arEl.innerHTML = html;
+  }
+
   public updateSurvival(health: number, maxHealth: number, hunger: number, maxHunger: number): void {
     const totalHearts = 10;
     const healthPerHeart = maxHealth / totalHearts;
@@ -307,7 +336,7 @@ export class HUD {
    * glifo próprio que nem toda fonte tem. Com traçado, é preenchimento parcial e opacidade — a
    * mesma forma em três estados, sempre alinhada.
    */
-  private iconeVital(nome: 'coracao' | 'gota', estado: 'cheio' | 'meio' | 'vazio', cor: string): string {
+  private iconeVital(nome: 'coracao' | 'gota' | 'bolha', estado: 'cheio' | 'meio' | 'vazio', cor: string): string {
     const preenchimento = estado === 'cheio' ? cor : estado === 'meio' ? `${cor}80` : 'none';
     const opacidade = estado === 'vazio' ? 0.28 : 1;
     return (

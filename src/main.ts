@@ -78,6 +78,7 @@ import { VozP2P } from './net/VozP2P';
 import { MixerDeVoz } from './net/MixerDeVoz';
 import { SilenciadosDeVoz, misturaDaVoz } from './net/vozEspacial';
 import { interpretarComandoDeSilencio } from './net/comandoDeSilencio';
+import { textoDaMorte } from './game/causaDaMorte';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
 import { hashAppearance } from './net/codec';
@@ -1361,7 +1362,7 @@ async function bootstrap() {
   inventoryModal.gateOpen = () => gameModeManager.rules.hasCreativeInventory;
   inventoryModal.onBlockedByMode = () => hud.showToast('Inventário criativo indisponível neste modo de jogo.');
 
-  survivalSystem.onDeath = () => {
+  survivalSystem.onDeath = (causa) => {
     audio.play(SOUNDS.morte, { volume: 1 });
 
     const modo = penalidadeDoMundo(currentWorld.penalidadeDeMorte);
@@ -1372,7 +1373,7 @@ async function bootstrap() {
       // fração de segundo, a partida não pode ressuscitar por não ter sido gravada.
       currentWorld.encerradoEm = Date.now();
       WorldRepository.saveWorld(currentWorld);
-      hud.showToast('Mundo encerrado — era uma vida só.');
+      hud.showToast(`${textoDaMorte(causa)} Mundo encerrado — era uma vida só.`);
       uiManager.closeBlocking('pause');
       if (document.pointerLockElement) document.exitPointerLock();
       chatOverlay.hide();
@@ -1393,9 +1394,13 @@ async function bootstrap() {
     }
     if (efeito.largar.length > 0) {
       inter.onChanged();
-      hud.showToast(`Você morreu! Seus itens ficaram onde você caiu (${efeito.largar.length} pilha(s)).`);
+      // A causa vem primeiro, e o resto depois — item 143. Ela sempre foi entregue por
+      // `onDeath(cause)` e era descartada na assinatura: sete causas calculadas com cuidado
+      // viravam a mesma frase. Morrer sem saber do quê é a diferença entre "eu errei" e "o jogo me
+      // matou", e há causas invisíveis — a queimadura mata longe da lava.
+      hud.showToast(`${textoDaMorte(causa)} Seus itens ficaram onde você caiu (${efeito.largar.length} pilha(s)).`);
     } else {
-      hud.showToast('Você morreu! Renascendo no spawn...');
+      hud.showToast(`${textoDaMorte(causa)} Renascendo no spawn...`);
     }
 
     player.pos.copy(ondeRenascer());
@@ -2348,7 +2353,10 @@ async function bootstrap() {
     profiler.end('entidades');
     if (danoRecebido > 0 && rules.hasSurvival && playerCombat.canBeHurt()) {
       playerCombat.markHurt();
-      survivalSystem.applyDamage(danoRecebido, 'ataque inimigo');
+      // `'criatura'` e não `'ataque inimigo'`: é a chave que `causaDaMorte.ts` conhece — item 143.
+      // Dois nomes para a mesma coisa é o que faz a tela de morte cair no texto genérico sem que
+      // nada reprove.
+      survivalSystem.applyDamage(danoRecebido, 'criatura');
     }
     gs.updateSun(player.pos.x, player.pos.z);
 
@@ -2554,7 +2562,12 @@ async function bootstrap() {
     // O botão de microfone só existe numa partida com outras pessoas: oferecer a permissão mais
     // invasiva que existe para um recurso que não faz nada seria pedir por pedir.
     hud.setMicrofoneDisponivel(peerSync.peerCount > 0);
-    if (rules.hasSurvival) hud.updateSurvival(survivalSystem.health, survivalSystem.maxHealth, survivalSystem.hunger, survivalSystem.maxHunger);
+    if (rules.hasSurvival) {
+      hud.updateSurvival(survivalSystem.health, survivalSystem.maxHealth, survivalSystem.hunger, survivalSystem.maxHunger);
+      // Barra de ar — item 126. O afogamento já causava dano; o que não havia era aviso nenhum de
+      // quanto tempo restava, e a única forma de aprender o limite era morrer nele.
+      hud.updateAr(survivalSystem.ar);
+    }
 
     saveAccum += dt;
     if (saveAccum > 5) { saveAccum = 0; savePlayerNow(); }

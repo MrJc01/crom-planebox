@@ -30,6 +30,25 @@ const HUNGER_DECAY_PER_SEC = 100 / (60 * 12); // fome zera em ~12 minutos
 const STARVE_DAMAGE_PER_SEC = 100 / 30;        // com fome zerada, morre em ~30s
 const REGEN_PER_SEC = 100 / 20;                // com fome > 50%, regenera vida em ~20s
 const DROWN_DAMAGE_PER_SEC = 100 / 8;          // afogando, morre em ~8s sem ar
+/**
+ * Reserva de ar, em segundos — item 126.
+ *
+ * Eram 3 segundos cravados dentro do `update`, sem nada na tela: o jogador mergulhava, e o dano
+ * simplesmente começava. Sem indicador, "quanto tempo eu ainda tenho" não tinha resposta, e a única
+ * forma de aprender o limite era morrer nele.
+ *
+ * Doze segundos porque a barra precisa de casas para esvaziar de forma legível. Com três, cada
+ * bolha vale 0,3 s e a barra pula de cheia a vazia sem passar pelo meio — que é exatamente a
+ * informação que ela existe para dar.
+ */
+export const RESERVA_DE_AR_S = 12;
+/**
+ * Segundos para reencher a reserva inteira fora d'água.
+ *
+ * Mais rápido que gastar, e de propósito: subir para respirar tem de ser uma pausa curta, senão
+ * atravessar um lago vira uma sequência de esperas. O que custa é a descida, não a respirada.
+ */
+export const RECUPERACAO_DE_AR_S = 3.5;
 const LAVA_DAMAGE_PER_SEC = 100 / 3;           // contato com lava, morre em ~3s
 const BURN_DURATION = 6;                       // segundos de queimadura ao sair da lava
 const BURN_DAMAGE_PER_SEC = 100 / 14;          // queimando, morre em ~14s se não apagar o fogo
@@ -41,7 +60,13 @@ export class SurvivalSystem {
   public maxHunger = 100;
   public alive = true;
 
-  private airTime = 0;
+  /**
+   * Ar restante, de 0 a 1 — item 126.
+   *
+   * Público e legível porque a HUD o desenha. Era um `airTime` privado que só existia para comparar
+   * com 3 e ninguém podia mostrar.
+   */
+  public ar = 1;
   private wasOnGround = true;
   /** Segundos restantes de queimadura. Sair da lava não apaga o fogo — só a água apaga. */
   public burnTime = 0;
@@ -56,7 +81,7 @@ export class SurvivalSystem {
     this.health = this.maxHealth;
     this.hunger = this.maxHunger;
     this.alive = true;
-    this.airTime = 0;
+    this.ar = 1;
     this.wasOnGround = true;
     this.burnTime = 0;
     this.onChanged();
@@ -85,12 +110,18 @@ export class SurvivalSystem {
     }
     this.wasOnGround = this.player.onGround;
 
-    // Afogamento: cabeça submersa por mais de ~3s começa a causar dano contínuo.
+    // Afogamento com reserva visível — item 126.
+    //
+    // O dano só começa quando o ar acaba, e a barra some sozinha ao encher: um indicador que fica
+    // permanentemente na tela vira ruído, e um que aparece **por causa de alguma coisa** é lido.
     if (this.player.headUnder) {
-      this.airTime += dt;
-      if (this.airTime > 3) this.applyDamage(DROWN_DAMAGE_PER_SEC * dt, 'afogamento');
-    } else {
-      this.airTime = 0;
+      const antes = this.ar;
+      this.ar = Math.max(0, this.ar - dt / RESERVA_DE_AR_S);
+      if (antes !== this.ar) this.onChanged();
+      if (this.ar <= 0) this.applyDamage(DROWN_DAMAGE_PER_SEC * dt, 'afogamento');
+    } else if (this.ar < 1) {
+      this.ar = Math.min(1, this.ar + dt / RECUPERACAO_DE_AR_S);
+      this.onChanged();
     }
 
     // Lava: dano contínuo e imediato ao contato, sem tolerância, e o jogador pega fogo.

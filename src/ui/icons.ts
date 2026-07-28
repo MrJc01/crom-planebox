@@ -20,7 +20,7 @@ export type NomeIcone =
   | 'inventario' | 'crafting' | 'personagem' | 'missoes' | 'mods' | 'codigo'
   | 'mundo' | 'chat' | 'engrenagem' | 'jogar' | 'voltar' | 'fechar'
   | 'mapa' | 'rede' | 'chave' | 'aviso' | 'grafico' | 'lupa'
-  | 'mais' | 'lixeira' | 'download' | 'upload' | 'historico' | 'coracao' | 'gota';
+  | 'mais' | 'lixeira' | 'download' | 'upload' | 'historico' | 'coracao' | 'gota' | 'bolha';
 
 /** Traçados de cada ícone, no espaço 24×24. Só o miolo — o invólucro é montado por `icone()`. */
 const TRACOS: Record<NomeIcone, string> = {
@@ -49,6 +49,9 @@ const TRACOS: Record<NomeIcone, string> = {
   historico: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v5l3 2"/>',
   coracao: '<path d="M12 20s-7-4.6-7-9.5A4 4 0 0 1 12 7a4 4 0 0 1 7 3.5C19 15.4 12 20 12 20Z"/>',
   gota: '<path d="M12 3s6 6.5 6 10.5a6 6 0 0 1-12 0C6 9.5 12 3 12 3Z"/>',
+  // Bolha de ar — item 126. Círculo com um brilho, para não se confundir com a gota da fome, que
+  // tem a mesma cor de família e estaria logo acima na tela.
+  bolha: '<circle cx="12" cy="12" r="7.5"/><path d="M9 8.6a4.6 4.6 0 0 0-1.6 2.2"/>',
 };
 
 /**
