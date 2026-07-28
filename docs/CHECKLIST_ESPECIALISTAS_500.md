@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1468 itens)
+# Checklist Mestre — Painel de Especialistas (1477 itens)
 
-> **Estado em 27/07/2026** — 799 de 1468 itens tratados (54%), com **1270 testes** passando,
+> **Estado em 27/07/2026** — 807 de 1477 itens tratados (55%), com **1325 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 93 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 706 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 669 | Pendente. |
+> | `[~]` | 714 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 670 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -2419,9 +2419,9 @@ com estações próprias sem escrever lógica.
 - [~] 1115 `P0` **Interpolação entre estações, com platô no coração de cada uma**
 - [~] 1116 `P0` **Derivado do `worldDay`, que já é sincronizado pelo `world_time`**
 - [~] 1117 `P1` **Folhagem muda de cor na estação **sem regerar o chunk** — canal `aTint` + uniform**
-- [ ] 1118 `P1` Inverno cobre de neve e congela a superfície da água — com os fluidos finitos já existentes
-- [ ] 1119 `P1` Primavera acelera o crescimento de plantas; inverno o interrompe
-- [ ] 1120 `P1` Duração do dia varia com a estação — inverno com noite mais longa
+- [~] 1118 `P1` **Inverno cobre de neve e congela a água**, com bloco de gelo novo e degelo por identidade
+- [~] 1119 `P1` **Crescimento rasteiro por estação** — e não existia crescimento nenhum para modular
+- [~] 1120 `P1` **Hora aparente**: o inverno encurta o dia sem mexer no relógio real
 - [~] 1121 `P1` **`sazonal` por bioma **e** perfil próprio via `definirPerfil`**
 - [~] 1122 `P1` **A estação traduz o clima: inverno converte chuva em neve onde o bioma permite**
 - [~] 1123 `P1` **`api.season.defineProfile` — declaração sem código; painel na página de mods pendente**
@@ -5020,3 +5020,67 @@ Um efeito que existe, roda, e faz o oposto do que o comentário promete. A fase 
 - [ ] 1480 `P2` **O despawn não é sincronizado** — o anfitrião remove a criatura e o convidado só descobre no `mob_sync` seguinte, até 170 ms depois. Ela some tarde, e some sem motivo visível daquele lado
 - [ ] 1481 `P2` **Nada avisa que a criatura presa vai embora** — do lado do jogador é um zumbi que desaparece sozinho dentro de casa, que é exatamente o tipo de coisa que se lê como defeito
 - [ ] 1482 `P3` **Os itens largados não são salvos** — fechar o mundo apaga a pilha da morte, e a vida de 25 minutos sugere o contrário
+
+## 84. As estações chegam ao chão — itens 1118, 1119 e 1120
+
+Os três campos de `PerfilSazonal` que nunca tiveram leitor. O inverno mudava a cor da folhagem e
+pesava a neve no sorteio de clima; o chão continuava verde, o dia continuava do mesmo tamanho e nada
+nunca crescia.
+
+### 1120 — distorcer o relógio, não a velocidade dele
+
+A tentação é fazer o tempo correr mais devagar de noite no inverno. Isso quebraria tudo o que
+depende de o dia durar `DAY_LENGTH` segundos: a sincronização entre pares, o contador de dias, o
+sono — e o próprio ano, porque um inverno mais longo desalinharia as estações do calendário que as
+define.
+
+O relógio real continua uniforme e o que muda é **onde o sol está** para uma dada hora. Três âncoras
+lineares — meia-noite, nascer, pôr —, e não uma curva suave, porque uma curva move o meio-dia: com o
+sol no ponto alto fora do meio do dia, o relógio do jogo deixa de bater com o céu, e é um erro que
+ninguém consegue nomear.
+
+E a **fase do dia** também passa pela hora aparente. Deixar as mecânicas no relógio real faria a
+noite de inverno começar visualmente e não valer como noite para abrigo, sono e objetivo — escuro lá
+fora, "dia" para o jogo.
+
+### 1118 — o sistema mais perigoso do repositório
+
+Ele reescreve blocos perto do jogador; um erro aqui apaga construção. Três regras, e a maior parte
+dos testes existe para provar o que ele **não** toca:
+
+1. **Só grama e água entram**, e só grama e água saem.
+2. **Só a face exposta ao céu.** O que tem algo em cima é interior de alguma coisa, e interior de
+   alguma coisa costuma ser construção.
+3. **A reversão é por identidade, não por memória.** Guardar "o que havia antes" exigiria uma tabela
+   que cresce com a área explorada e que fica errada assim que o jogador mexe no bloco.
+
+O preço aceito: neve colocada pelo jogador sobre grama derrete no degelo. É pequeno perto do risco
+de manter memória.
+
+Histerese com duas soleiras, senão um ponto oscilando em torno do limiar congela e degela a cada
+passada — o lago inteiro piscando entre azul e branco. E um teste cruza as soleiras com
+`PERFIS_PADRAO`: se `CONGELA_ACIMA_DE` ficasse acima da neve do inverno, o sistema rodaria e nunca
+congelaria nada, que é exatamente o modo de falha do item 029.
+
+### 1119 — modular uma coisa que não acontecia
+
+`api.season.growth()` expunha aos mods a velocidade de um crescimento que não existia. O sintoma no
+jogo era cavar um buraco, tapar com terra, e ficar com uma cicatriz marrom permanente na paisagem.
+
+A terra vira grama **por espalhamento** — precisa de grama ao lado. Sem o vizinho, terra no meio de
+um descampado viraria grama sozinha, o que lê como magia e não como natureza. E não planta árvore:
+uma árvore ocupa dezenas de voxels e apareceria dentro de uma casa cujo teto o jogador ainda não
+fechou. Crescimento rasteiro se desfaz com um clique; uma árvore não.
+
+- [~] 1483 `P1` **`duracaoDoDia.ts`** com remapeação monotônica e identidade exata no neutro
+- [~] 1484 `P1` **`invernada.ts`**, varredura orçada com histerese e reversão por identidade
+- [~] 1485 `P1` **Bloco `ICE`**, sólido e não opaco, sem drop
+- [~] 1486 `P1` **`vegetacao.ts`**, crescimento probabilístico por espalhamento
+- [~] 1487 `P1` **55 testes** entre os três, a maioria sobre o que os sistemas não podem tocar
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1488 `P2` **A neve e o gelo não são salvos como modificação do jogador** — passam por `setBlock` e entram no diff do mundo, então um mundo salvo no inverno carrega para sempre a neve daquele dia até a varredura passar de novo
+- [ ] 1489 `P2` **O gelo não é escorregadio nem quebra sob peso** — é um bloco sólido comum com outra cor, e o jogador vai esperar as duas coisas
+- [ ] 1490 `P2` **A hora aparente é do bioma do JOGADOR** — dois pares em biomas de força sazonal diferente veem o sol em posições diferentes na mesma hora do mundo
+- [ ] 1491 `P3` **Nada avisa que a estação virou** — a neve chega devagar e sem anúncio, e quem estava numa caverna sai para um mundo diferente sem transição

@@ -7,6 +7,9 @@ import { Chunk, chunkKey, CX, CY, CZ, SCALE, TOPO_VARREDURA } from './world/chun
 import { WorldGen, WATER_LEVEL } from './world/worldgen';
 import { PesoBioma, biomaDominante, descreverBioma, misturarCor, misturarEscalar, pesosDeBioma } from './world/biomes';
 import { CLIMAS, ClimaAtual, climaEm, descreverClima } from './world/weather';
+import { horaAparente } from './world/duracaoDoDia';
+import { Invernada } from './world/invernada';
+import { Vegetacao } from './world/vegetacao';
 import { EstadoSazonal, corDaFolhagem, corDaGrama, definirPerfil, descreverEstacao, estadoSazonal, limparPerfis } from './world/seasons';
 import { Precipitation, Relampago } from './render/precipitation';
 import { FadeAgenda } from './render/chunkFade';
@@ -1385,7 +1388,7 @@ async function bootstrap() {
     audio.play(SOUNDS.uiAbrir, { channel: 'ui' });
 
     const motivo = porQueNaoPodeDormir({
-      ehNoite: fasesDoDia(timeOfDay) === 'noite',
+      ehNoite: fasesDoDia(horaAparente(timeOfDay, estacao.efeito.duracaoDoDia)) === 'noite',
       abrigado: abrigoAtual !== null,
       souORelogio: peerSync.role !== 'guest',
       jaDormindo: dormindo,
@@ -2017,6 +2020,12 @@ async function bootstrap() {
   let abrigoAtual: Set<string> | null = null;
   /** Conta há quanto tempo cada criatura está presa no abrigo ou longe demais — item 1321. */
   const relogioDeDespawn = new RelogioDeDespawn();
+  /** Verniz de inverno: converte a superfície perto do jogador — item 1118. */
+  const invernada = new Invernada();
+  let relogioDeInvernada = 0;
+  /** Crescimento rasteiro, na velocidade da estação — item 1119. */
+  const vegetacao = new Vegetacao();
+  let relogioDeVegetacao = 0;
   /** Já avisamos nesta noite que o jogador está descoberto? Zera ao amanhecer. */
   let avisouDescoberto = false;
   /** O jogador está dormindo: o relógio do mundo corre acelerado até o amanhecer. */
@@ -2092,7 +2101,7 @@ async function bootstrap() {
     // Ciclo dia/noite. A luz de céu está assada na cor dos vértices, então o mundo só é
     // re-meshado quando `sunScale` muda o suficiente para ser perceptível — algumas vezes por
     // dia de jogo, e não a cada frame.
-    const faseAnterior = fasesDoDia(timeOfDay);
+    const faseAnterior = fasesDoDia(horaAparente(timeOfDay, estacao.efeito.duracaoDoDia));
     const anterior = timeOfDay;
 
     // Ritmo do relógio. O convidado que está atrás do anfitrião corre até 30% mais rápido (ou
@@ -2129,8 +2138,17 @@ async function bootstrap() {
       gs.setMoonPhase(faseDoDia(worldDay));
       hud.showToast(`Noite de lua ${nomeDaFase(worldDay)}`);
     }
-    gs.setTimeOfDay(timeOfDay);
-    const faseAtual = fasesDoDia(timeOfDay);
+    // Hora APARENTE — item 1120. O relógio real continua uniforme (é o que a sincronização entre
+    // pares, o contador de dias e o sono dependem); o que a estação move é onde o sol está para uma
+    // dada hora. No inverno o nascer atrasa e o pôr adianta, e a noite fica mais longa sem que o
+    // dia deixe de durar `DAY_LENGTH` segundos.
+    //
+    // Tudo o que lê "que horas são" passa a ler daqui: fase do dia, abrigo, sono e o céu. Deixar
+    // qualquer um deles no relógio real faria a noite do inverno começar visualmente e não valer
+    // como noite para as mecânicas — o pior dos dois mundos.
+    const horaDoSol = horaAparente(timeOfDay, estacao.efeito.duracaoDoDia);
+    gs.setTimeOfDay(horaDoSol);
+    const faseAtual = fasesDoDia(horaDoSol);
     if (faseAtual !== faseAnterior) modRuntime.dispatch('dayPhase', { phase: faseAtual, timeOfDay });
     // "Sobreviva até o amanhecer" precisa do AMANHECER, e não da virada do contador de dias: o
     // relógio dá a volta em `timeOfDay = 0`, que é **meia-noite** — o objetivo fecharia no meio da
@@ -2189,7 +2207,7 @@ async function bootstrap() {
     // A condição é `hasSurvival`, e não `mobSpawner.enabled`: o convidado não gera criaturas — quem
     // as gera é o anfitrião — mas tem objetivos próprios, e prendê-lo à autoridade deixaria "esteja
     // abrigado" impossível para todo mundo que entra num mundo dos outros.
-    if (rules.hasSurvival && fasesDoDia(timeOfDay) === 'noite') {
+    if (rules.hasSurvival && fasesDoDia(horaAparente(timeOfDay, estacao.efeito.duracaoDoDia)) === 'noite') {
       relogioDeAbrigo -= dt;
       if (relogioDeAbrigo <= 0) {
         relogioDeAbrigo = 2;
@@ -2311,6 +2329,54 @@ async function bootstrap() {
       // cai como neve na tundra e não cai no deserto.
       // A estação vem antes do clima: é ela que decide se a chuva possível ali cai como neve.
       estacao = estadoSazonal(worldDay + timeOfDay, pesosBioma);
+
+      // O inverno chega ao CHÃO — item 1118. Antes ele mudava a cor da folhagem e pesava a neve no
+      // sorteio de clima; a neve caía atravessando o mundo sem nunca tocá-lo, e o chão continuava
+      // verde debaixo dela. É uma varredura por perto porque a geração de chunk é determinística e
+      // roda uma vez: a estação muda sobre chunks já salvos e já construídos pelo jogador.
+      //
+      // Só o anfitrião converte. No convidado os blocos chegam pelo `block_update`, e converter dos
+      // dois lados faria os dois disputarem os mesmos voxels.
+      if (rules.hasSurvival && entitySystem.autoridade) {
+        relogioDeInvernada -= dt * 6; // este ramo roda a cada 6 quadros
+        if (relogioDeInvernada <= 0) {
+          relogioDeInvernada = 0.4;
+          const mudou = invernada.passada(
+            world,
+            { x: player.pos.x, z: player.pos.z },
+            estacao.efeito.neve,
+            (x, z) => gen.column(x, z).height,
+          );
+          if (mudou.length > 0) {
+            const alteracoes = mudou.map((m) => ({ x: m.x, y: m.y, z: m.z, blockType: m.t }));
+            relightBatch(alteracoes);
+            if (peerSync.role === 'host') enfileirarBlocos(alteracoes);
+          }
+        }
+
+        // E o crescimento — item 1119. `crescimento` estava exposto aos mods por
+        // `api.season.growth()` e não havia crescimento nenhum para modular: cavar um buraco e
+        // tapar com terra deixava uma cicatriz marrom permanente na paisagem.
+        //
+        // Mais espaçado que a invernada porque é probabilístico: ele nunca termina, e a intenção é
+        // o jogador NOTAR que algo cresceu ao voltar a um lugar, não vê-lo crescendo.
+        relogioDeVegetacao -= dt * 6;
+        if (relogioDeVegetacao <= 0) {
+          relogioDeVegetacao = 1.5;
+          const brotou = vegetacao.passada(
+            world,
+            { x: player.pos.x, z: player.pos.z },
+            estacao.efeito.crescimento,
+            (x, z) => gen.column(x, z).height,
+          );
+          if (brotou.length > 0) {
+            const alteracoes = brotou.map((m) => ({ x: m.x, y: m.y, z: m.z, blockType: m.t }));
+            relightBatch(alteracoes);
+            if (peerSync.role === 'host') enfileirarBlocos(alteracoes);
+          }
+        }
+      }
+
       const climaAnterior = clima.clima;
       clima = climaEm(
         seed,

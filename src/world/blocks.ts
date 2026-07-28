@@ -38,6 +38,13 @@ export const enum B {
   DIAMOND_ORE = 32,
   TORCH = 33,
   BED = 34,
+  /**
+   * Gelo — item 1118. A superfície da água congela no inverno e derrete no degelo.
+   *
+   * Sólido e **não** opaco, como o vidro: uma placa de gelo opaca esconderia a água embaixo e o
+   * lago viraria uma laje branca. Ver o que dele é feito em `src/world/invernada.ts`.
+   */
+  ICE = 35,
 }
 
 export interface BlockDef {
@@ -145,6 +152,12 @@ BLOCKS[B.TORCH].lightLevel = 14;
 // no chão, não um cubo inteiro — e porque isso já lhe dá o comportamento certo de não bloquear
 // passagem nem vedar o abrigo. `interactive` para cair na aba de blocos especiais do inventário,
 // que é onde estão os blocos que se **usam** em vez de só empilhar.
+BLOCKS[B.ICE] = def('gelo', 0xbfe6f5, 0xa9dcf0, 0x93d2ea, {
+  solid: true, opaque: false,
+  // Não dropa nada: recolher gelo daria uma fonte de água infinita que se colhe uma vez por ano, e
+  // o item nasceria com uma economia inteira pendurada nele sem ninguém ter decidido isso.
+  drops: -1,
+});
 BLOCKS[B.BED] = def('cama', 0xdc2626, 0xb45309, 0x78350f, {
   solid: false, opaque: false, decor: true, drops: B.BED, interactive: true,
 });
