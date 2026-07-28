@@ -72,6 +72,7 @@ import { RITMO_DORMINDO, deveAcordar, porQueNaoPodeDormir } from './game/dormir'
 import { RegistroDeSono, estadoDoSonoColetivo } from './game/sonoColetivo';
 import { PainelDeJogadores } from './ui/PainelDeJogadores';
 import { montarListaDeJogadores } from './net/listaDeJogadores';
+import { deveRoubar } from './ui/atalhosDoNavegador';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -2248,6 +2249,16 @@ async function bootstrap() {
   });
 
   window.addEventListener('keydown', (e) => {
+    // Os atalhos do navegador só são tomados enquanto o jogo está sendo JOGADO — item 1550.
+    //
+    // Ctrl+S abria "salvar página" por cima do mundo, Ctrl+D favoritava, F5 recarregava e perdia a
+    // partida. Nenhum avisava e nenhum era recuperável. Fora do jogo — num menu, digitando no chat —
+    // eles voltam a ser do navegador, senão a página inteira vira um lugar onde os reflexos de todo
+    // mundo param de funcionar, que é pior que o problema.
+    if (deveRoubar(e, !!document.pointerLockElement)) {
+      e.preventDefault();
+      return;
+    }
     const activeEl = document.activeElement;
     const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
 

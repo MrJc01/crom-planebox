@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1527 itens)
+# Checklist Mestre — Painel de Especialistas (1579 itens)
 
-> **Estado em 27/07/2026** — 863 de 1527 itens tratados (56%), com **1497 testes** passando,
+> **Estado em 28/07/2026** — 869 de 1579 itens tratados (55%), com **1512 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 101 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 762 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 672 | Pendente. |
+> | `[~]` | 768 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 710 | Pendente. Inclui os 44 itens da rodada de pedidos do dono do projeto (Parte VII). |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -5433,3 +5433,248 @@ coletivo.
 - [ ] 1547 `P2` **O convidado não sabe quem está dormindo** — `registroDeSono` só existe no anfitrião, então a lista dele mostra apenas o próprio estado. Honesto, mas incompleto: falta o anfitrião difundir o conjunto
 - [ ] 1548 `P2` **Nada indica quem está falando** — o campo `falando` existe na linha e é sempre `false`; ligá-lo exige medir o nível de áudio de cada par no `MixerDeVoz`
 - [ ] 1549 `P3` **A lista não mostra vida nem modo** — num mundo compartilhado, saber quem está prestes a morrer é o tipo de coisa que muda o que se faz
+
+---
+
+# PARTE VII — Rodada de pedidos do dono do projeto (27/07/2026)
+
+Tudo o que segue veio de um pedido direto, em bloco. Está registrado **antes** de qualquer
+implementação, porque metade destes itens muda o desenho de sistemas que já existem e a ordem entre
+eles importa mais que a velocidade de fazer o primeiro.
+
+A prioridade abaixo é minha, e a justifico item a item: `P0` é o que está quebrado ou sem sentido
+para quem joga **hoje**; `P1` é o que falta para o jogo ser o que o pedido descreve; `P2` é
+melhoria; `P3` é acabamento.
+
+## 92. O que quebra hoje
+
+- [~] 1550 `P0` **Os atalhos do navegador são tomados enquanto se joga** — e devolvidos fora dele. Era: — Ctrl+W fecha a aba no meio de uma partida, F5 recarrega, Ctrl+S abre "salvar página", Ctrl+D favorita, F3 abre a busca do Firefox. Nenhum deles é recuperável: o jogador perde o que estava fazendo sem nada avisar. Só o Tab foi tratado (item 1497), e por acaso — porque tirava o foco do canvas
+- [~] 1551 `P0` **A barra começa vazia, com a mão e nada mais.** Era: — a barra começa com 6.000 de terra, 9.000 de pedregulho, 6.000 de tábuas, 6.000 de tijolo, 2.400 de tronco, 3.000 de areia, 3.000 de pedra e 2.400 de folhas. Com isso, minerar não tem função, a fabricação não tem função, o baú não tem função e os objetivos de "quebre um tronco" já estão cumpridos antes do primeiro clique. **Deve começar vazio**, com a mão e nada mais
+- [ ] 1552 `P1` **Trocar a aparência não aparece para os outros** — a `Appearance` vai no `player_joined` e no `player_state`, mas trocar de skin com a sessão aberta não reemite nada: os outros continuam vendo o boneco antigo até reconectarem
+- [ ] 1553 `P2` **As ferramentas de desenvolvedor não têm porta** — com os atalhos do navegador desabilitados (item 1550), abrir o DevTools precisa de um caminho no jogo: um comando de chat e um item nas configurações
+
+## 93. O chat, unificado
+
+Hoje há dois chats: o do mundo (jogador para jogador) e o da IA (sessões, threads, mods). São duas
+caixas, dois históricos e dois modelos mentais para a mesma coisa — escrever alguma coisa e receber
+resposta.
+
+- [ ] 1554 `P1` **Um chat só** — o do mundo e o da IA passam a ser o mesmo painel, com o mesmo
+  histórico e a mesma caixa de entrada
+- [ ] 1555 `P1` **A IA vira um comando** — falar com ela é `/ia <mensagem>` (ou um prefixo), e não um
+  modo separado. Isso resolve sozinho a ambiguidade de "para onde vai o que eu escrevo", que hoje
+  depende de qual aba está aberta
+- [ ] 1556 `P1` **Aba de chat no menu**, com as sessões da IA listadas e abríveis fora do jogo — hoje
+  as threads só existem dentro da partida
+- [ ] 1557 `P1` **Mais comandos de chat** — o sistema de comandos existe e está subusado. Precisa
+  cobrir pelo menos: tempo/clima, teleporte, dar item, modo de jogo, semente, coordenadas, listar
+  jogadores, expulsar, oplevel, e ajuda que se lê sozinha
+- [ ] 1558 `P2` **`/ajuda` que lista o que existe de verdade** — derivada do registro de comandos, e
+  não escrita à mão; uma lista escrita à mão diverge na primeira adição
+
+## 94. Entidades de verdade
+
+O `EntitySystem` monta bonecos de caixas e roda um script de comportamento. O pedido é um sistema em
+que a entidade seja um objeto de jogo completo.
+
+- [ ] 1559 `P1` **Entidade com câmera** — poder ver pelo ponto de vista dela, e poder usá-la como
+  câmera de cena (para cinemática, para vigilância, para um retrato de um lugar)
+- [ ] 1560 `P1` **Entidade com áudio** — som próprio, posicional, disparado pelo comportamento dela
+  e não pelo `main`
+- [ ] 1561 `P1` **Atributos declarados por dado, não por campo** — hoje `EntityRecord` tem um campo
+  para cada coisa que alguém precisou. Um saco de atributos nomeados permite a um mod (ou ao jogador)
+  acrescentar `sede`, `moral`, `carga` sem tocar no tipo
+- [ ] 1562 `P2` **Componentes ligáveis** — câmera, áudio, luz, colisor e comportamento como peças que
+  se somam a uma entidade, em vez de campos opcionais no mesmo registro
+- [ ] 1563 `P2` **A entidade aparece no editor de código** com a API dela documentada, como já
+  acontece com os mods
+
+## 95. O editor de mini-estruturas dentro do jogo
+
+O pedido central desta rodada: um item que **não abre um menu** — abre um **editor no próprio
+mundo**, onde se pega mini-blocos e se monta uma estrutura pequena, no estilo de um editor de voxel.
+A intenção declarada é liberdade para criar coisas únicas com os blocos que já existem.
+
+- [ ] 1564 `P1` **Item "mesa de criação"** que entra em modo de edição em vez de abrir tela
+- [ ] 1565 `P1` **Volume de edição delimitado** — uma caixa visível no mundo onde a edição acontece,
+  para o editor não ser "o mundo inteiro, mas diferente"
+- [ ] 1566 `P1` **Ferramentas de voxel**: colocar, apagar, pintar, espelhar, encher, e desfazer
+  próprio do editor (o `UndoManager` do mundo não serve — são escopos diferentes)
+- [ ] 1567 `P1` **A estrutura vira um template** reutilizável, como os de `StructureTemplates`, e
+  entra na barra como um item que carimba
+- [ ] 1568 `P2` **Salvar, nomear e listar** as estruturas criadas, por mundo
+- [ ] 1569 `P2` **Compartilhar a estrutura** — exportar e importar, no mesmo caminho dos mods
+- [ ] 1570 `P3` **Grade e simetria** no editor, que é o que separa um editor de voxel de um modo de
+  construir com passos menores
+
+## 96. O personagem
+
+- [ ] 1571 `P1` **Raça do personagem** — uma escolha na criação que muda aparência e atributos
+- [ ] 1572 `P1` **Atributos do personagem extensíveis por código**, no mesmo modelo do item 1561
+- [ ] 1573 `P2` **A criação de personagem reflete a raça** e mostra o efeito de cada escolha
+
+## 97. Testes automatizados num mundo de testes
+
+Hoje há 1.497 testes de unidade e **nenhum** que abra o jogo. Tudo o que é visual, sonoro ou de
+integração entre sistemas é verificado por leitura de código — os laços de fiação — e não por
+execução. É a dívida mais citada neste documento.
+
+- [ ] 1574 `P1` **Mundo de testes determinístico** — semente fixa, relógio controlável, sem rede
+- [ ] 1575 `P1` **Roteiro automatizado** que carrega o mundo, executa uma sequência de ações
+  (andar, quebrar, colocar, fabricar, dormir, morrer) e **verifica os logs**
+- [ ] 1576 `P1` **Log estruturado** — hoje os `console.log` são frases soltas; um roteiro só pode
+  verificar o que tem forma
+- [ ] 1577 `P2` **Captura de tela no fim de cada etapa**, para o defeito visual ter alguma chance de
+  aparecer sem alguém olhando
+- [ ] 1578 `P2` **Rodar no CI** — um teste de integração que ninguém executa é um teste que não
+  existe
+
+## 98. A subdivisão do bloco — e por que ela vem por último
+
+O pedido: dividir o mini-bloco atual, para o mundo ficar mais bonito. Hoje `SCALE = 3` — três
+mini-voxels por metro, 27 por metro cúbico. O pedido leva a `SCALE = 9`: cada mini-voxel de hoje
+vira 3×3×3 = 27 menores, e o metro passa a ter 9×9×9 = 729.
+
+**O dono do projeto já disse que sabe que é uma mudança fundamental.** O que segue não é objeção, é
+a conta — porque ela decide a ordem em que as coisas têm de ser feitas.
+
+### Primeiro a conta ingênua, que é a que assusta
+
+Guardando o mundo como hoje — um `Uint8Array` plano por chunk:
+
+| | hoje | `SCALE = 9` plano |
+|---|---|---|
+| bytes por chunk | 262.144 (256 KB) | 7.077.888 (6,75 MB) |
+| memória de blocos (raio 9) | ~90 MB | **~2,4 GB** |
+| gerar um chunk | 40 ms | ~1,1 s |
+
+2,4 GB de `Uint8Array` não é alocável numa aba. **Mas essa não é a conta que importa**, e o dono do
+projeto apontou isso: a compressão existe justamente para não ter de escolher entre resolução e
+memória.
+
+### A conta com compressão, medida
+
+Medi um chunk real, recortado em seções e cada seção paletizada com bits empacotados
+(`ceil(log2(paleta))` bits por voxel, seção de valor único guardando **um** valor):
+
+| aresta da seção | tamanho no mundo | seções mistas | bytes/chunk |
+|---|---|---|---|
+| 2³ | 0,67 m | 7,1% | 263 KB |
+| 4³ | 1,33 m | 18,8% | 41 KB |
+| **8³** | **2,67 m** | **41,1%** | **23 KB** |
+| 16³ | 5,33 m | 57,3% | 37 KB |
+| 32³ | 10,67 m | 62,5% | 54 KB |
+
+**256 KB viram 23 KB — onze vezes menos, sem perder um voxel.** A paleta mediana de uma seção é
+**2**: quase todo pedaço do mundo é ar-e-mais-uma-coisa, e guardar isso em 8 bits por voxel é
+desperdiçar sete deles.
+
+### Por que isso melhora quando o bloco fica menor, em vez de piorar
+
+É a parte contraintuitiva, e é o que faz o pedido caber. As seções mistas são as que uma **fronteira
+de material atravessa**, e fronteira é superfície — coisa de duas dimensões. Ao refinar 3×, o número
+de seções cresce 27× e o número de seções atravessadas cresce só 9×. A **fração** de seções mistas
+cai por 3.
+
+A tabela acima mostra isso medido: a fração de mistas acompanha o tamanho físico da seção, não a
+contagem de voxels. Uma seção de 16³ em `SCALE = 9` cobre 1,78 m — entre as linhas de 1,33 m e
+2,67 m —, então cai na faixa de 20 a 30% de mistas, e não nos 57% de hoje.
+
+Projeção, a partir dessa medição:
+
+| | hoje (plano) | `SCALE = 9` paletizado |
+|---|---|---|
+| bytes por chunk | 256 KB | **~330 a 490 KB** |
+| memória de blocos (raio 9) | ~90 MB | **~120 a 180 MB** |
+
+Ou seja: **o mundo com o bloco nove vezes menor custa menos que o dobro do que o mundo de hoje
+custa**, e o que sobra é uma diferença de mesma ordem — não de vinte e sete vezes. A conta ingênua
+errava por um fator de quinze.
+
+O que **não** melhora sozinho é o tempo de geração: 729 amostras de ruído por metro continuam sendo
+729. É por isso que o item 1582 (gerar grosso e refinar) não é opcional — ele é o par do
+compressor, e sem ele o custo migra de memória para relógio.
+
+### A ordem, agora que a conta é outra
+
+Os dois primeiros deixaram de ser "pré-requisito de uma mudança futura" e viraram `P0` por mérito
+próprio: eles pagam onze vezes o que custam **hoje**, com `SCALE = 3`, e é essa economia que abre
+espaço para o resto.
+
+- [ ] 1579 `P0` **Paletização por seção com bits empacotados** (item 033) — **medido: 256 KB → 23 KB
+  por chunk, onze vezes menos, sem perder um voxel.** A paleta mediana de uma seção de 8³ é **2**:
+  quase todo pedaço do mundo é ar-e-mais-uma-coisa, e guardar isso em 8 bits desperdiça sete deles
+- [ ] 1580 `P0` **Seção de valor único guarda um valor** — 42,7% das seções de 8³ já são homogêneas
+  no mundo de hoje, e a fração **sobe** quando o bloco fica menor, porque fronteira é superfície
+- [ ] 1581 `P1` **Compressão no save** (item 034) — o disco herda a mesma estrutura de graça
+- [ ] 1582 `P1` **Gerar grosso e refinar** — é o par do compressor e não é opcional: 729 amostras de
+  ruído por metro continuam sendo 729, e sem isto o custo migra de memória para relógio (~1,1 s por
+  chunk). Gerar em `SCALE = 3` e subdividir só onde há fronteira
+- [ ] 1583 `P1` **LOD de malha** (item 031) — a contagem de faces cresce junto, e sem LOD o custo
+  migra da CPU para a GPU sem melhorar nada
+- [ ] 1584 `P1` **`SCALE = 9` de fato**, depois dos quatro acima — com a assinatura de mundo
+  atualizada deliberadamente, porque o terreno **vai** mudar
+- [ ] 1585 `P2` **Revisar o que assume `SCALE = 3`** — o Modo Detalhe, os templates de estrutura, o
+  editor novo (item 1564) e o alcance de construção
+- [ ] 1586 `P2` **Revisar `MAX_CELULAS_DA_CAIXA`** — 250 mil células viram um cubo de 6 metros num
+  mundo de `SCALE = 9`, e o limite deixa de proteger o que protegia
+
+### Uma dúvida do pedido, registrada em vez de adivinhada
+
+**Confirmado pelo dono do projeto:** o bloco de um metro passa a ser 9×9×9 de mini-blocos, em vez
+do 3×3×3 de hoje. Ou seja `SCALE: 3 → 9`, com cada mini-voxel atual virando 3×3×3 = 27 menores. O
+"21" do pedido era imprecisão de escrita; a intenção é a que está aqui.
+
+## 99. O que fica dito sobre o resto
+
+O pedido termina com "falta criar muitas coisas". Isso é verdade e o documento já registra 672
+itens pendentes. O que esta rodada acrescenta não é uma lista nova ao lado da antiga: os itens
+acima **se ligam** aos que já existiam — 033, 034, 031 ganharam motivo; 1192 (aba de sistema) ganhou
+a lista de jogadores como vizinha; 1466 e 1472 (nada visual é conferido) ganharam a resposta que
+faltava, que é a seção 97.
+
+## 100. Os dois P0 da rodada, fechados
+
+### 1550 — o navegador é dono da aba, e isso tem limite
+
+Ctrl+S abria "salvar página" por cima do mundo, F5 recarregava e perdia a partida, Ctrl+D
+favoritava. Nenhum avisava e nenhum era recuperável. Só o Tab estava tratado, e por acidente —
+porque tirava o foco do canvas.
+
+Duas decisões:
+
+**Só com o ponteiro travado.** Fora do jogo — num menu, digitando no chat — Ctrl+F *deve* procurar e
+Ctrl+C *deve* copiar. Bloquear sempre transformaria a página num lugar onde os reflexos de todo
+mundo param de funcionar, o que é pior que o problema.
+
+**O que não dá para impedir está listado, não escondido.** Ctrl+W, Ctrl+T, Alt+Tab são do navegador
+e nenhuma página os intercepta — e é bom que seja assim. `FORA_DO_ALCANCE` existe como dado para a
+tela de configurações poder dizer quais são; fingir que o problema não existe seria pior.
+
+E o F12 fica livre de propósito: com o resto tomado, tirá-lo também deixaria o desenvolvedor sem
+caminho nenhum.
+
+### 1551 — trinta e sete mil blocos antes do primeiro clique
+
+A barra começava com 6.000 de terra, 9.000 de pedregulho, 6.000 de tábuas, 6.000 de tijolo, 2.400 de
+tronco, 3.000 de areia, 3.000 de pedra e 2.400 de folhas.
+
+Com isso **nada do jogo tinha função**. Minerar não dá o que já se tem. Fabricar tábua a partir de
+tronco é absurdo quando há seis mil tábuas. O baú do item 137 guarda o quê. Os objetivos de "quebre
+um tronco" nasciam metade cumpridos. Cada sistema desta sessão — progressão, penalidade de morte,
+armazenamento, ferramentas com tier — pressupõe escassez, e a escassez era desmentida na primeira
+tela.
+
+A barra cheia era o **Criativo vazando para dentro do Sobrevivência**, e não uma decisão sobre
+nenhum dos dois. Quem quer todos os blocos abre o inventário criativo, que é onde eles moram.
+
+- [~] 1587 `P0` **`atalhosDoNavegador.ts`**, com o que dá e o que não dá para impedir separados
+- [~] 1588 `P0` **Barra vazia**, com os slots na mesma forma que `guardarNaHotbar` sabe preencher
+- [~] 1589 `P1` **Slot vazio não mostra "0"** — oito zeros lêem como defeito, não como espaço livre
+- [~] 1590 `P1` **15 testes**, incluindo o que garante que Ctrl+C nunca é tomado
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1591 `P1` **`beforeunload` para o que não dá para impedir** — Ctrl+W e Alt+F4 continuam fechando a partida sem confirmação, e o "tem certeza?" nativo é o máximo que a plataforma oferece
+- [ ] 1592 `P2` **A tela de configurações não lista os atalhos** — `listarRoubadas` e `FORA_DO_ALCANCE` existem e nenhuma tela os mostra ainda (parte do item 1553)
+- [ ] 1593 `P1` **O jogador começa sem ferramenta nenhuma** — com a barra vazia, o primeiro tronco tem de ser quebrado com a mão, e é preciso conferir se `velocidadeDeQuebra` deixa isso viável ou se o começo virou um muro

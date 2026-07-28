@@ -35,16 +35,41 @@ export interface HotbarSlot {
 export type BuildMode = 'single' | 'box';
 
 export class Interaction {
+  /**
+   * A barra começa **vazia**, com a mão e mais nada — item 1551.
+   *
+   * ## O que havia antes, e o que custava
+   *
+   * Ela começava com 6.000 de terra, 9.000 de pedregulho, 6.000 de tábuas, 6.000 de tijolo, 2.400
+   * de tronco, 3.000 de areia, 3.000 de pedra e 2.400 de folhas. Trinta e sete mil blocos, antes do
+   * primeiro clique.
+   *
+   * Com isso, **nada do jogo tinha função**: minerar não dá o que já se tem; fabricar tábua a
+   * partir de tronco é absurdo quando há seis mil tábuas; o baú (item 137) guarda o quê; e os
+   * objetivos de "quebre um tronco" nasciam metade cumpridos. Cada sistema construído nesta sessão
+   * — progressão, penalidade de morte, armazenamento, ferramentas com tier — pressupõe escassez, e
+   * a escassez era desmentida na primeira tela.
+   *
+   * ## Por que a mão fica
+   *
+   * `B.AIR` com `infinite` é o slot de "não estou segurando nada", e é ele que permite quebrar sem
+   * colocar. Removê-lo não deixaria a barra mais vazia — deixaria o jogador sem como interagir.
+   *
+   * ## O Criativo não perde nada
+   *
+   * Quem quer todos os blocos abre o inventário criativo, que é onde eles moram. A barra cheia era
+   * o Criativo vazando para dentro do Sobrevivência, e não uma decisão sobre nenhum dos dois.
+   */
   hotbar: HotbarSlot[] = [
     { label: 'mão', block: B.AIR, count: 0, infinite: true },
-    { label: 'terra', block: B.DIRT, count: 6000 },
-    { label: 'pedregulho', block: B.COBBLE, count: 9000 },
-    { label: 'tábuas', block: B.PLANK, count: 6000 },
-    { label: 'tijolo de pedra', block: B.STONE_BRICK, count: 6000 },
-    { label: 'tronco', block: B.LOG, count: 2400 },
-    { label: 'areia', block: B.SAND, count: 3000 },
-    { label: 'pedra', block: B.STONE, count: 3000 },
-    { label: 'folhas', block: B.LEAVES, count: 2400 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
+    { label: '', block: -1, count: 0 },
   ];
   selected = 0;
   buildMode: BuildMode = 'single';

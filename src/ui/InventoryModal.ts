@@ -316,7 +316,9 @@ export class InventoryModal {
       }
     }
 
-    if (!slot.infinite) {
+    // Slot vazio não mostra "0" — item 1551. Com a barra começando vazia, a contagem apareceria em
+    // oito quadrados de uma vez, e oito zeros lêem como um defeito, não como espaço livre.
+    if (!slot.infinite && slot.block >= 0 && slot.count > 0) {
       const countEl = document.createElement('span');
       countEl.style.cssText = 'position: absolute; bottom: 1px; right: 3px; font-size: 10px; color: #f8fafc; font-weight: 700; text-shadow: 0 1px 2px black;';
       countEl.textContent = String(slot.count);
