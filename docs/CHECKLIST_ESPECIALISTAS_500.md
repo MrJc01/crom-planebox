@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1522 itens)
+# Checklist Mestre — Painel de Especialistas (1527 itens)
 
-> **Estado em 27/07/2026** — 856 de 1522 itens tratados (56%), com **1475 testes** passando,
+> **Estado em 27/07/2026** — 863 de 1527 itens tratados (56%), com **1497 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 101 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 755 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 671 | Pendente. |
+> | `[~]` | 762 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 672 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -5131,7 +5131,7 @@ menu.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1497 `P1` **Não há lista de jogadores na interface** — `/mudo` é a única porta para o item 1415, e quem não sabe que o comando existe não tem nenhuma. Liga-se ao item 1192
+- [~] 1497 `P1` **Lista de jogadores no [Tab]** — e com ela `/mudo` e o sono coletivo deixaram de ser invisíveis
 - [ ] 1498 `P2` **Só se pode silenciar quem está presente** — quem saiu não pode ser silenciado preventivamente, e a lista de `/mudo` mostra o id cru de quem não está por perto
 - [ ] 1499 `P2` **A voz não é abafada por parede** — dois jogadores separados por vinte metros de rocha se ouvem como se estivessem no mesmo corredor, e `abrigo.ts` já sabe responder se há caminho
 - [ ] 1500 `P3` **Nada indica quem está falando** — sem um sinal no avatar ou na lista, uma sessão com quatro pessoas vira um jogo de adivinhar
@@ -5383,5 +5383,53 @@ apontavam para ele e para a forma antiga do `ritmo`; atualizei os dois mantendo 
 ### Lacunas anotadas nesta rodada
 
 - [ ] 1539 `P2` **Não há como recusar o sono coletivo** — quem não quer dormir só pode não deitar, e não tem como dizer "podem ir, me deixem fora"; numa sessão grande isso trava a noite sem conversa
-- [ ] 1540 `P2` **O convidado deitado não vê o próprio contador** — a mensagem chega pelo chat, e quem está com a tela de sono aberta não a lê
+- [~] 1540 `P2` **O contador de sono está no cabeçalho da lista** — sem depender do chat
 - [ ] 1541 `P3` **Deitar não tem carência** — deitar e levantar em sequência dispara um aviso a cada vez, para todo mundo
+
+## 91. Quem está aqui — item 1497
+
+Duas mecânicas inteiras não tinham porta de entrada, e as duas eram minhas, das rodadas anteriores.
+
+`/mudo` (item 1415) era a **única** forma de silenciar alguém: quem não sabe que o comando existe
+não tem forma nenhuma. E o sono coletivo (item 139) avisa quem falta por uma mensagem de chat que
+passa — quem chega depois não descobre por quem está esperando.
+
+As duas dependiam da mesma coisa: saber quem está aqui. Uma lista resolve as duas de uma vez, e é a
+diferença entre um recurso que existe e um recurso que alguém usa.
+
+### Segurar, não alternar
+
+A lista é uma **consulta**, não uma tela. Alternar exigiria fechá-la, e o custo de esquecer aberto é
+um painel tampando o mundo justamente quando algo acontece. Segurar torna impossível esquecer.
+
+Pelo mesmo motivo ela não passa pelo `UIManager`: uma tela bloqueante solta o ponteiro, pausa a
+entrada e devolve o foco ao fechar. Para uma olhada de dois segundos, isso é o triplo do custo do
+benefício.
+
+Dois casos que os testes travam: o `preventDefault` no Tab — sem ele o navegador tira o foco do
+canvas e o jogador perde o controle sem entender por quê — e o fechamento no `blur`, porque alt-tab
+com o Tab apertado é literalmente o gesto que o navegador rouba, e o painel ficaria preso na tela
+parecendo um painel que não fecha.
+
+### A ordem é por distância, e isso é uma decisão
+
+A lista existe para **agir** sobre alguém, e essa pessoa quase sempre é a que está por perto. Ordem
+alfabética faria a mesma pessoa mudar de posição quando outra entrasse, e o clique erraria o alvo.
+Quem ainda não mandou posição vai para o fim: é quem acabou de entrar, e pô-lo no topo com distância
+zero faria parecer que está colado no jogador.
+
+E a lista é **derivada**, não guardada. Manter uma cópia própria significaria sincronizá-la com três
+fontes, e a primeira a divergir seria a de quem saiu — a mesma armadilha que já apareceu no sono
+coletivo.
+
+- [~] 1542 `P1` **`listaDeJogadores.ts`**, com a ordem, a distância e o resumo de sono fora do DOM
+- [~] 1543 `P1` **`PainelDeJogadores`** no [Tab], não bloqueante
+- [~] 1544 `P1` **Clique no nome silencia** — a porta que faltava para o item 1415
+- [~] 1545 `P2` **Contador de sono no cabeçalho**, sem depender do chat
+- [~] 1546 `P1` **22 testes**, oito deles de fiação
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1547 `P2` **O convidado não sabe quem está dormindo** — `registroDeSono` só existe no anfitrião, então a lista dele mostra apenas o próprio estado. Honesto, mas incompleto: falta o anfitrião difundir o conjunto
+- [ ] 1548 `P2` **Nada indica quem está falando** — o campo `falando` existe na linha e é sempre `false`; ligá-lo exige medir o nível de áudio de cada par no `MixerDeVoz`
+- [ ] 1549 `P3` **A lista não mostra vida nem modo** — num mundo compartilhado, saber quem está prestes a morrer é o tipo de coisa que muda o que se faz

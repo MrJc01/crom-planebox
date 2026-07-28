@@ -70,6 +70,8 @@ import { chaveDeCelula, mapearAbrigo } from './game/abrigo';
 import { aplicarPenalidade, penalidadeDoMundo } from './game/penalidadeDeMorte';
 import { RITMO_DORMINDO, deveAcordar, porQueNaoPodeDormir } from './game/dormir';
 import { RegistroDeSono, estadoDoSonoColetivo } from './game/sonoColetivo';
+import { PainelDeJogadores } from './ui/PainelDeJogadores';
+import { montarListaDeJogadores } from './net/listaDeJogadores';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -184,6 +186,11 @@ async function bootstrap() {
     audio.play(SOUNDS.pegarItem, { channel: 'ui', dedupeKey: 'pegarItem' });
   };
   inter.onItemDrop = (blockType, count, x, y, z) => itemDropSystem.spawn(blockType, count, x, y, z);
+
+  // Lista de jogadores — item 1497. Segurar [Tab] mostra quem está na sessão, a que distância, quem
+  // está dormindo e quem foi silenciado. Sem ela, `/mudo` e o sono coletivo existem e são
+  // invisíveis: quem não sabe que o comando existe não tem porta nenhuma.
+  const painelDeJogadores = new PainelDeJogadores();
 
   // Baús — item 137. O conteúdo mora no banco por posição; isto é só o que está aberto agora.
   const bauModal = new BauModal();
@@ -1673,6 +1680,28 @@ async function bootstrap() {
     avaliarSonoColetivo();
   }
 
+  /** As linhas da lista de jogadores, montadas do que já existe — item 1497. */
+  function linhasDeJogadores() {
+    return montarListaDeJogadores({
+      localId: localPlayerId,
+      localNome: localPlayerName,
+      localDormindo: dormindo,
+      olhando: { x: player.pos.x, y: player.pos.y, z: player.pos.z },
+      remotos: Array.from(remotePlayers, ([id, p]) => ({ id, nome: p.name, pos: avatars.posicaoDe(id) })),
+      silenciado: (id) => silenciados.estaSilenciado(id),
+      // O registro de sono só existe no anfitrião; no convidado ninguém aparece dormindo além dele
+      // mesmo, e isso é honesto — ele não tem essa informação.
+      dormindo: (id) => registroDeSono.estaDormindo(id),
+    });
+  }
+
+  painelDeJogadores.onAlternarSilencio = (id) => {
+    const agora = silenciados.alternar(id);
+    const nome = remotePlayers.get(id)?.name ?? id;
+    hud.showToast(agora ? `${nome} silenciado.` : `Você voltou a ouvir ${nome}.`);
+    painelDeJogadores.atualizar(linhasDeJogadores());
+  };
+
   /** Ids de todo mundo na sessão, incluindo este cliente. */
   function presentesNaSessao(): string[] {
     return [localPlayerId, ...remotePlayers.keys()];
@@ -2204,11 +2233,19 @@ async function bootstrap() {
   // numa caixa de texto enquanto falava.
   window.addEventListener('keyup', (e) => {
     if (e.code === TECLA_DE_VOZ) voz.definirTecla(false);
+    if (e.code === 'Tab') painelDeJogadores.esconder();
   });
 
   // A janela perdendo o foco também emudece: alt-tab com a tecla apertada nunca gera o `keyup`, e o
   // jogador continuaria transmitindo enquanto conversa com outra pessoa na frente do computador.
-  window.addEventListener('blur', () => voz.definirTecla(false));
+  //
+  // Pelo mesmo motivo a lista de jogadores fecha: alt-tab com o Tab apertado é literalmente o gesto
+  // que o navegador rouba, e o painel ficaria preso na tela até a próxima vez que alguém o
+  // apertasse — parecendo um painel que não fecha.
+  window.addEventListener('blur', () => {
+    voz.definirTecla(false);
+    painelDeJogadores.esconder();
+  });
 
   window.addEventListener('keydown', (e) => {
     const activeEl = document.activeElement;
@@ -2284,6 +2321,17 @@ async function bootstrap() {
       // [G] guarda o que está na mão, e só faz sentido com um baú aberto — item 137. Vem antes do
       // registro de atalhos porque não abre nem fecha tela nenhuma: é uma ação dentro da que já
       // está aberta, e o `UIManager` só sabe falar de telas.
+      // [Tab] segurado mostra quem está na sessão — item 1497. É uma consulta e não uma tela:
+      // segurar torna impossível esquecer aberto, e não bloquear evita soltar o ponteiro e pausar a
+      // entrada para uma olhada de dois segundos.
+      //
+      // `preventDefault` sempre, inclusive na repetição: sem ele o Tab move o foco do navegador
+      // para fora do canvas e o jogador perde o controle sem entender por quê.
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        if (!painelDeJogadores.visivel) painelDeJogadores.mostrar(linhasDeJogadores());
+        return;
+      }
       if (e.code === 'KeyG' && bauModal.isOpen) {
         e.preventDefault();
         bauModal.onGuardarSelecionado();
@@ -2407,6 +2455,9 @@ async function bootstrap() {
       playerModel.update(dt, speed, player.onGround ?? true, player.yaw, primeiraPessoa ? 0 : player.pitch);
     }
     avatars.update(dt);
+    // A lista, se estiver aberta: as distâncias mudam a cada passo, e uma lista congelada mentiria
+    // sobre quem está perto — que é exatamente a informação que alguém abre a lista para ver.
+    painelDeJogadores.atualizar(linhasDeJogadores());
 
     // A voz acompanha o corpo — itens 1414 e 1415.
     //
