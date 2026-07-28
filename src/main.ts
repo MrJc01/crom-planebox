@@ -80,7 +80,7 @@ import { SilenciadosDeVoz, misturaDaVoz } from './net/vozEspacial';
 import { interpretarComandoDeSilencio } from './net/comandoDeSilencio';
 import { textoDaMorte } from './game/causaDaMorte';
 import { BauModal } from './ui/BauModal';
-import { PilhaDeBau, chaveDoBau, depositar, esvaziar, retirar, sanearBau } from './game/bau';
+import { PilhaDeBau, bauVazio, chaveDoBau, depositar, esvaziar, retirar, sanearBau } from './game/bau';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
 import { hashAppearance } from './net/codec';
@@ -966,6 +966,62 @@ async function bootstrap() {
         });
         break;
       }
+      // --- Baús no mundo compartilhado — item 1522 ---------------------------------------------
+      //
+      // O anfitrião é o dono do conteúdo, pela mesma razão que é dono do mundo e das criaturas: sem
+      // autoridade, dois jogadores no mesmo baú escrevem por cima um do outro e cada um vê um
+      // conteúdo diferente do mesmo bloco. É a forma mais confusa possível de perder itens, porque
+      // os dois juram que guardaram.
+      case 'chest_open': {
+        if (peerSync.role !== 'host' || !currentWorld.id) break;
+        void WorldRepository.carregarBau(currentWorld.id, msg.key).then((r) => {
+          peerSync.sendTo(fromPeerId, { type: 'chest_state', key: msg.key, slots: sanearBau(r?.slots) });
+        });
+        break;
+      }
+      case 'chest_move': {
+        if (peerSync.role !== 'host' || !currentWorld.id) break;
+        const mundoId = currentWorld.id;
+        void (async () => {
+          // Lê do estado aberto quando é o mesmo baú: o anfitrião pode estar com ele na tela, e ler
+          // do banco descartaria o que ele acabou de mexer.
+          const slots = bauAberto?.key === msg.key
+            ? bauAberto.slots
+            : sanearBau((await WorldRepository.carregarBau(mundoId, msg.key))?.slots);
+
+          if (msg.acao === 'retirar' && typeof msg.indice === 'number') {
+            const p = retirar(slots, msg.indice);
+            // O item vai para o convidado como um drop no mundo, e não por uma mensagem de
+            // inventário: o inventário dele é local e o anfitrião não o conhece. Cair aos pés de
+            // quem pediu é a única entrega que funciona sem inventar um segundo canal.
+            if (p) {
+              const [cx, cy, cz] = msg.key.split(',').map(Number);
+              itemDropSystem.spawn(p.block, p.count, cx + 0.5, cy + 0.6, cz + 0.5);
+            }
+          } else if (msg.acao === 'guardar' && typeof msg.block === 'number' && typeof msg.count === 'number') {
+            const r = depositar(slots, msg.block, msg.count);
+            if (r.sobra > 0) {
+              const [cx, cy, cz] = msg.key.split(',').map(Number);
+              itemDropSystem.spawn(msg.block, r.sobra, cx + 0.5, cy + 0.6, cz + 0.5);
+            }
+          }
+
+          await WorldRepository.salvarBau(mundoId, msg.key, slots);
+          if (bauAberto?.key === msg.key) bauModal.atualizar();
+          // Para TODOS, e não só para quem pediu: outro convidado com o mesmo baú aberto precisa
+          // ver a mudança, senão ele clica numa pilha que já não existe.
+          peerSync.broadcast({ type: 'chest_state', key: msg.key, slots });
+        })();
+        break;
+      }
+      case 'chest_state': {
+        if (peerSync.role !== 'guest' || bauAberto?.key !== msg.key) break;
+        // Substitui o conteúdo em bloco. O convidado não tem opinião sobre o que há dentro.
+        bauAberto.slots.length = 0;
+        bauAberto.slots.push(...sanearBau(msg.slots));
+        bauModal.atualizar();
+        break;
+      }
       case 'block_update':
         world.setBlock(msg.x, msg.y, msg.z, msg.blockType);
         break;
@@ -1430,8 +1486,21 @@ async function bootstrap() {
   // passa por aqui — `fill_box`, script de mod, um mundo recarregado.
 
   async function abrirBau(x: number, y: number, z: number): Promise<void> {
-    if (!currentWorld.id) return;
     const key = chaveDoBau(x, y, z);
+
+    // No mundo compartilhado o baú é do anfitrião — item 1522. O convidado abre a tela vazia e
+    // espera o `chest_state`; escrever no banco local dele criaria um segundo conteúdo para o mesmo
+    // bloco, e cada lado juraria ter guardado.
+    if (peerSync.role === 'guest') {
+      bauAberto = { key, slots: bauVazio() };
+      audio.play(SOUNDS.uiAbrir, { channel: 'ui' });
+      bauModal.abrir(bauAberto.slots, `Baú (${Math.floor(x)}, ${Math.floor(y)}, ${Math.floor(z)})`);
+      uiManager.openBlocking('bau');
+      peerSync.sendToHost({ type: 'chest_open', key });
+      return;
+    }
+
+    if (!currentWorld.id) return;
     const gravado = await WorldRepository.carregarBau(currentWorld.id, key);
     // `sanearBau` sempre, inclusive num baú novo: o caminho de dado inválido tem de ser o mesmo do
     // caminho normal, senão ele é exercitado uma vez a cada mil sessões e apodrece.
@@ -1442,6 +1511,8 @@ async function bootstrap() {
   }
 
   async function gravarBauAberto(): Promise<void> {
+    // O convidado nunca grava: o dono do conteúdo é o anfitrião.
+    if (peerSync.role === 'guest') return;
     if (!bauAberto || !currentWorld.id) return;
     await WorldRepository.salvarBau(currentWorld.id, bauAberto.key, bauAberto.slots);
   }
@@ -1472,6 +1543,10 @@ async function bootstrap() {
 
   bauModal.onRetirar = (indice) => {
     if (!bauAberto) return;
+    if (peerSync.role === 'guest') {
+      peerSync.sendToHost({ type: 'chest_move', key: bauAberto.key, acao: 'retirar', indice });
+      return;
+    }
     const p = retirar(bauAberto.slots, indice);
     if (!p) return;
     const guardou = inter.guardarNaHotbar(p.block, p.count);
@@ -1489,6 +1564,16 @@ async function bootstrap() {
     if (!bauAberto) return;
     const slot = inter.hotbar[inter.selected];
     if (!slot || slot.block === B.AIR || slot.infinite || slot.count <= 0) return;
+    if (peerSync.role === 'guest') {
+      // O convidado tira da própria barra na hora e manda o pedido. Esperar a confirmação faria a
+      // pilha "piscar" de volta a cada clique numa conexão de 80 ms — e se o anfitrião recusar por
+      // baú cheio, ele devolve pelo `chest_state`.
+      peerSync.sendToHost({ type: 'chest_move', key: bauAberto.key, acao: 'guardar', block: slot.block, count: slot.count });
+      slot.count = 0;
+      inter.hotbar[inter.selected] = { label: '', block: -1, count: 0 };
+      inter.onChanged();
+      return;
+    }
     const r = depositar(bauAberto.slots, slot.block, slot.count);
     if (r.guardados === 0) {
       hud.showToast('O baú está cheio.');

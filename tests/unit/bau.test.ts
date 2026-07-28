@@ -20,6 +20,7 @@ import {
   MAX_POR_PILHA,
 } from '../../src/game/bau';
 import { B, BLOCKS } from '../../src/world/blocks';
+import { CRAFTING_RECIPES, CraftingSystem } from '../../src/crafting/CraftingSystem';
 
 describe('guardar', () => {
   it('CRÍTICO: guardar num baú vazio ocupa um slot só', () => {
@@ -293,5 +294,102 @@ describe('a fiação existe — código presente não é código ativo', () => {
     // um slot por clique, sem limite.
     const corpo = main.slice(main.indexOf('bauModal.onGuardarSelecionado'), main.indexOf('bauModal.onFechar'));
     expect(corpo).toMatch(/slot\.infinite/);
+  });
+});
+
+describe('o baú no mundo compartilhado — item 1522', () => {
+  const main = readFileSync('src/main.ts', 'utf8');
+  const protocolo = readFileSync('src/net/protocol.ts', 'utf8');
+
+  it('CRÍTICO: o convidado NUNCA grava conteúdo de baú', () => {
+    // Sem autoridade, dois jogadores no mesmo baú escrevem por cima um do outro e cada um vê um
+    // conteúdo diferente do mesmo bloco — a forma mais confusa possível de perder itens, porque os
+    // dois juram que guardaram.
+    const corpo = main.slice(main.indexOf('async function gravarBauAberto'), main.indexOf('async function devolverConteudoDoBau'));
+    expect(corpo).toMatch(/if \(peerSync\.role === 'guest'\) return;/);
+  });
+
+  it('CRÍTICO: o convidado pede e espera, em vez de ler o banco local', () => {
+    const corpo = main.slice(main.indexOf('async function abrirBau'), main.indexOf('async function gravarBauAberto'));
+    expect(corpo).toMatch(/peerSync\.sendToHost\(\{ type: 'chest_open', key \}\)/);
+    // O `return` antes de tocar no `WorldRepository` é o que garante que ele não crie um segundo
+    // conteúdo para o mesmo bloco.
+    expect(corpo.indexOf("type: 'chest_open'")).toBeLessThan(corpo.indexOf('WorldRepository.carregarBau'));
+  });
+
+  it('CRÍTICO: o anfitrião difunde para TODOS, não só para quem pediu', () => {
+    // Outro convidado com o mesmo baú aberto precisa ver a mudança, senão ele clica numa pilha que
+    // já não existe.
+    const corpo = main.slice(main.indexOf("case 'chest_move'"), main.indexOf("case 'chest_state'"));
+    expect(corpo).toMatch(/peerSync\.broadcast\(\{ type: 'chest_state'/);
+    expect(corpo).not.toMatch(/sendTo\(fromPeerId, \{ type: 'chest_state'/);
+  });
+
+  it('CRÍTICO: o anfitrião usa o estado aberto quando é o mesmo baú', () => {
+    // Ele pode estar com a tela aberta; ler do banco descartaria o que ele acabou de mexer.
+    const corpo = main.slice(main.indexOf("case 'chest_move'"), main.indexOf("case 'chest_state'"));
+    expect(corpo).toMatch(/bauAberto\?\.key === msg\.key/);
+  });
+
+  it('CRÍTICO: o que sai vai como drop no mundo', () => {
+    // O inventário do convidado é local e o anfitrião não o conhece. Cair aos pés de quem pediu é a
+    // única entrega que funciona sem inventar um segundo canal.
+    const corpo = main.slice(main.indexOf("case 'chest_move'"), main.indexOf("case 'chest_state'"));
+    expect(corpo).toMatch(/itemDropSystem\.spawn\(p\.block, p\.count/);
+  });
+
+  it('CRÍTICO: a sobra de um depósito recusado não some', () => {
+    const corpo = main.slice(main.indexOf("case 'chest_move'"), main.indexOf("case 'chest_state'"));
+    expect(corpo).toMatch(/if \(r\.sobra > 0\)/);
+  });
+
+  it('o convidado sanea o que chega da rede', () => {
+    // A mensagem vem de outra máquina. Um `slots` malformado quebraria a tela dele.
+    const corpo = main.slice(main.indexOf("case 'chest_state'"), main.indexOf("case 'block_update'"));
+    expect(corpo).toMatch(/sanearBau\(msg\.slots\)/);
+  });
+
+  it('as três mensagens estão no protocolo', () => {
+    for (const t of ['chest_open', 'chest_state', 'chest_move']) {
+      expect(protocolo).toMatch(new RegExp(`type: '${t}'`));
+    }
+    expect(protocolo).toMatch(/\| ChestOpenMsg\n\s*\| ChestStateMsg\n\s*\| ChestMoveMsg;/);
+  });
+});
+
+describe('a receita do baú — item 1523', () => {
+  it('CRÍTICO: existe uma receita de baú', () => {
+    // O bloco existia e não tinha receita: só chegava ao jogador pelo inventário criativo, o que
+    // deixava o armazenamento inteiro inalcançável em Sobrevivência.
+    const r = CRAFTING_RECIPES.find((x) => x.outputBlock === B.CHEST);
+    expect(r).toBeDefined();
+    expect(r!.shape).toBeDefined();
+  });
+
+  it('CRÍTICO: TODA receita com forma de fato casa contra a grade', () => {
+    // O erro que este teste existe para pegar, e que eu cometi: escrevi o buraco do meio do baú
+    // como `0`. `CraftCell` é `number | null`, e `0` é `B.AIR` — um bloco de verdade que o jogador
+    // não pode pôr na grade. A receita compilava, aparecia na lista, e NUNCA casava.
+    const sis = new CraftingSystem();
+    for (const receita of CRAFTING_RECIPES) {
+      if (!receita.shape) continue;
+      const grade = CraftingSystem.emptyGrid(6);
+      for (let r = 0; r < receita.shape.length; r++) {
+        for (let c = 0; c < receita.shape[r].length; c++) {
+          grade[r][c] = receita.shape[r][c];
+        }
+      }
+      expect(sis.match(grade)?.id, `${receita.id} não casa com a própria forma`).toBe(receita.id);
+    }
+  });
+
+  it('nenhuma forma usa 0 para dizer "vazio"', () => {
+    for (const receita of CRAFTING_RECIPES) {
+      for (const linha of receita.shape ?? []) {
+        for (const c of linha) {
+          expect(c, `${receita.id} usa 0 no lugar de null`).not.toBe(0);
+        }
+      }
+    }
   });
 });

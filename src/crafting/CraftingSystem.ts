@@ -55,6 +55,31 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
   },
   {
+    /**
+     * Baú — item 1523.
+     *
+     * O bloco existia e não tinha receita: só chegava ao jogador pelo inventário criativo, o que
+     * deixava o armazenamento inteiro (item 137) inalcançável em Sobrevivência.
+     *
+     * A forma é um quadrado de tábuas com o meio vazio, e o vazio é o desenho: é a leitura de
+     * "caixa" numa grade, e é a mesma ideia que qualquer jogador já traz de outros jogos. Barata,
+     * pelo mesmo motivo da cama — guardar coisas é o que faz o resto do jogo valer a pena, e uma
+     * receita cara empurraria o baú para depois do ponto em que ele faria diferença.
+     */
+    id: 'chest_from_planks',
+    name: 'Baú',
+    outputBlock: B.CHEST,
+    outputCount: 1,
+    shape: [
+      [B.PLANK, B.PLANK, B.PLANK],
+      // `null` e não `0`: `CraftCell` é `number | null`, e `0` é `B.AIR` — um bloco de verdade que
+      // o jogador não pode pôr na grade. Escrito com zero, a receita compilava, aparecia na lista e
+      // NUNCA casava. Há um teste agora que casa toda receita com forma contra a própria grade.
+      [B.PLANK, null, B.PLANK],
+      [B.PLANK, B.PLANK, B.PLANK],
+    ],
+  },
+  {
     id: 'iron_block_from_ore',
     name: 'Minério de Ferro → Bloco de Ferro',
     outputBlock: B.IRON_BLOCK,

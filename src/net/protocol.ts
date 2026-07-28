@@ -153,6 +153,40 @@ export interface PlayerLeftMsg { type: 'player_left'; playerId: string }
 export interface OpChangedMsg { type: 'op_changed'; playerId: string; isOp: boolean }
 export interface KickMsg { type: 'kick'; playerId: string }
 
+/**
+ * Baús no mundo compartilhado — item 1522.
+ *
+ * ## Por que o anfitrião é o dono
+ *
+ * O conteúdo do baú vive no banco local de quem o abriu. Sem autoridade, dois jogadores mexendo no
+ * mesmo baú escreveriam por cima um do outro, e cada um veria um conteúdo diferente do mesmo bloco
+ * — a forma mais confusa possível de perder itens, porque cada um jura que guardou.
+ *
+ * O convidado **pede** e o anfitrião **responde**: nenhuma escrita de baú acontece no convidado.
+ * É a mesma regra que já vale para o mundo e para as criaturas, e por isso não introduz um segundo
+ * modelo de consistência.
+ */
+export interface ChestOpenMsg { type: 'chest_open'; key: string }
+export interface ChestStateMsg {
+  type: 'chest_state';
+  key: string;
+  slots: ({ block: number; count: number } | null)[];
+}
+/**
+ * Um movimento pedido pelo convidado.
+ *
+ * `indice` para retirar; `block`/`count` para guardar. Uma mensagem só, e não duas, porque as duas
+ * operações competem pelo mesmo estado — separá-las convidaria a tratá-las em ordens diferentes.
+ */
+export interface ChestMoveMsg {
+  type: 'chest_move';
+  key: string;
+  acao: 'retirar' | 'guardar';
+  indice?: number;
+  block?: number;
+  count?: number;
+}
+
 export type NetMessage =
   | BlockUpdateMsg
   | BlockBatchMsg
@@ -168,4 +202,7 @@ export type NetMessage =
   | PlayerJoinedMsg
   | PlayerLeftMsg
   | OpChangedMsg
-  | KickMsg;
+  | KickMsg
+  | ChestOpenMsg
+  | ChestStateMsg
+  | ChestMoveMsg;

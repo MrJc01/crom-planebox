@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1511 itens)
+# Checklist Mestre — Painel de Especialistas (1516 itens)
 
-> **Estado em 27/07/2026** — 842 de 1511 itens tratados (56%), com **1441 testes** passando,
+> **Estado em 27/07/2026** — 849 de 1516 itens tratados (56%), com **1452 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 101 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 741 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 669 | Pendente. |
+> | `[~]` | 748 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 670 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -5283,7 +5283,52 @@ agora abre slot vazio e devolve o número aceito; `grant` delega.
 
 ### Lacunas anotadas nesta rodada
 
-- [ ] 1522 `P1` **O baú não é sincronizado no P2P** — dois jogadores no mesmo baú escrevem por cima um do outro, e o conteúdo mora no banco local de cada um. Num mundo compartilhado o baú é do anfitrião e ninguém mais o vê
-- [ ] 1523 `P2` **Não há como fabricar um baú** — o bloco existe, dropa a si mesmo e não tem receita, então só chega ao jogador pelo inventário criativo
+- [~] 1522 `P1` **O baú é do anfitrião** — três mensagens novas, e nenhuma escrita no convidado
+- [~] 1523 `P2` **Receita do baú** — e um teste que casa TODA receita com forma contra a própria grade
 - [ ] 1524 `P2` **A tela do baú não mostra a hotbar** — guardar é às cegas pelo [G], e o jogador não vê o que está prestes a guardar
 - [ ] 1525 `P3` **O baú não tem visual próprio** — é um cubo marrom não-opaco, e a tampa mais baixa que o comentário descreve não existe na malha
+
+## 89. O baú no mundo compartilhado — itens 1522 e 1523
+
+### O anfitrião é o dono, pela mesma razão de sempre
+
+O conteúdo vivia no banco local de quem abrisse. Num mundo compartilhado isso significa que dois
+jogadores no mesmo baú escrevem por cima um do outro, e cada um vê um conteúdo diferente do mesmo
+bloco — a forma mais confusa possível de perder itens, porque os dois juram que guardaram.
+
+O convidado **pede** e o anfitrião **responde**. É a mesma regra que já vale para o mundo e para as
+criaturas, então não entra um segundo modelo de consistência no projeto.
+
+Duas decisões que os testes travam:
+
+- **O anfitrião difunde para todos**, e não só para quem pediu. Outro convidado com o mesmo baú
+  aberto precisa ver a mudança, senão ele clica numa pilha que já não existe.
+- **O que sai vai como drop no mundo.** O inventário do convidado é local e o anfitrião não o
+  conhece; cair aos pés de quem pediu é a única entrega possível sem inventar um segundo canal.
+
+E o convidado tira da própria barra **antes** de a confirmação chegar. Esperar faria a pilha piscar
+de volta a cada clique numa conexão de 80 ms; se o anfitrião recusar, ele devolve pelo
+`chest_state`.
+
+### 1523 — e o erro que ele quase escondeu
+
+Escrevi o buraco do meio da receita do baú como `0`. `CraftCell` é `number | null`, e `0` é
+`B.AIR` — um bloco de verdade, que o jogador não pode pôr na grade. A receita **compilava, aparecia
+na lista de receitas, e nunca casava**: o jogador montaria o quadrado de tábuas e não aconteceria
+nada, sem nenhuma pista de por quê.
+
+O teste que fecha isso não olha só o baú: ele monta a grade a partir da forma declarada de **cada
+receita** e exige que ela case consigo mesma. É o tipo de defeito que só existe uma vez por receita
+nova, e agora nenhuma delas pode nascer morta.
+
+- [~] 1526 `P1` **`chest_open`, `chest_state` e `chest_move`** no protocolo
+- [~] 1527 `P1` **Nenhuma escrita de baú no convidado** — verificado por posição no arquivo
+- [~] 1528 `P2` **Receita do baú**, tábuas em quadrado com o meio vazio
+- [~] 1529 `P1` **Teste que casa toda receita com forma** contra a própria grade
+- [~] 1530 `P1` **44 testes** no arquivo do baú
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1531 `P2` **O convidado não sabe que o baú está vazio ou que ele nem existe** — se o bloco sumiu entre o clique e a resposta, a tela fica aberta e vazia sem explicação
+- [ ] 1532 `P2` **Quebrar um baú no convidado não devolve o conteúdo** — o `devolverConteudoDoBau` roda do lado errado, e quem quebra é quem tem o inventário; o anfitrião precisa tratar o `blockBroken` de baú
+- [ ] 1533 `P3` **Duas pessoas guardando ao mesmo tempo perdem a ordem** — o anfitrião aplica na ordem de chegada, o que é correto, mas nenhum dos dois vê o que aconteceu com o pedido do outro
