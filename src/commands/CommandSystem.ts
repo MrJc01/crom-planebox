@@ -23,6 +23,10 @@ export interface CommandContext {
   kick: (playerIdOrName: string) => boolean;
   connectCrom: () => Promise<string | null>;
   disconnectCrom: () => void;
+  seed?: number | string;
+  grantItem?: (blockOrName: number | string, count: number) => boolean;
+  setWeather?: (weather: string) => boolean;
+  getWeather?: () => string;
 }
 
 export interface CommandResult {
@@ -30,7 +34,33 @@ export interface CommandResult {
   message: string;
 }
 
-const COMMAND_NAMES = ['op', 'deop', 'gamemode', 'kick', 'tp', 'crom', 'help'];
+const COMMAND_NAMES = [
+  'op', 'deop', 'gamemode', 'kick', 'tp', 'crom',
+  'clima', 'weather', 'seed', 'coords', 'list', 'give', 'help', 'ajuda'
+];
+
+interface CommandDef {
+  name: string;
+  usage: string;
+  description: string;
+  requireOp?: boolean;
+}
+
+const COMMAND_DOCS: CommandDef[] = [
+  { name: 'op', usage: '/op <jogador>', description: 'Concede privilégio OP a um jogador', requireOp: true },
+  { name: 'deop', usage: '/deop <jogador>', description: 'Revoga privilégio OP de um jogador', requireOp: true },
+  { name: 'gamemode', usage: '/gamemode <1-5|modo> [jogador]', description: 'Troca o modo de jogo (classic, survival, ghost, creative, adventure)' },
+  { name: 'kick', usage: '/kick <jogador>', description: 'Desconecta um jogador (requer OP)', requireOp: true },
+  { name: 'tp', usage: '/tp <x> <y> <z>', description: 'Teleporta você mesmo para as coordenadas XYZ' },
+  { name: 'clima', usage: '/clima <limpo|chuva|tempestade|neve>', description: 'Altera o clima do mundo (requer OP)', requireOp: true },
+  { name: 'weather', usage: '/weather <clear|rain|storm|snow>', description: 'Altera o clima do mundo (requer OP)', requireOp: true },
+  { name: 'seed', usage: '/seed', description: 'Exibe a semente do mundo atual' },
+  { name: 'coords', usage: '/coords', description: 'Exibe sua posição atual (X, Y, Z)' },
+  { name: 'list', usage: '/list', description: 'Lista os jogadores conectados no mundo' },
+  { name: 'give', usage: '/give <bloco|item> [quantidade]', description: 'Adiciona blocos/itens ao seu inventário' },
+  { name: 'crom', usage: '/crom conectar | /crom desconectar', description: 'Liga ou desliga a sala P2P deste mundo' },
+  { name: 'help', usage: '/help ou /ajuda', description: 'Exibe esta lista de comandos' },
+];
 
 export class CommandSystem {
   public static isCommand(text: string): boolean {
@@ -52,19 +82,10 @@ export class CommandSystem {
     };
 
     switch (cmd) {
+      case 'ajuda':
       case 'help': {
-        return {
-          ok: true,
-          message: [
-            '/op <jogador> — concede OP (requer OP)',
-            '/deop <jogador> — revoga OP (requer OP)',
-            '/gamemode <1-5|classic|survival|ghost|creative|adventure> [jogador] — troca modo de jogo (requer OP para afetar outros)',
-            '/kick <jogador> — desconecta um peer (requer OP)',
-            '/tp <x> <y> <z> — teleporta você mesmo',
-            '/crom conectar | /crom desconectar — liga/desliga a sala P2P deste mundo',
-            '/help — esta lista',
-          ].join('\n'),
-        };
+        const lines = COMMAND_DOCS.map((doc) => `${doc.usage} — ${doc.description}`);
+        return { ok: true, message: lines.join('\n') };
       }
 
       case 'op': {
@@ -119,6 +140,46 @@ export class CommandSystem {
         return { ok: true, message: `Teleportado para (${x}, ${y}, ${z}).` };
       }
 
+      case 'clima':
+      case 'weather': {
+        const denied = requireOp(); if (denied) return denied;
+        const targetWeather = parts[0];
+        if (!targetWeather) {
+          const actual = ctx.getWeather?.() || 'desconhecido';
+          return { ok: true, message: `Clima atual: ${actual}. Uso: /clima <limpo|chuva|tempestade|neve>` };
+        }
+        const ok = ctx.setWeather?.(targetWeather);
+        return ok
+          ? { ok: true, message: `Clima alterado para '${targetWeather}'.` }
+          : { ok: false, message: `Clima '${targetWeather}' inválido ou indisponível.` };
+      }
+
+      case 'seed': {
+        const seedVal = ctx.seed ?? 'desconhecida';
+        return { ok: true, message: `Semente do mundo: ${seedVal}` };
+      }
+
+      case 'coords': {
+        const { x, y, z } = ctx.player.pos;
+        return { ok: true, message: `Posição: (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})` };
+      }
+
+      case 'list': {
+        const players = ctx.listPlayers();
+        const names = players.map((p) => `${p.name}${p.isOp ? ' (OP)' : ''}`).join(', ');
+        return { ok: true, message: `Jogadores (${players.length}): ${names || 'nenhum'}` };
+      }
+
+      case 'give': {
+        const targetItem = parts[0];
+        const count = Math.max(1, parseInt(parts[1] || '1', 10) || 1);
+        if (!targetItem) return { ok: false, message: 'Uso: /give <bloco|item> [quantidade]' };
+        const ok = ctx.grantItem?.(targetItem, count);
+        return ok
+          ? { ok: true, message: `Concedido ${count}x '${targetItem}'.` }
+          : { ok: false, message: `Item/bloco '${targetItem}' não encontrado ou inventário cheio.` };
+      }
+
       case 'crom': {
         const sub = (parts[0] || '').toLowerCase();
         if (sub === 'conectar') {
@@ -137,7 +198,110 @@ export class CommandSystem {
       }
 
       default:
-        return { ok: false, message: `Comando desconhecido: '/${cmd}'. Use /help.` };
+        return { ok: false, message: `Comando desconhecido: '/${cmd}'. Use /help ou /ajuda.` };
     }
   }
+}
+
+/**
+ * Planejador multi-etapa explícito — item 340 P1.
+ * A IA declara o plano antes de executar; cada etapa pode ser aprovada ou rejeitada.
+ */
+export interface AIPlanStep {
+  id: number;
+  description: string;
+  estimatedBlocks: number;
+  approved: boolean;
+}
+
+export function createAIPlan(steps: Array<{ description: string; estimatedBlocks: number }>): AIPlanStep[] {
+  return steps.map((s, i) => ({
+    id: i + 1,
+    description: s.description,
+    estimatedBlocks: s.estimatedBlocks,
+    approved: false,
+  }));
+}
+
+export function approveStep(plan: AIPlanStep[], stepId: number): boolean {
+  const step = plan.find(s => s.id === stepId);
+  if (!step) return false;
+  step.approved = true;
+  return true;
+}
+
+/**
+ * Ferramenta de dry-run — item 341 P1.
+ * Simula a modificação e reporta o impacto sem aplicar.
+ */
+export interface DryRunResult {
+  blocksPlaced: number;
+  blocksRemoved: number;
+  affectedChunks: number;
+  estimatedTimeMs: number;
+  safe: boolean;
+  warnings: string[];
+}
+
+export function dryRunBuild(
+  blocksToPlace: number,
+  blocksToRemove: number,
+  maxBlocksPerOp = 10000,
+): DryRunResult {
+  const warnings: string[] = [];
+  const total = blocksToPlace + blocksToRemove;
+  if (total > maxBlocksPerOp) {
+    warnings.push(`Operação excede o limite de ${maxBlocksPerOp} blocos (${total}).`);
+  }
+  const affectedChunks = Math.ceil(total / 512); // ~512 blocos por chunk em média
+  const estimatedTimeMs = total * 0.05; // ~0.05ms por bloco
+  return {
+    blocksPlaced: blocksToPlace,
+    blocksRemoved: blocksToRemove,
+    affectedChunks,
+    estimatedTimeMs,
+    safe: warnings.length === 0,
+    warnings,
+  };
+}
+
+/**
+ * Limite de iterações além do limite de tempo — item 360 P1.
+ */
+export function checkIterationLimit(current: number, max: number): { exceeded: boolean; remaining: number } {
+  return { exceeded: current >= max, remaining: Math.max(0, max - current) };
+}
+
+/**
+ * Limite de memória/blocos por script — item 361 P1.
+ */
+export function checkMemoryLimit(
+  blocksUsed: number,
+  maxBlocks: number,
+): { exceeded: boolean; usagePercent: number; remaining: number } {
+  const usagePercent = maxBlocks > 0 ? (blocksUsed / maxBlocks) * 100 : 100;
+  return {
+    exceeded: blocksUsed >= maxBlocks,
+    usagePercent: Math.min(100, usagePercent),
+    remaining: Math.max(0, maxBlocks - blocksUsed),
+  };
+}
+
+/**
+ * Nunca persistir chave de API em texto claro sem aviso — item 362 P1.
+ * Verifica se um texto contém chaves de API expostas.
+ */
+export function detectExposedApiKeys(text: string): { found: boolean; patterns: string[] } {
+  const patterns: string[] = [];
+  // Padrões comuns de chaves de API
+  const regexes = [
+    { name: 'OpenAI', pattern: /sk-[a-zA-Z0-9]{20,}/ },
+    { name: 'Google API', pattern: /AIza[a-zA-Z0-9_-]{35}/ },
+    { name: 'AWS Access Key', pattern: /AKIA[A-Z0-9]{16}/ },
+    { name: 'Generic Bearer', pattern: /bearer\s+[a-zA-Z0-9_\-./]{20,}/i },
+  ];
+  for (const { name, pattern } of regexes) {
+    if (pattern.test(text)) patterns.push(name);
+  }
+  return { found: patterns.length > 0, patterns };
 }

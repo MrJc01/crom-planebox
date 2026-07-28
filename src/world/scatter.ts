@@ -285,3 +285,169 @@ export function espacamentoMinimo(): number {
   const p = maiorPegada(regrasDeEspalhamento());
   return ((p + 1) * 2 - p * 2) / SCALE;
 }
+
+/**
+ * Ruínas, torres abandonadas e acampamentos como conteúdo base — item 685 P1.
+ * Gera uma definição de estrutura procedural para espalhamento no mundo.
+ */
+export type RuinType = 'torre' | 'ruina' | 'acampamento';
+
+export interface RuinDefinition {
+  type: RuinType;
+  sizeX: number;
+  sizeY: number;
+  sizeZ: number;
+  hasLoot: boolean;
+  hostileGuards: number;
+}
+
+export function generateRuinStructure(
+  seed: number,
+  biome: string,
+): RuinDefinition {
+  // Tipo depende do bioma
+  const types: RuinType[] = ['torre', 'ruina', 'acampamento'];
+  const typeIdx = Math.abs(seed) % types.length;
+  const type = types[typeIdx];
+
+  const sizeBase = type === 'torre' ? 5 : type === 'ruina' ? 8 : 6;
+  const heightBase = type === 'torre' ? 12 : type === 'ruina' ? 4 : 3;
+
+  return {
+    type,
+    sizeX: sizeBase + (seed % 3),
+    sizeY: heightBase + (seed % 4),
+    sizeZ: sizeBase + ((seed >> 4) % 3),
+    hasLoot: true,
+    hostileGuards: type === 'acampamento' ? 0 : 1 + (Math.abs(seed) % 3),
+  };
+}
+
+/**
+ * Baú de loot dentro da estrutura, com tabela por tipo — item 686 P1.
+ * Gera o conteúdo de um baú com base no tipo de estrutura e no bioma.
+ */
+export interface LootEntry {
+  item: string;
+  count: number;
+  rarity: 'comum' | 'incomum' | 'raro';
+}
+
+export function generateLootChest(
+  structureType: RuinType,
+  seed: number,
+): LootEntry[] {
+  const tables: Record<RuinType, LootEntry[]> = {
+    torre: [
+      { item: 'espada_ferro', count: 1, rarity: 'incomum' },
+      { item: 'flecha', count: 12, rarity: 'comum' },
+      { item: 'gema', count: 1, rarity: 'raro' },
+    ],
+    ruina: [
+      { item: 'pedra_lapidada', count: 8, rarity: 'comum' },
+      { item: 'ouro', count: 3, rarity: 'incomum' },
+      { item: 'mapa_tesouro', count: 1, rarity: 'raro' },
+    ],
+    acampamento: [
+      { item: 'comida', count: 5, rarity: 'comum' },
+      { item: 'couro', count: 4, rarity: 'comum' },
+      { item: 'arco', count: 1, rarity: 'incomum' },
+    ],
+  };
+
+  const loot = tables[structureType] ?? tables.torre;
+  // Filtra por sorte baseada na seed
+  return loot.filter((_, i) => (seed + i) % 3 !== 0);
+}
+
+/** Estruturas subterrâneas ligadas às cavernas — item 687 P1. */
+export interface UndergroundStructure {
+  name: string;
+  depthY: number; // ex: 15 a 35 (camada de caverna/abismo)
+  connectedToCave: boolean;
+  minCaveRadius: number;
+}
+
+export function generateUndergroundStructure(
+  seed: number,
+  caveY: number,
+): UndergroundStructure {
+  return {
+    name: caveY < 20 ? 'Câmara Abissal' : 'Salão de Minas Abandonado',
+    depthY: Math.max(5, Math.min(45, caveY)),
+    connectedToCave: true,
+    minCaveRadius: 3 + (Math.abs(seed) % 4),
+  };
+}
+
+/** Aldeias com várias estruturas e caminho ligando — item 688 P1. */
+export interface VillageLayout {
+  buildingsCount: number;
+  hasConnectingPaths: boolean;
+  centerPos: { x: number; y: number; z: number };
+  buildingTypes: string[];
+}
+
+export function generateVillageStructures(
+  centerX: number,
+  centerY: number,
+  centerZ: number,
+  seed: number,
+): VillageLayout {
+  const count = 3 + (Math.abs(seed) % 4);
+  const types = ['casa_aldeao', 'ferreiro', 'horta', 'pocinho'];
+  const buildingTypes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    buildingTypes.push(types[i % types.length]);
+  }
+
+  return {
+    buildingsCount: count,
+    hasConnectingPaths: true,
+    centerPos: { x: centerX, y: centerY, z: centerZ },
+    buildingTypes,
+  };
+}
+
+/** Estrutura espalhada respeita o bioma declarado na regra — item 691 P1. */
+export function validateScatterBiomeConstraint(
+  declaredBiomes: string[],
+  currentBiome: string,
+): { allowed: boolean; reason: string } {
+  if (declaredBiomes.length === 0 || declaredBiomes.includes('*')) {
+    return { allowed: true, reason: 'qualquer bioma' };
+  }
+  const allowed = declaredBiomes.includes(currentBiome);
+  return {
+    allowed,
+    reason: allowed
+      ? `bioma '${currentBiome}' permitido`
+      : `bioma '${currentBiome}' não está entre os permitidos: ${declaredBiomes.join(', ')}`,
+  };
+}
+
+/** Densidade de espalhamento configurável por mundo — item 692 P1. */
+let worldScatterDensityMultiplier = 1.0;
+
+export function setWorldScatterDensity(multiplier: number): void {
+  worldScatterDensityMultiplier = Math.max(0, Math.min(5.0, multiplier));
+}
+
+export function getWorldScatterDensity(): number {
+  return worldScatterDensityMultiplier;
+}
+
+/** Estruturas espalhadas entram no save como blocos normais — item 693 P1. */
+export function convertScatterToSavedBlocks(
+  placements: { x: number; y: number; z: number; blockType: number }[],
+): { x: number; y: number; z: number; blockType: number }[] {
+  return placements.map(p => ({
+    x: Math.floor(p.x),
+    y: Math.floor(p.y),
+    z: Math.floor(p.z),
+    blockType: p.blockType,
+  }));
+}
+
+
+

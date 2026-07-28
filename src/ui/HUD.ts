@@ -15,11 +15,12 @@ export class HUD {
   private objetivoEl: HTMLDivElement;
   private sonoEl: HTMLDivElement;
   private micBadge: HTMLDivElement;
+  private pausedBadge!: HTMLDivElement;
 
   constructor(cameraManager?: CameraManager) {
     if (cameraManager) this.cameraManager = cameraManager;
 
-    this.container = document.createElement('div');
+    this.container = typeof document !== 'undefined' ? document.createElement('div') : ({ style: {} } as any);
     this.container.id = 'hud-container';
     this.container.style.cssText = `
       position: absolute;
@@ -48,7 +49,28 @@ export class HUD {
       border-radius: 50%;
       pointer-events: none;
     `;
-    this.container.appendChild(crosshair);
+    // Insígnia visível de "PAUSADO" — item 1054 P1
+    this.pausedBadge = document.createElement('div');
+    this.pausedBadge.style.cssText = `
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(225, 29, 72, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      padding: 6px 18px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);
+      display: none;
+      z-index: ${CAMADA.hud};
+    `;
+    this.pausedBadge.textContent = 'PAUSADO';
+    this.container.appendChild(this.pausedBadge);
 
     // Top Right Badges
     const topRightPanel = document.createElement('div');
@@ -230,9 +252,9 @@ export class HUD {
       z-index: ${CAMADA.tela};
     `;
     this.sonoEl.textContent = 'Dormindo';
-    this.container.appendChild(this.sonoEl);
-
-    document.body.appendChild(this.container);
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.appendChild(this.container);
+    }
   }
 
   /**
@@ -412,6 +434,24 @@ export class HUD {
     this.coordsBadge.textContent = `XYZ: ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`;
   }
 
+  private biomeBadge?: HTMLDivElement;
+
+  /** Nome do bioma atual no HUD — item 679. */
+  public updateBiomeBadge(biomeName: string): void {
+    if (typeof document === 'undefined') return;
+    if (!this.biomeBadge) {
+      this.biomeBadge = document.createElement('div');
+      this.biomeBadge.style.cssText = `
+        position: absolute; top: 12px; left: 160px;
+        background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(148, 163, 184, 0.3);
+        color: #e2e8f0; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+        z-index: ${CAMADA.hud};
+      `;
+      this.container.appendChild(this.biomeBadge);
+    }
+    this.biomeBadge.textContent = `Bioma: ${biomeName}`;
+  }
+
   /** Indicador persistente de rede (Host/Peer/Offline) — pedido explícito, antes só existia em toasts pontuais. */
   public updateNetworkStatus(role: 'offline' | 'host' | 'guest', peerCount: number): void {
     if (role === 'host') {
@@ -451,5 +491,55 @@ export class HUD {
       toast.style.opacity = '0';
       setTimeout(() => toast.remove(), 300);
     }, 2000);
+  }
+
+  /** Escala de UI configurável — item 437. */
+  public setUIScale(scale: number): void {
+    const s = Math.max(0.5, Math.min(2.0, scale));
+    this.container.style.transform = `scale(${s})`;
+    this.container.style.transformOrigin = 'top left';
+  }
+
+  private aiProgressBar?: HTMLDivElement;
+
+  /** Tutorial contextual não intrusivo — item 021. */
+  public showContextualTutorial(step: 'mover' | 'quebrar' | 'inventario' | 'craft'): void {
+    const dicas: Record<string, string> = {
+      mover: 'Dica: Use WASD para andar e Espaço para pular.',
+      quebrar: 'Dica: Clique e segure o botão esquerdo para minerar blocos.',
+      inventario: 'Dica: Pressione E para abrir seu inventário e ver seus recursos.',
+      craft: 'Dica: Monte sua bancada de trabalho para criar ferramentas avançadas.',
+    };
+    this.showToast(dicas[step] ?? 'Explore o mundo ao seu redor!');
+  }
+
+  /** Feedback visual de progresso de construção da IA — item 431. */
+  public updateAIBuildProgress(percent: number, actionName: string): void {
+    if (typeof document === 'undefined') return;
+    if (!this.aiProgressBar) {
+      this.aiProgressBar = document.createElement('div');
+      this.aiProgressBar.style.cssText = `
+        position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.5);
+        color: #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+        z-index: ${CAMADA.hud};
+      `;
+      this.container.appendChild(this.aiProgressBar);
+    }
+    const p = Math.max(0, Math.min(100, Math.round(percent)));
+    this.aiProgressBar.textContent = `IA construindo (${actionName}): ${p}%`;
+    if (p >= 100) {
+      setTimeout(() => {
+        this.aiProgressBar?.remove();
+        this.aiProgressBar = undefined;
+      }, 1000);
+    }
+  }
+
+  /** Atualiza o estado visual de pausa no HUD (item 1054 P1). */
+  public setPaused(paused: boolean, text = 'PAUSADO'): void {
+    if (!this.pausedBadge) return;
+    this.pausedBadge.style.display = paused ? 'flex' : 'none';
+    this.pausedBadge.textContent = text.toUpperCase();
   }
 }

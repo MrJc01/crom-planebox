@@ -2,7 +2,7 @@
 // (shapeless: só importa a quantidade de cada bloco usado, não a posição) e receitas
 // "com forma" (shaped: o desenho da grade precisa bater, mas pode estar em qualquer
 // posição dentro da grade 6x6 — só a caixa delimitadora mínima dos itens é comparada).
-import { B } from '../world/blocks';
+import { B, BLOCKS } from '../world/blocks';
 
 export type CraftCell = number | null; // id de bloco (B.*) ou null = vazio
 
@@ -196,8 +196,24 @@ function shapesEqual(a: CraftCell[][], b: CraftCell[][]): boolean {
   return true;
 }
 
+export interface SmeltingRecipe {
+  inputBlock: number;
+  outputBlock: number;
+  outputCount: number;
+  cookTimeSeconds: number;
+}
+
+export const SMELTING_RECIPES: SmeltingRecipe[] = [
+  { inputBlock: B.COBBLE, outputBlock: B.STONE, outputCount: 1, cookTimeSeconds: 5 },
+  { inputBlock: B.SAND, outputBlock: B.GLASS, outputCount: 1, cookTimeSeconds: 5 },
+  { inputBlock: B.IRON_ORE, outputBlock: B.IRON_BLOCK, outputCount: 1, cookTimeSeconds: 8 },
+  { inputBlock: B.GOLD_ORE, outputBlock: B.GOLD_BLOCK, outputCount: 1, cookTimeSeconds: 10 },
+  { inputBlock: B.DIRT, outputBlock: B.BRICK, outputCount: 1, cookTimeSeconds: 4 },
+];
+
 export class CraftingSystem {
   public recipes: CraftingRecipe[] = CRAFTING_RECIPES;
+  public smeltingRecipes: SmeltingRecipe[] = SMELTING_RECIPES;
 
   /** Retorna a receita que bate com o estado atual da grade 6x6, ou null se nenhuma bater. */
   public match(grid: CraftCell[][]): CraftingRecipe | null {
@@ -229,6 +245,89 @@ export class CraftingSystem {
       }
     }
     return null;
+  }
+
+  /** Retorna todas as receitas do Livro de Receitas que podem ser fabricadas agora com o inventário fornecido — item 197. */
+  public getAvailableRecipes(inventory: { block: number; count: number }[]): CraftingRecipe[] {
+    const availableCounts: Record<number, number> = {};
+    for (const slot of inventory) {
+      if (slot.block > 0 && slot.count > 0) {
+        availableCounts[slot.block] = (availableCounts[slot.block] || 0) + slot.count;
+      }
+    }
+
+    return this.recipes.filter((recipe) => {
+      const requiredCounts: Record<number, number> = {};
+      if (recipe.ingredients) {
+        for (const [blk, qty] of Object.entries(recipe.ingredients)) {
+          requiredCounts[Number(blk)] = qty;
+        }
+      } else if (recipe.shape) {
+        for (const row of recipe.shape) {
+          for (const cell of row) {
+            if (cell !== null && cell > 0) {
+              requiredCounts[cell] = (requiredCounts[cell] || 0) + 1;
+            }
+          }
+        }
+      }
+
+      return Object.entries(requiredCounts).every(([blk, qty]) => {
+        return (availableCounts[Number(blk)] || 0) >= qty;
+      });
+    });
+  }
+
+  /** Retorna a receita de fundição para o bloco de entrada, ou null se não for fundível — item 198. */
+  public getSmeltingRecipe(inputBlock: number): SmeltingRecipe | null {
+    return this.smeltingRecipes.find((r) => r.inputBlock === inputBlock) ?? null;
+  }
+
+  /** Valida se a receita produz um bloco/ferramenta existente e tem ingredientes válidos — item 208. */
+  public validateRecipe(recipe: CraftingRecipe): { valid: boolean; reason?: string } {
+    return CraftingSystem.validateRecipe(recipe);
+  }
+
+  public static validateRecipe(recipe: CraftingRecipe): { valid: boolean; reason?: string } {
+    if (recipe.outputBlock !== undefined) {
+      const def = BLOCKS[recipe.outputBlock];
+      if (!def || def.reserved) {
+        return { valid: false, reason: `Bloco de saída id=${recipe.outputBlock} não existe.` };
+      }
+    } else if (!recipe.outputTool) {
+      return { valid: false, reason: 'Receita deve declarar outputBlock ou outputTool.' };
+    }
+
+    if (recipe.ingredients) {
+      for (const blkStr of Object.keys(recipe.ingredients)) {
+        const blk = Number(blkStr);
+        if (!BLOCKS[blk] || BLOCKS[blk].reserved) {
+          return { valid: false, reason: `Ingrediente id=${blk} não existe.` };
+        }
+      }
+    }
+
+    if (recipe.shape) {
+      for (const row of recipe.shape) {
+        for (const cell of row) {
+          if (cell !== null && (!BLOCKS[cell] || BLOCKS[cell].reserved)) {
+            return { valid: false, reason: `Ingrediente id=${cell} na grade não existe.` };
+          }
+        }
+      }
+    }
+
+    return { valid: true };
+  }
+
+  public static registerCustomRecipe(recipe: CraftingRecipe): void {
+    const val = this.validateRecipe(recipe);
+    if (!val.valid) {
+      throw new Error(`Receita inválida "${recipe.id}": ${val.reason}`);
+    }
+    const idx = CRAFTING_RECIPES.findIndex((r) => r.id === recipe.id);
+    if (idx >= 0) CRAFTING_RECIPES[idx] = recipe;
+    else CRAFTING_RECIPES.push(recipe);
   }
 
   public static emptyGrid(size = 6): CraftCell[][] {

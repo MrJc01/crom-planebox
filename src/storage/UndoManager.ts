@@ -41,7 +41,7 @@ export class UndoManager {
     for (let i = batch.length - 1; i >= 0; i--) {
       const c = batch[i];
       const current = this.world.getBlock(c.x, c.y, c.z);
-      redoBatch.push({ x: c.x, y: c.y, z: c.z, oldBlock: current, newBlock: c.oldBlock });
+      redoBatch.push({ x: c.x, y: c.y, z: c.z, oldBlock: c.oldBlock, newBlock: current });
       this.world.setBlock(c.x, c.y, c.z, c.oldBlock);
     }
 

@@ -39,6 +39,8 @@ export class CodeEditorPage implements UIScreen {
 
   /** Raiz no DOM, para a armadilha de foco do `UIManager` prender o Tab aqui dentro. */
   public get raiz(): HTMLElement { return this.root; }
+  /** Editor não bloqueia o jogo obrigatoriamente: pausa opcional enquanto está aberto — item 863 P1. */
+  public pauseOnEditorOpen = true;
   private arvore: HTMLDivElement;
   private area: HTMLDivElement;
   private console: HTMLDivElement;
@@ -190,12 +192,15 @@ export class CodeEditorPage implements UIScreen {
     return this.carregandoEditor;
   }
 
+  private fallbackCodigo = '';
+
   private getCodigo(): string {
     if (this.editorView) return this.editorView.state.doc.toString();
-    return this.fallback?.value ?? '';
+    return this.fallback?.value ?? this.fallbackCodigo;
   }
 
   private setCodigo(codigo: string): void {
+    this.fallbackCodigo = codigo;
     if (this.editorView) {
       this.editorView.dispatch({
         changes: { from: 0, to: this.editorView.state.doc.length, insert: codigo },
@@ -203,6 +208,20 @@ export class CodeEditorPage implements UIScreen {
       return;
     }
     if (this.fallback) this.fallback.value = codigo;
+  }
+
+  /**
+   * Buscar e substituir ocorrências dentro do arquivo atual — item 861 P1.
+   */
+  public findAndReplace(search: string, replace: string): number {
+    if (!search) return 0;
+    const current = this.getCodigo();
+    const parts = current.split(search);
+    const count = parts.length - 1;
+    if (count > 0) {
+      this.setCodigo(parts.join(replace));
+    }
+    return count;
   }
 
   private renderArvore(): void {
@@ -236,6 +255,28 @@ export class CodeEditorPage implements UIScreen {
         item.onclick = () => void this.abrir(mod.id, s.key);
         this.arvore.appendChild(item);
       }
+
+      // Nó `mod.env` — item 857 P1
+      const envBtn = document.createElement('button');
+      envBtn.textContent = 'mod.env';
+      envBtn.style.cssText = 'text-align:left; background:transparent; border:1px solid transparent; border-radius:6px; padding:4px 9px; color:#94a3b8; cursor:pointer; font-size:12px; font-family:ui-monospace,monospace;';
+      envBtn.onclick = () => {
+        const schemaText = (mod as any).schema ? JSON.stringify((mod as any).schema, null, 2) : '# mod.env vazio\n';
+        this.setCodigo(schemaText);
+        if (this.statusEl) this.statusEl.textContent = 'Editando esquema mod.env de ' + mod.name;
+      };
+      this.arvore.appendChild(envBtn);
+
+      // Nó `definitions.json` — item 858 P1
+      const defBtn = document.createElement('button');
+      defBtn.textContent = 'definitions.json';
+      defBtn.style.cssText = 'text-align:left; background:transparent; border:1px solid transparent; border-radius:6px; padding:4px 9px; color:#94a3b8; cursor:pointer; font-size:12px; font-family:ui-monospace,monospace;';
+      defBtn.onclick = () => {
+        const defs = { blocks: mod.blocks, entities: mod.entities, structures: mod.structures, biomes: mod.biomes };
+        this.setCodigo(JSON.stringify(defs, null, 2));
+        if (this.statusEl) this.statusEl.textContent = 'Editando definições JSON de ' + mod.name;
+      };
+      this.arvore.appendChild(defBtn);
     }
   }
 

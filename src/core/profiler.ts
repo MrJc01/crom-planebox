@@ -84,6 +84,15 @@ export class Profiler {
     this.historico.clear();
     this.tempoFrame.length = 0;
   }
+
+  /** Calcula distância de render adaptativa ao FPS medido — item 409. */
+  public computeAdaptiveRenderDistance(currentChunks: number): number {
+    const stats = this.frameStats();
+    if (stats.fps <= 0) return currentChunks;
+    if (stats.fps < 30) return Math.max(3, currentChunks - 1);
+    if (stats.fps > 58) return Math.min(12, currentChunks + 1);
+    return currentChunks;
+  }
 }
 
 /** Instância única. Desligada por padrão: medir custa, e ninguém deve pagar sem pedir. */

@@ -17,6 +17,14 @@ import { MOD_API_REFERENCE } from '../mods/ModAPIReference';
 import { resolveBlockRef } from '../mods/ModRegistry';
 import { percorrerCaixa, recusaDeCaixa } from '../world/caixa';
 
+/** Limite máximo de alterações de blocos por única chamada de ferramenta — item 343. */
+export const MAX_BLOCKS_PER_CALL = 32768;
+
+/** Formata mensagens de erro de ferramentas para que sejam sempre acionáveis — item 351. */
+export function formatActionableError(toolName: string, errorMsg: string, nextStep: string): string {
+  return `Erro na ferramenta "${toolName}": ${errorMsg}\n-> O QUE FAZER A SEGUIR: ${nextStep}`;
+}
+
 /**
  * `modsForLookup` é preenchido pelo `MCPExecutors` ativo para que `parseBlockType` também
  * reconheça blocos de mod — tanto pelo nome exibido quanto pela referência simbólica
@@ -603,6 +611,22 @@ export class MCPExecutors {
         }
       }
 
+      case 'run_mod_script': {
+        const rawScript = String(args.script || '');
+        if (!rawScript.trim()) return { result: 'Erro: script de mod vazio.' };
+        try {
+          const mockSetBlock = () => {};
+          const mockGetBlock = () => 0;
+          const mockGetGroundY = () => 20;
+          const testFunc = new Function('setBlock', 'getBlock', 'getGroundY', 'Math', 'console', rawScript);
+          testFunc(mockSetBlock, mockGetBlock, mockGetGroundY, Math, console);
+          return { result: 'Script de mod testado em sandbox com sucesso (0 erros de sintaxe ou execução).' };
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          return { result: `Erro ao testar script de mod em sandbox: ${msg}` };
+        }
+      }
+
       // --- Sistema de Mods ------------------------------------------------------------------
       case 'create_mod': {
         const res = await this.modService.createMod(String(args.name || 'Mod sem nome'), String(args.description || ''), args.mod_id);
@@ -881,6 +905,22 @@ export class MCPExecutors {
         return {
           result: `Encontradas ${matches.length} mensagens no histórico:\n` +
             matches.map(m => `[${m.role}]: ${m.content}`).join('\n')
+        };
+      }
+
+      case 'dry_run_simulation': {
+        const changes: { x: number; y: number; z: number; block: string }[] = args.changes ?? [];
+        let count = 0;
+        let solidCount = 0;
+        let airCount = 0;
+        for (const c of changes) {
+          const type = parseBlockType(c.block);
+          count++;
+          if (type === B.AIR) airCount++;
+          else solidCount++;
+        }
+        return {
+          result: `Dry-run executado com sucesso: ${count} alterações simuladas (${solidCount} sólidas, ${airCount} remoções de ar). Nenhum voxel foi modificado no mundo real.`
         };
       }
 

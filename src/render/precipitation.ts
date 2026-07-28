@@ -18,9 +18,11 @@ import * as THREE from 'three';
 /** Teto de partículas. Uma tempestade usa todas; chuva fina usa um terço. */
 const MAX_PARTICULAS = 1400;
 /** Meia-largura da caixa que segue a câmera, em voxels. */
-const RAIO = 26;
-/** Altura da caixa acima da câmera. */
-const ALTURA = 22;
+const RAIO = 32;
+/** Altura da caixa acima da câmera — aumentada para cobrir o campo de visão vertical (item 1648). */
+const ALTURA = 55;
+/** Altura máxima da camada de nuvens (item 1649). */
+const MAX_ALTURA_NUVENS = 144;
 
 export interface ConsultaSolido {
   (x: number, y: number, z: number): boolean;
@@ -53,10 +55,10 @@ export class Precipitation {
 
     this.material = new THREE.PointsMaterial({
       color: 0xaecbe4,
-      size: 0.22,
+      size: 0.24,
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.6,
       depthWrite: false,
       fog: true,
     });
@@ -75,26 +77,42 @@ export class Precipitation {
 
   /**
    * Coloca uma partícula no topo da caixa, numa coluna sorteada, e descobre onde ela vai parar.
-   *
-   * A varredura para baixo acontece **aqui**, uma vez por vida da partícula (~1–2 s), e não a
-   * cada quadro. Com 1.400 partículas isso são algumas centenas de varreduras por segundo, contra
-   * 84.000 se fosse por quadro.
+   * Restrição de chuva abaixo das nuvens (item 1649) e variação de velocidade/altura (item 1647).
    */
-  private renascer(i: number, camX: number, camY: number, camZ: number, solido: ConsultaSolido): void {
+  private renascer(
+    i: number,
+    camX: number,
+    camY: number,
+    camZ: number,
+    solido: ConsultaSolido,
+    maxCloudY = MAX_ALTURA_NUVENS
+  ): void {
+    // Se a câmera está acima das nuvens, não chove acima (item 1649)
+    if (camY >= maxCloudY) {
+      this.posicoes[i * 3] = 0;
+      this.posicoes[i * 3 + 1] = 1e6;
+      this.posicoes[i * 3 + 2] = 0;
+      this.chao[i] = 1e6;
+      return;
+    }
+
     const x = camX + (this.rnd() * 2 - 1) * RAIO;
     const z = camZ + (this.rnd() * 2 - 1) * RAIO;
-    const y = camY + ALTURA * (0.5 + this.rnd() * 0.5);
+    
+    // Altura sorteada até a camada inferior da nuvem (itens 1647, 1648, 1649)
+    const topoDisponivel = Math.min(camY + ALTURA, maxCloudY - 1);
+    const y = camY + (topoDisponivel - camY) * (0.1 + this.rnd() * 0.9);
 
     this.posicoes[i * 3] = x;
     this.posicoes[i * 3 + 1] = y;
     this.posicoes[i * 3 + 2] = z;
 
-    this.velocidades[i] = this.neve ? 1.4 + this.rnd() * 0.9 : 15 + this.rnd() * 7;
-    this.deriva[i * 2] = this.neve ? (this.rnd() * 2 - 1) * 0.7 : (this.rnd() * 2 - 1) * 0.15;
-    this.deriva[i * 2 + 1] = this.neve ? (this.rnd() * 2 - 1) * 0.7 : (this.rnd() * 2 - 1) * 0.15;
+    // Variação de velocidade para evitar aspecto uniforme/reto (item 1647)
+    this.velocidades[i] = this.neve ? 1.2 + this.rnd() * 1.2 : 14 + this.rnd() * 18;
+    this.deriva[i * 2] = this.neve ? (this.rnd() * 2 - 1) * 0.7 : (this.rnd() * 2 - 1) * 0.2;
+    this.deriva[i * 2 + 1] = this.neve ? (this.rnd() * 2 - 1) * 0.7 : (this.rnd() * 2 - 1) * 0.2;
 
-    // Primeiro sólido abaixo. O limite existe para que uma coluna vazia — sobre o mar, ou num
-    // buraco fundo — não vire uma varredura de 128 voxels por partícula.
+    // Primeiro sólido abaixo. O limite existe para que uma coluna vazia não vire varredura infinita.
     const fundo = Math.floor(y) - (ALTURA + RAIO);
     let parada = fundo;
     const xi = Math.floor(x), zi = Math.floor(z);
@@ -114,10 +132,11 @@ export class Precipitation {
     intensidade: number,
     neve: boolean,
     solido: ConsultaSolido,
+    maxCloudY = MAX_ALTURA_NUVENS
   ): void {
     const alvo = Math.max(0, Math.min(MAX_PARTICULAS, Math.round(intensidade * 0.78)));
 
-    if (alvo === 0) {
+    if (alvo === 0 || cam.y >= maxCloudY) {
       if (this.ativas !== 0) {
         this.ativas = 0;
         this.pontos.visible = false;
@@ -128,14 +147,13 @@ export class Precipitation {
     if (neve !== this.neve) {
       this.neve = neve;
       this.material.color.setHex(neve ? 0xf2f6fb : 0xaecbe4);
-      this.material.size = neve ? 0.34 : 0.2;
-      this.material.opacity = neve ? 0.8 : 0.5;
+      this.material.size = neve ? 0.36 : 0.24;
+      this.material.opacity = neve ? 0.8 : 0.6;
       // Toda partícula viva ainda tem velocidade do clima anterior: força o renascimento.
       this.ativas = 0;
     }
 
-    // Cresce e encolhe aos poucos: um corte seco no meio de uma transição de clima apareceria
-    // como a chuva sumindo de um quadro para o outro.
+    // Cresce e encolhe aos poucos para transições suaves.
     const passo = Math.max(1, Math.ceil(MAX_PARTICULAS * dt));
     if (this.ativas < alvo) this.ativas = Math.min(alvo, this.ativas + passo);
     else if (this.ativas > alvo) this.ativas = Math.max(alvo, this.ativas - passo);
@@ -146,11 +164,17 @@ export class Precipitation {
       const o = i * 3;
       let y = this.posicoes[o + 1];
 
-      // Fora da caixa (o jogador andou, ou a partícula acabou de entrar na conta ativa).
+      // Fora da caixa ou acima das nuvens (o jogador andou ou subiu acima das nuvens).
       const dx = this.posicoes[o] - cam.x;
       const dz = this.posicoes[o + 2] - cam.z;
-      if (y <= this.chao[i] || y < cam.y - ALTURA || Math.abs(dx) > RAIO || Math.abs(dz) > RAIO) {
-        this.renascer(i, cam.x, cam.y, cam.z, solido);
+      if (
+        y <= this.chao[i] ||
+        y < cam.y - ALTURA ||
+        y > maxCloudY ||
+        Math.abs(dx) > RAIO ||
+        Math.abs(dz) > RAIO
+      ) {
+        this.renascer(i, cam.x, cam.y, cam.z, solido, maxCloudY);
         continue;
       }
 
@@ -160,8 +184,7 @@ export class Precipitation {
       this.posicoes[o + 2] += this.deriva[i * 2 + 1] * dt;
     }
 
-    // As partículas além do ativo ficam onde estão; escondê-las custaria um segundo vetor de
-    // atributos. Em vez disso, elas são empurradas para longe uma única vez ao sair da conta.
+    // As partículas além do ativo ficam onde estão; empurradas para longe ao sair da conta.
     for (let i = this.ativas; i < MAX_PARTICULAS; i++) {
       if (this.posicoes[i * 3 + 1] !== 1e6) {
         this.posicoes[i * 3] = 0;

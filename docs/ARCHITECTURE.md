@@ -93,3 +93,25 @@ O **Crom Planebox** é um ambiente 3D interativo construído em **TypeScript** e
 6. O `MCPExecutors` renderiza a câmera de snapshot offscreen com o `THREE.WebGLRenderer` real e devolve a imagem base64 no chat para o modelo validar visualmente a construção.
 
 > Ver `docs/CHECKLIST_EVOLUCAO.md` para o roadmap detalhado de multiplayer P2P, modos de jogo, crafting e sobrevivência construídos sobre esta base.
+
+---
+
+## 📐 Regra de Arquitetura: Escala de Entidades e Mobs
+
+Toda entidade no mundo 3D (jogadores, NPCs, mobs hostis, criaturas) deve seguir a mesma régua de conversão de escala:
+- **`PLAYER_HEIGHT = 1.8m`**: altura conceitual do personagem em metros (definida em `src/player/Appearance.ts`).
+- **`ALTURA_MUNDO = 5.3`**: altura do personagem em unidades de mundo/mini-voxels (casando com o corpo de colisão).
+- **`ESCALA_MODELO = ALTURA_MUNDO / PLAYER_HEIGHT ≈ 2.94`**: ponte de conversão entre a régua de metros e as unidades do mundo.
+
+**Exigência de Código**: Toda nova anatomia 3D de NPC ou mob (como em `EntitySystem.ts`) é desenhada usando proporções legíveis em metros (~1.7m de altura total), e **deve** aplicar `group.scale.setScalar(ESCALA_MODELO)` ao ser adicionada à cena, mantendo a proporção correta com o jogador e com a malha dos blocos.
+
+---
+
+## 🔒 Regra de Arquitetura: Premissa 100% Client-Side & Relay P2P Sem Estado
+
+> **Item 610 P1 (Regra Fundamental do Projeto)**
+
+1. **Processamento e Armazenamento 100% Locais**: Todo o mundo, simulação de voxel, física, IA, renderização e estado do jogo rodam exclusivamente no cliente (navegador do usuário) usando IndexedDB / Web Workers.
+2. **Relay P2P / Crom Relay Sem Carga de Mundo**: O servidor de sinalização / relay P2P (Crom) **nunca** armazena, inspeciona ou recebe payloads de mundo, blocos, inventário ou chunks. Ele apenas facilita o aperto de mão WebRTC (SDP/ICE candidate) e o repasse de mensagens WebRTC criptografadas fim-a-fim sem estado persistente.
+3. **Host Autoritativo Client-Side**: Em sessões multiplayer, o navegador que criou a sala é a autoridade única do mundo. Os convidados conectam-se diretamente via WebRTC DataChannel.
+

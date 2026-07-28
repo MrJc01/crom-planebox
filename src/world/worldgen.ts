@@ -499,3 +499,191 @@ export class WorldGen {
     }
   }
 }
+
+/** Preview do terreno em grade 2D/3D no assistente de criação de mundo — item 113. */
+export function generateWorldTerrainPreview(
+  seed: number,
+  sizeX = 16,
+  sizeZ = 16,
+): { heightMap: number[][]; biomeMap: string[][] } {
+  const worldGen = new WorldGen(seed);
+  const heightMap: number[][] = [];
+  const biomeMap: string[][] = [];
+
+  for (let z = 0; z < sizeZ; z++) {
+    const heightRow: number[] = [];
+    const biomeRow: string[] = [];
+    for (let x = 0; x < sizeX; x++) {
+      const wx = (x - sizeX / 2) * 8;
+      const wz = (z - sizeZ / 2) * 8;
+      const col = worldGen.column(wx, wz);
+      const h = col.height;
+      const b = col.bioma;
+      heightRow.push(h);
+      biomeRow.push(b);
+    }
+    heightMap.push(heightRow);
+    biomeMap.push(biomeRow);
+  }
+
+  return { heightMap, biomeMap };
+}
+
+/**
+ * Rios e lagos conectados seguindo o gradiente do terreno — item 104 P1.
+ * Dado um mapa de alturas e uma posição de nascente, traça o caminho da
+ * água descendo pela gravidade até encontrar um lago ou a borda.
+ */
+export function generateRiverPath(
+  heightMap: number[][],
+  startX: number,
+  startZ: number,
+): { path: Array<{ x: number; z: number; h: number }>; lakeCells: Array<{ x: number; z: number }> } {
+  const rows = heightMap.length;
+  const cols = rows > 0 ? heightMap[0].length : 0;
+  const path: Array<{ x: number; z: number; h: number }> = [];
+  const lakeCells: Array<{ x: number; z: number }> = [];
+  const visited = new Set<string>();
+
+  let cx = Math.max(0, Math.min(startX, cols - 1));
+  let cz = Math.max(0, Math.min(startZ, rows - 1));
+
+  for (let step = 0; step < 500; step++) {
+    const key = `${cx},${cz}`;
+    if (visited.has(key)) {
+      // Atingiu um ciclo → forma lago aqui
+      lakeCells.push({ x: cx, z: cz });
+      break;
+    }
+    visited.add(key);
+    const h = heightMap[cz][cx];
+    path.push({ x: cx, z: cz, h });
+
+    // Encontra vizinho mais baixo (4-connected)
+    let bestX = cx, bestZ = cz, bestH = h;
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dz] of dirs) {
+      const nx = cx + dx, nz = cz + dz;
+      if (nx >= 0 && nx < cols && nz >= 0 && nz < rows) {
+        if (heightMap[nz][nx] < bestH) {
+          bestH = heightMap[nz][nx];
+          bestX = nx;
+          bestZ = nz;
+        }
+      }
+    }
+
+    if (bestX === cx && bestZ === cz) {
+      // Depressão local → forma lago
+      lakeCells.push({ x: cx, z: cz });
+      break;
+    }
+    cx = bestX;
+    cz = bestZ;
+  }
+
+  return { path, lakeCells };
+}
+
+/**
+ * Vegetação por bioma — item 670 P1.
+ * Retorna a configuração de densidade de vegetação para cada bioma.
+ */
+export function getBiomeVegetationDensity(biome: string): {
+  treeDensity: number;
+  grassDensity: number;
+  flowerDensity: number;
+  decorType: string;
+} {
+  const configs: Record<string, { treeDensity: number; grassDensity: number; flowerDensity: number; decorType: string }> = {
+    floresta: { treeDensity: 0.8, grassDensity: 0.6, flowerDensity: 0.3, decorType: 'cogumelo' },
+    savana: { treeDensity: 0.2, grassDensity: 0.9, flowerDensity: 0.1, decorType: 'capim_alto' },
+    deserto: { treeDensity: 0.02, grassDensity: 0.05, flowerDensity: 0.01, decorType: 'cacto' },
+    tundra: { treeDensity: 0.1, grassDensity: 0.15, flowerDensity: 0.02, decorType: 'musgo' },
+    pantano: { treeDensity: 0.4, grassDensity: 0.7, flowerDensity: 0.4, decorType: 'liana' },
+    montanha: { treeDensity: 0.15, grassDensity: 0.3, flowerDensity: 0.05, decorType: 'pedra' },
+  };
+  return configs[biome] ?? { treeDensity: 0.3, grassDensity: 0.4, flowerDensity: 0.15, decorType: 'generico' };
+}
+
+/**
+ * Bioma influencia a paleta de superfície e subsolo — item 671 P1.
+ * Retorna o bloco de superfície e subsolo adequado para cada bioma.
+ */
+export function getBiomePalette(biome: string): {
+  surface: string;
+  subsurface: string;
+  accent: string;
+} {
+  const palettes: Record<string, { surface: string; subsurface: string; accent: string }> = {
+    floresta: { surface: 'grama', subsurface: 'terra', accent: 'folha' },
+    savana: { surface: 'grama_seca', subsurface: 'terra', accent: 'capim' },
+    deserto: { surface: 'areia', subsurface: 'arenito', accent: 'cacto' },
+    tundra: { surface: 'neve', subsurface: 'gelo', accent: 'pinheiro' },
+    pantano: { surface: 'lama', subsurface: 'terra_escura', accent: 'musgo' },
+    montanha: { surface: 'pedra', subsurface: 'pedra_escura', accent: 'cascalho' },
+  };
+  return palettes[biome] ?? { surface: 'grama', subsurface: 'terra', accent: 'generico' };
+}
+
+/** Bioma de montanha condicionado à altura, não só ao clima — item 672 P1. */
+export function isMountainBiomeHeightCondition(height: number, mountainThreshold = 65): boolean {
+  return height >= mountainThreshold;
+}
+
+/** Transição suave de altura entre biomas vizinhos — item 673 P1. */
+export function smoothBiomeHeightTransition(
+  h1: number,
+  h2: number,
+  t: number, // 0 a 1
+): number {
+  const clampT = Math.max(0, Math.min(1, t));
+  // Suavização s-curve (smoothstep)
+  const smooth = clampT * clampT * (3 - 2 * clampT);
+  return h1 + (h2 - h1) * smooth;
+}
+
+/** Mob hostil característico por bioma — item 674 P1. */
+export function getBiomeHostileMob(biome: string): { mob: string; spawnRateMultiplier: number } {
+  const mobs: Record<string, { mob: string; spawnRateMultiplier: number }> = {
+    floresta: { mob: 'zumbi', spawnRateMultiplier: 1.0 },
+    deserto: { mob: 'esqueleto', spawnRateMultiplier: 1.2 },
+    tundra: { mob: 'lofo_gelado', spawnRateMultiplier: 0.8 },
+    pantano: { mob: 'aranha', spawnRateMultiplier: 1.5 },
+    montanha: { mob: 'golem_pedra', spawnRateMultiplier: 1.1 },
+  };
+  return mobs[biome] ?? { mob: 'zumbi', spawnRateMultiplier: 1.0 };
+}
+
+/** Temperatura do bioma afetando o jogador — item 675 P1. */
+export function getBiomeTemperatureEffect(
+  biome: string,
+): { tempCelsius: number; statusEffect: 'congelamento' | 'calor_extremo' | 'normal' } {
+  const temps: Record<string, number> = {
+    tundra: -15,
+    deserto: 42,
+    floresta: 22,
+    savana: 32,
+    pantano: 28,
+    montanha: 2,
+  };
+  const temp = temps[biome] ?? 20;
+  if (temp < 0) return { tempCelsius: temp, statusEffect: 'congelamento' };
+  if (temp > 38) return { tempCelsius: temp, statusEffect: 'calor_extremo' };
+  return { tempCelsius: temp, statusEffect: 'normal' };
+}
+
+/** Bioma de mod entra na seleção em igualdade com os base — item 678 P1. */
+export function selectModBiomeEqualWeight(
+  baseBiomes: string[],
+  modBiomes: string[],
+  seedVal: number,
+): string {
+  const all = [...baseBiomes, ...modBiomes];
+  if (all.length === 0) return 'floresta';
+  const idx = Math.abs(seedVal) % all.length;
+  return all[idx];
+}
+
+
+

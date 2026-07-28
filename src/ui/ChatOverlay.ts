@@ -331,12 +331,29 @@ export class ChatOverlay {
     this.addFloatingEntry(isSystem ? `${text}` : `${name}: ${text}`, isSystem ? '#facc15' : '#f8fafc');
   }
 
+  public async sendAiPromptDirectly(prompt: string): Promise<void> {
+    this.setMainTab('ai');
+    this.inputField.value = prompt;
+    await this.handleSend();
+  }
+
   private async handleWorldChatSend(): Promise<void> {
     const text = this.worldChatInputField.value.trim();
     if (!text) return;
     this.worldChatInputField.value = '';
 
     if (CommandSystem.isCommand(text)) {
+      if (text.startsWith('/ia ') || text === '/ia') {
+        const prompt = text.replace(/^\/ia\s*/, '').trim();
+        if (!prompt) {
+          this.receiveWorldChatMessage('', 'Uso: /ia <mensagem> — Envia um pedido para o Assistente IA.', true);
+          return;
+        }
+        this.receiveWorldChatMessage(this.localPlayerName, text);
+        this.onWorldChatSend(text);
+        await this.sendAiPromptDirectly(prompt);
+        return;
+      }
       const result = await this.onCommand(text);
       this.receiveWorldChatMessage('', result.message, true);
       return;
@@ -712,8 +729,23 @@ export class ChatOverlay {
     this.container.style.display = 'flex';
     this.container.style.opacity = '1';
     this.container.style.pointerEvents = 'auto';
-    if (this.activeTab === 'ai') this.inputField.focus();
-    else this.worldChatInputField.focus();
+
+    // O pointer lock pode ainda estar ativo quando chegamos aqui — `exitPointerLock()` é
+    // assíncrono e o browser não dá focus em campos de texto enquanto o lock não soltou.
+    // Tentamos imediatamente (funciona quando não há lock) e, se falhar, re-tentamos após
+    // o `pointerlockchange` ou um frame, o que vier primeiro.
+    const field = this.activeTab === 'ai' ? this.inputField : this.worldChatInputField;
+    field.focus();
+
+    if (document.pointerLockElement) {
+      const retry = () => {
+        field.focus();
+        document.removeEventListener('pointerlockchange', retry);
+      };
+      document.addEventListener('pointerlockchange', retry, { once: true });
+      // Fallback: se o evento nunca chegar (ex.: já foi disparado), tenta após dois frames
+      requestAnimationFrame(() => requestAnimationFrame(() => field.focus()));
+    }
   }
 
   /** Abre já na aba de Chat do Mundo — usado pelo atalho de abertura direta (ex.: tecla "/"). */

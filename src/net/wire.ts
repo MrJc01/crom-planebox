@@ -182,3 +182,97 @@ export async function decodePayload(payload: Uint8Array): Promise<unknown> {
   const descomprimido = await gunzip(payload);
   return JSON.parse(new TextDecoder().decode(descomprimido));
 }
+
+/** Timeout e retry com backoff no wrapper de rede — item 772 P1. */
+export async function executeWithTimeoutAndBackoff<T>(
+  task: () => Promise<T>,
+  maxRetries = 3,
+  timeoutMs = 5000,
+): Promise<T> {
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Timeout de ${timeoutMs}ms atingido`)), timeoutMs);
+      });
+      return await Promise.race([task(), timeoutPromise]);
+    } catch (err) {
+      attempt++;
+      if (attempt > maxRetries) throw err;
+      const delay = 200 * Math.pow(2, attempt - 1);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('Falha ao executar tarefa com retry');
+}
+
+/** Sanitizar resposta externa antes de exibir na UI ou chat — item 777 P1. */
+export function sanitizeExternalApiResponse(rawText: string): string {
+  if (!rawText) return '';
+  return rawText
+    .replace(/<script\b[^<]*>([\s\S]*?)<\/script>/gi, '') // remove script tags
+    .replace(/<[^>]+>/g, '') // remove HTML tags
+    .replace(/javascript:/gi, '')
+    .trim();
+}
+
+/** Cache de resposta por mod com TTL — item 781 P1. */
+export class CachedApiResponseManager {
+  private cache = new Map<string, { value: any; expiresAt: number }>();
+
+  public set(modId: string, key: string, value: any, ttlMs = 60000): void {
+    const cacheKey = `${modId}:${key}`;
+    this.cache.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + ttlMs,
+    });
+  }
+
+  public get(modId: string, key: string): any | null {
+    const cacheKey = `${modId}:${key}`;
+    const entry = this.cache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(cacheKey);
+      return null;
+    }
+    return entry.value;
+  }
+
+  public clearModCache(modId: string): void {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(`${modId}:`)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+}
+
+/** Mensagem clara quando a API falha por CORS — item 780 P1. */
+export function detectCorsError(err: unknown, url?: string): { isCors: boolean; message: string } {
+  const errStr = String(err).toLowerCase();
+  const isCors =
+    errStr.includes('failed to fetch') ||
+    errStr.includes('cors') ||
+    errStr.includes('networkerror') ||
+    errStr.includes('access-control-allow-origin');
+
+  if (isCors) {
+    let host = 'servidor remoto';
+    if (url) {
+      try { host = new URL(url).host; } catch {}
+    }
+    return {
+      isCors: true,
+      message: `A requisição para ${host} falhou por restrição de CORS (Cross-Origin Resource Sharing). O navegador impede conexões de páginas locais a APIs que não declarem o cabeçalho 'Access-Control-Allow-Origin'.`,
+    };
+  }
+
+  return {
+    isCors: false,
+    message: err instanceof Error ? err.message : String(err),
+  };
+}
+
+

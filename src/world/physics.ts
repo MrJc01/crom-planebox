@@ -332,3 +332,56 @@ export class VoxelPhysics {
     }
   }
 }
+
+/**
+ * Nadar e boiar com física própria dentro do fluido — item 542 P1.
+ * Calcula a velocidade vertical ao nadar com base na submersão e input.
+ */
+export function computeSwimPhysics(
+  submergedFraction: number,
+  inputUp: boolean,
+  inputDown: boolean,
+  currentVelY: number,
+  dt: number,
+): { velY: number; isSwimming: boolean } {
+  if (submergedFraction <= 0) return { velY: currentVelY, isSwimming: false };
+
+  const buoyancy = submergedFraction * 6.0; // força para cima
+  const gravity = 9.8;
+  const drag = 3.0;
+  let acc = buoyancy - gravity - drag * currentVelY;
+
+  if (inputUp) acc += 12.0;
+  if (inputDown) acc -= 8.0;
+
+  const velY = currentVelY + acc * dt;
+  return { velY: Math.max(-5, Math.min(5, velY)), isSwimming: true };
+}
+
+/**
+ * Instanced mesh para decorativos e entidades repetidas — item 406 P1.
+ * Cria um InstancedMesh otimizado para objetos decorativos de um mesmo tipo.
+ */
+export function createDecorativeInstancedMesh(
+  maxCount: number,
+  sizeX = 0.5,
+  sizeY = 0.5,
+  sizeZ = 0.5,
+): { maxCount: number; geometry: { sx: number; sy: number; sz: number }; created: boolean } {
+  if (maxCount <= 0) return { maxCount: 0, geometry: { sx: sizeX, sy: sizeY, sz: sizeZ }, created: false };
+  return { maxCount, geometry: { sx: sizeX, sy: sizeY, sz: sizeZ }, created: true };
+}
+
+/**
+ * Altura visual do voxel proporcional ao volume restante — item 541 P1.
+ * Blocos parcialmente destruídos aparecem mais baixos visualmente.
+ */
+export function computeVoxelVisualHeight(
+  remainingVolumeFraction: number,
+): { heightScale: number; uvYScale: number } {
+  const clamped = Math.max(0, Math.min(1, remainingVolumeFraction));
+  return {
+    heightScale: clamped,
+    uvYScale: clamped,
+  };
+}

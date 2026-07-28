@@ -211,10 +211,46 @@ export async function prepareWorld(worldId: string): Promise<MigrationReport | n
 
 /** Mundos que ainda não estão na versão atual. Útil para diagnóstico e para a UI avisar. */
 export async function findOutdatedWorlds(): Promise<{ id: string; name: string; version: number }[]> {
-  const worlds = await db.worlds.toArray();
-  return worlds
+  const all = await db.worlds.toArray();
+  return all
     .filter((w) => (w.saveVersion ?? 1) < TARGET_SAVE_VERSION)
     .map((w) => ({ id: w.id, name: w.name, version: w.saveVersion ?? 1 }));
+}
+
+export interface IntegrityReport {
+  valid: boolean;
+  orphanBlocks: number;
+  invalidCoordinates: number;
+  warnings: string[];
+}
+
+/** Verificação de integridade ao carregar save de mundo (ids órfãos, coordenadas inválidas) — item 278. */
+export async function verifyWorldIntegrity(worldId: string): Promise<IntegrityReport> {
+  const report: IntegrityReport = {
+    valid: true,
+    orphanBlocks: 0,
+    invalidCoordinates: 0,
+    warnings: [],
+  };
+
+  try {
+    const blockMods = await db.blockMods.where('worldId').equals(worldId).toArray();
+    for (const record of blockMods) {
+      if (!Number.isFinite(record.x) || !Number.isFinite(record.y) || !Number.isFinite(record.z)) {
+        report.invalidCoordinates++;
+        report.valid = false;
+        report.warnings.push(`Coordenada inválida em (${record.x}, ${record.y}, ${record.z})`);
+      }
+      if (!record.modId) {
+        report.orphanBlocks++;
+        report.warnings.push(`Bloco mod sem modId em (${record.x}, ${record.y}, ${record.z})`);
+      }
+    }
+  } catch {
+    report.warnings.push('Erro ao ler a tabela de blocos para verificação.');
+  }
+
+  return report;
 }
 
 export { CURRENT_SAVE_VERSION };

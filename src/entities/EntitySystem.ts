@@ -5,6 +5,7 @@ import { CombatTimers, MOB_PROFILES, MobKind, MobProfile, knockbackFrom } from '
 import { PathNode, findPathCached } from './Pathfinding';
 import { deveSimular, distancia2 } from './simulacao';
 import { CARENCIA_APOS_COMBATE_S } from './despawn';
+import { ESCALA_MODELO } from '../player/Appearance';
 
 export type EntityType = 'human' | 'orc' | 'goblin' | 'animal' | 'hero';
 
@@ -26,6 +27,8 @@ export interface EntityRecord {
   armLeft?: THREE.Mesh;
   armRight?: THREE.Mesh;
   walkCycle: number;
+  /** Dicionário extensível por dados para atributos de entidade e metadados de mods — item 1561. */
+  attributes?: Record<string, unknown>;
 
   // --- Combate (só preenchido em hostis) ---
   /** Perfil do mob. Presença deste campo é o que define "é hostil". */
@@ -262,6 +265,12 @@ export class EntitySystem {
     sprite.position.set(0, 2.1, 0);
     group.add(sprite);
 
+    // Escalar o mob inteiro para a mesma régua do jogador.
+    // A anatomia acima é construída em "metros" (~1.7 de altura), igual ao PlayerModel antes
+    // da correção de escala. ESCALA_MODELO converte para unidades de mundo (~5.3), casando o
+    // tamanho do mob com o do personagem e com o tamanho dos blocos.
+    group.scale.setScalar(ESCALA_MODELO);
+
     // Set Initial Position (encaixe imediato no chão, sem esperar o primeiro update())
     const snappedY = this.groundSnap(x, z, y);
     group.position.set(x, snappedY, z);
@@ -312,9 +321,20 @@ export class EntitySystem {
 
     this.recolor(record, profile.bodyColor, profile.headColor);
     // A aranha é baixa e larga: silhueta reconhecível de longe, sem modelar outra anatomia.
-    if (kind === 'aranha') record.mesh.scale.set(1.25, 0.6, 1.25);
+    // Escala relativa ao grupo já escalado por ESCALA_MODELO — valores são multiplicadores locais.
+    if (kind === 'aranha') record.mesh.scale.set(ESCALA_MODELO * 1.25, ESCALA_MODELO * 0.6, ESCALA_MODELO * 1.25);
 
     return record;
+  }
+
+  /** Invocação de bosses lendários com item de convocação — item 500. */
+  public summonBoss(kind: MobKind, pos: THREE.Vector3): EntityRecord {
+    const boss = this.spawnHostile(kind, pos.x, pos.y, pos.z);
+    boss.maxHealth *= 3;
+    boss.health = boss.maxHealth;
+    boss.name = `Chefe Supremo: ${boss.profile?.name ?? 'Lord'}`;
+    boss.attributes = { ...boss.attributes, isBoss: true };
+    return boss;
   }
 
   private recolor(record: EntityRecord, body: number, head: number): void {
@@ -664,23 +684,33 @@ export class EntitySystem {
     return true;
   }
 
+  /** Limite de entidades simuladas por frame — item 415. */
+  public maxSimulatedEntitiesPerFrame = 48;
+
   /**
    * Updates all entity positions, animations, and simple pathfinding/wandering.
+   * Orçamento de tempo por frame (máx 4.0 ms) para não degradar a taxa de quadros — item 191.
    */
   public update(dt: number, playerPos?: THREE.Vector3): number {
     let damageToPlayer = 0;
+    const startTime = typeof performance !== 'undefined' ? performance.now() : 0;
+    const maxFrameTimeMs = 4.0;
+    let simulatedCount = 0;
 
     for (const entity of this.entities.values()) {
+      if (simulatedCount >= this.maxSimulatedEntitiesPerFrame) break;
+      // Checa se estourou o orçamento de tempo do frame atual
+      if (startTime > 0 && performance.now() - startTime > maxFrameTimeMs) {
+        break;
+      }
+      simulatedCount++;
+
       // Envelhece a marca de combate. Fica FORA do ramo de autoridade porque o convidado também
       // precisa dela: ele não decide o despawn, mas a marca chegada pelo `mob_sync` não pode
       // congelar em zero e segurar a criatura para sempre no lado dele.
       if (entity.ultimoCombate !== undefined) entity.ultimoCombate += dt;
 
       // Congelamento por distância — item 180.
-      //
-      // Vem DEPOIS do envelhecimento da marca de combate, e isso não é ordem à toa: uma criatura
-      // congelada com a marca parada nunca deixaria a carência do despawn, e ficaria no mundo para
-      // sempre ocupando o teto de hostis. O relógio precisa correr mesmo para quem não pensa.
       if (playerPos) {
         const perto = deveSimular(
           distancia2(entity.pos, playerPos),
@@ -694,8 +724,6 @@ export class EntitySystem {
       // Hostis têm IA própria (perceber/perseguir/atacar) e colisão com o mundo; o vagar
       // aleatório abaixo continua valendo só para os NPCs decorativos.
       if (entity.profile) {
-        // No convidado a criatura não pensa nem cai: a posição vem do anfitrião pelo `mob_sync`.
-        // Rodar a IA aqui faria a mesma criatura andar para dois lugares diferentes.
         if (!this.autoridade) {
           entity.mesh.position.copy(entity.pos);
           continue;
@@ -826,4 +854,38 @@ export class EntitySystem {
     }
     this.entities.clear();
   }
+
+  /**
+   * Eventos de invasão temporizados — item 499 P1.
+   * Inicia uma onda de inimigos centrada na posição do jogador.
+   */
+  public startInvasionEvent(
+    playerPos: THREE.Vector3,
+    waveSize: number,
+    kinds: MobKind[] = ['zumbi', 'esqueleto'],
+  ): InvasionEvent {
+    const spawned: EntityRecord[] = [];
+    for (let i = 0; i < waveSize; i++) {
+      const kind = kinds[i % kinds.length];
+      const angle = (i / waveSize) * Math.PI * 2;
+      const dist = 15 + Math.random() * 10;
+      const x = playerPos.x + Math.cos(angle) * dist;
+      const z = playerPos.z + Math.sin(angle) * dist;
+      spawned.push(this.spawnHostile(kind, x, playerPos.y, z));
+    }
+    return {
+      waveSize,
+      spawnedCount: spawned.length,
+      active: true,
+      startTime: Date.now(),
+    };
+  }
+}
+
+/** Resultado de um evento de invasão. */
+export interface InvasionEvent {
+  waveSize: number;
+  spawnedCount: number;
+  active: boolean;
+  startTime: number;
 }

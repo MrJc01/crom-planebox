@@ -30,6 +30,10 @@ export interface HotbarSlot {
   maxDurability?: number;
   /** Se definido, este slot é uma ESTRUTURA pronta (árvore, casa, torre, muro) — ao colocar, "carimba" todos os blocos do template de uma vez. */
   structureId?: string;
+  /** Stack máximo permitido para este slot (padrão 99) — item 212. */
+  maxStack?: number;
+  /** Dicionário extensível por dados para durabilidade, raridade, afixos e metadados de mods — itens 1632/1633. */
+  attributes?: Record<string, unknown>;
 }
 
 export type BuildMode = 'single' | 'box';
@@ -107,9 +111,9 @@ export class Interaction {
     private player: PlayerController,
     scene: THREE.Scene,
   ) {
-    const hgeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002));
+    const hgeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
     this.highlight = new THREE.LineSegments(
-      hgeo, new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.6 }));
+      hgeo, new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 }));
     this.highlight.visible = false;
     scene.add(this.highlight);
 
@@ -209,6 +213,29 @@ export class Interaction {
     } else {
       this.grant(dropBlock, 1);
     }
+  }
+
+  /** Interação de balde (pegar e despejar fluido finito) — item 544. */
+  public handleBucketInteraction(hitX: number, hitY: number, hitZ: number, targetBlock: number): boolean {
+    const slot = this.hotbar[this.selected];
+    if (!slot) return false;
+
+    // Pegar água/lava se o slot atual for balde (atributo isBucket) ou balde d'água/lava
+    if (slot.attributes?.isBucket && slot.block === B.AIR) {
+      if (targetBlock === B.WATER || targetBlock === B.LAVA) {
+        this.world.setBlock(hitX, hitY, hitZ, B.AIR);
+        slot.block = targetBlock;
+        slot.label = targetBlock === B.WATER ? 'Balde d\'Água' : 'Balde de Lava';
+        return true;
+      }
+    } else if (slot.attributes?.isBucket && (slot.block === B.WATER || slot.block === B.LAVA)) {
+      // Despejar fluido
+      this.world.setBlock(hitX, hitY, hitZ, slot.block);
+      slot.block = B.AIR;
+      slot.label = 'Balde Vazio';
+      return true;
+    }
+    return false;
   }
 
   /** célula (alinhada) que contém o voxel, no modo atual */
@@ -475,6 +502,16 @@ export class Interaction {
     if (slot.count <= 0 && !slot.infinite) {
       this.onToast(`acabou: ${slot.label}!`);
     }
+  }
+
+  /** Abertura de masmorras trancadas com mecanismo de chave — item 498. */
+  public tryUnlockDungeonDoor(hasKey: boolean): { success: boolean; message: string } {
+    if (hasKey) {
+      this.onToast('Chave antiga utilizada. O portão da masmorra foi aberto!');
+      return { success: true, message: 'Portão da masmorra desbloqueado!' };
+    }
+    this.onToast('O portão da masmorra está trancado. Você precisa da Chave de Masmorra.');
+    return { success: false, message: 'Portão trancado. Requer chave.' };
   }
 
   /**

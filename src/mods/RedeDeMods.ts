@@ -64,7 +64,18 @@ export interface DependenciasDeRede {
 }
 
 export class RedeDeMods {
+  /** Modo offline global: quando ativo, desliga toda integração externa de mods instantaneamente — item 774 P1. */
+  private modoOffline = false;
+
   constructor(private deps: DependenciasDeRede) {}
+
+  public setModoOffline(offline: boolean): void {
+    this.modoOffline = offline;
+  }
+
+  public isModoOffline(): boolean {
+    return this.modoOffline;
+  }
 
   /**
    * Consentimentos sendo perguntados agora, por `modId|host`.
@@ -74,6 +85,21 @@ export class RedeDeMods {
    * hábito que a permissão declarada existe para evitar. Todas esperam a mesma resposta.
    */
   private perguntando = new Map<string, Promise<boolean>>();
+
+  /**
+   * Wrapper com degradação graciosa: se a chamada falhar ou estiver offline, devolve status 0 sem lançar erro — item 773 P1.
+   */
+  async chamarComDegradacao(modId: string, endereco: string, opcoes: OpcoesDeChamada = {}): Promise<RespostaDeMod> {
+    try {
+      return await this.chamar(modId, endereco, opcoes);
+    } catch (err: any) {
+      return {
+        status: 0,
+        ok: false,
+        texto: err?.message || 'falha de rede com degradação offline',
+      };
+    }
+  }
 
   async chamar(modId: string, endereco: string, opcoes: OpcoesDeChamada = {}): Promise<RespostaDeMod> {
     const quando = (this.deps.agora ?? Date.now)();
@@ -88,6 +114,11 @@ export class RedeDeMods {
 
     const permissao = podeChamar(endereco, declarados);
     const caminho = caminhoDe(endereco);
+
+    if (this.modoOffline) {
+      recusar(permissao.host, caminho, 'modo offline global ativo — chamadas externas bloqueadas');
+    }
+
     if (!permissao.permitido) recusar(permissao.host, caminho, permissao.motivo ?? 'recusado');
 
     if (enviaDados(metodo, opcoes.corpo) && !manifesto?.rede?.envia) {

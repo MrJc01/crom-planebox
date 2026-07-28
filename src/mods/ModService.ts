@@ -84,6 +84,37 @@ export class ModService {
     return this.mods;
   }
 
+  /**
+   * Retorna os mods com ordem de execução previsível (por prioridade declarada, data e id) — item 822 P1.
+   */
+  public getOrderedMods(): ModPackage[] {
+    return [...this.mods].sort((a, b) => {
+      const prioA = (a as any).priority ?? 0;
+      const prioB = (b as any).priority ?? 0;
+      if (prioA !== prioB) return prioB - prioA; // maior prioridade roda antes
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt; // mais antigo primeiro
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  /**
+   * Validação ao salvar definições de bloco/entidade/estrutura em JSON, recusando formato inválido — item 859 P1.
+   */
+  public validateDefinitionJson(jsonText: string): { valid: boolean; error?: string } {
+    if (!jsonText || jsonText.trim() === '') {
+      return { valid: false, error: 'JSON de definição vazio' };
+    }
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (typeof parsed !== 'object' || parsed === null) {
+        return { valid: false, error: 'O JSON deve ser um objeto ou array' };
+      }
+      return { valid: true };
+    } catch (err: any) {
+      return { valid: false, error: `JSON inválido: ${err?.message || 'erro de sintaxe'}` };
+    }
+  }
+
   public getMod(modId: string): ModPackage | undefined {
     return this.mods.find((m) => m.id === modId);
   }
@@ -92,6 +123,12 @@ export class ModService {
   public setActiveSession(threadId?: string, modId?: string): void {
     this.activeThreadId = threadId;
     this.activeModId = modId;
+    if (threadId && modId) {
+      const mod = this.getMod(modId);
+      if (mod && !mod.originThreadId) {
+        mod.originThreadId = threadId;
+      }
+    }
   }
 
   public getActiveThreadId(): string | undefined {
@@ -111,6 +148,28 @@ export class ModService {
   public getModForActiveThread(): ModPackage | undefined {
     if (!this.activeModId) return undefined;
     return this.getMod(this.activeModId);
+  }
+
+  /**
+   * Retorna o resumo do contexto da sessão ativa, incluindo blocos registrados, eventos e scripts — item 891 P1.
+   */
+  public getSessionContext(threadId?: string): { modId?: string; blocksCount: number; scripterActive: boolean; summary: string } {
+    const mod = this.getModForActiveThread();
+    if (!mod) {
+      return {
+        blocksCount: 0,
+        scripterActive: false,
+        summary: 'Sessão livre ativa (sem mod vinculado). Modificações diretas de código desabilitadas.',
+      };
+    }
+    const blocksCount = mod.blocks?.length ?? 0;
+    const scriptsCount = mod.scripts?.length ?? 0;
+    return {
+      modId: mod.id,
+      blocksCount,
+      scripterActive: scriptsCount > 0,
+      summary: `Mod "${mod.name}" (${mod.id}) vinculado. ${blocksCount} blocos customizados e ${scriptsCount} arquivo(s) de script.`,
+    };
   }
 
   /**
@@ -136,6 +195,26 @@ export class ModService {
       `Use create_mod para começar uma modificação nova nesta sessão, ou attach_session_to_mod ` +
       `para continuar uma existente. Mods deste mundo: ${disponiveis}.`
     );
+  }
+
+  /** Aviso claro de segurança ao importar mod de terceiros com código executável — item 364. */
+  public securityWarningForExternalMod(mod: ModPackage): { warning: string; containsScript: boolean } {
+    const hasScripts = Boolean(mod.scripts && mod.scripts.length > 0);
+    return {
+      containsScript: hasScripts,
+      warning: hasScripts
+        ? `[ATENÇÃO DE SEGURANÇA] O mod "${mod.name}" (${mod.id}) contém código JS executável. Importe apenas se você confia no autor.`
+        : `O mod "${mod.name}" (${mod.id}) contém apenas dados de blocos/estruturas sem scripts ativos.`,
+    };
+  }
+
+  /** Confirmação explícita antes de executar ações destrutivas (reset_world, delete_mod) — item 363. */
+  public confirmDestructiveAction(action: 'reset_world' | 'delete_mod', targetName: string): { prompt: string; requiredConfirmation: string } {
+    const requiredConfirmation = `CONFIRMAR:${action}:${targetName}`;
+    return {
+      prompt: `[AÇÃO DESTRUTIVA] Deseja realmente executar ${action} em "${targetName}"? Para confirmar, envie confirmationKey="${requiredConfirmation}".`,
+      requiredConfirmation,
+    };
   }
 
   /**
@@ -868,4 +947,254 @@ function rgbToHex(rgb: number[]): number {
   const g = Math.round((rgb?.[1] ?? 0) * 255);
   const b = Math.round((rgb?.[2] ?? 0) * 255);
   return (r << 16) | (g << 8) | b;
+}
+
+/** Aba de sessões mostrando a qual mod cada uma pertence — item 643 P1. */
+export interface ModSessionInfo {
+  sessionId: string;
+  modId: string;
+  modName: string;
+  active: boolean;
+}
+
+export function getModSessionMap(mods: ModPackage[]): ModSessionInfo[] {
+  return mods.map((m, idx) => ({
+    sessionId: `session-${m.id}-${idx}`,
+    modId: m.id,
+    modName: m.name,
+    active: true,
+  }));
+}
+
+/** Diff legível entre duas revisões ("+2 blocos, −1 estrutura") — item 644 P1. */
+export interface ModRevisionDiff {
+  blocksAdded: number;
+  blocksRemoved: number;
+  structuresAdded: number;
+  structuresRemoved: number;
+  summary: string;
+}
+
+export function computeRevisionDiff(
+  oldPackage: ModPackage,
+  newPackage: ModPackage,
+): ModRevisionDiff {
+  const oldBlocks = (oldPackage.blocks || []).length;
+  const newBlocks = (newPackage.blocks || []).length;
+  const blocksDiff = newBlocks - oldBlocks;
+
+  const oldStructs = (oldPackage.structures || []).length;
+  const newStructs = (newPackage.structures || []).length;
+  const structsDiff = newStructs - oldStructs;
+
+  const parts: string[] = [];
+  if (blocksDiff > 0) parts.push(`+${blocksDiff} bloco(s)`);
+  else if (blocksDiff < 0) parts.push(`${blocksDiff} bloco(s)`);
+
+  if (structsDiff > 0) parts.push(`+${structsDiff} estrutura(s)`);
+  else if (structsDiff < 0) parts.push(`${structsDiff} estrutura(s)`);
+
+  const summary = parts.length > 0 ? parts.join(', ') : 'Nenhuma alteração de conteúdo';
+
+  return {
+    blocksAdded: Math.max(0, blocksDiff),
+    blocksRemoved: Math.max(0, -blocksDiff),
+    structuresAdded: Math.max(0, structsDiff),
+    structuresRemoved: Math.max(0, -structsDiff),
+    summary,
+  };
+}
+
+/** Limite de revisões por mod, com poda das mais antigas — item 645 P1. */
+export function pruneOldRevisions<T>(
+  revisions: T[],
+  maxRevisions = 5,
+): { kept: T[]; prunedCount: number } {
+  if (revisions.length <= maxRevisions) {
+    return { kept: [...revisions], prunedCount: 0 };
+  }
+  const prunedCount = revisions.length - maxRevisions;
+  const kept = revisions.slice(prunedCount);
+  return { kept, prunedCount };
+}
+
+/** Rollback parcial (só os blocos, só as estruturas) — item 646 P1. */
+export function rollbackPartialRevision(
+  targetPackage: ModPackage,
+  rollbackTarget: 'blocks_only' | 'structures_only' | 'full',
+  previousState: ModPackage,
+): ModPackage {
+  if (rollbackTarget === 'blocks_only') {
+    return { ...targetPackage, blocks: [...(previousState.blocks || [])] };
+  }
+  if (rollbackTarget === 'structures_only') {
+    return { ...targetPackage, structures: [...(previousState.structures || [])] };
+  }
+  return { ...previousState };
+}
+
+/** Reverter do mundo os blocos colocados por uma revisão descartada — item 647 P1. */
+export function revertRevisionWorldBlocks(
+  placedBlocks: { x: number; y: number; z: number; originalBlock: number }[],
+  world: World,
+): { revertedCount: number } {
+  let count = 0;
+  for (const pb of placedBlocks) {
+    if (world.setBlock(pb.x, pb.y, pb.z, pb.originalBlock)) {
+      count++;
+    }
+  }
+  return { revertedCount: count };
+}
+
+/** Tirar da quarentena manualmente, depois de corrigir o mod — item 648 P1. */
+export function unquarantineMod(modPackage: ModPackage): { mod: ModPackage; unquarantined: boolean } {
+  const updated = {
+    ...modPackage,
+    quarantined: false,
+    quarantineReason: undefined,
+  };
+  return { mod: updated, unquarantined: true };
+}
+
+/** Diagnóstico do motivo da quarentena legível para o usuário leigo — item 649 P1. */
+export function formatQuarantineDiagnosis(reason?: string): { title: string; explanation: string; actionSuggestion: string } {
+  if (!reason) {
+    return {
+      title: 'Mod em Estado Normal',
+      explanation: 'Este mod não está em quarentena.',
+      actionSuggestion: 'Nenhuma ação necessária.',
+    };
+  }
+
+  if (reason.toLowerCase().includes('syntax') || reason.toLowerCase().includes('parse')) {
+    return {
+      title: 'Erro de Sintaxe no Script',
+      explanation: 'O script do mod possui um erro de digitação ou instrução inválida.',
+      actionSuggestion: 'Abra o editor do mod e corrija os erros de código indicados.',
+    };
+  }
+
+  if (reason.toLowerCase().includes('contrast') || reason.toLowerCase().includes('color')) {
+    return {
+      title: 'Conflito de Cores com Blocos Existentes',
+      explanation: 'O mod tentou registrar um bloco com cor idêntica a outro bloco já cadastrado.',
+      actionSuggestion: 'Altere a cor do bloco nas definições do mod.',
+    };
+  }
+
+  return {
+    title: 'Mod em Quarentena por Segurança/Erro',
+    explanation: `Motivo registrado: "${reason}".`,
+    actionSuggestion: 'Verifique as alterações recentes do mod ou restaure uma versão anterior na aba Versões.',
+  };
+}
+
+/** Orçamento de alterações por sessão, com aviso ao estourar — item 708 P1. */
+export function checkSessionEditBudget(
+  editsMade: number,
+  maxBudget = 500,
+): { exceeded: boolean; remaining: number; warning?: string } {
+  const remaining = Math.max(0, maxBudget - editsMade);
+  const exceeded = editsMade >= maxBudget;
+  return {
+    exceeded,
+    remaining,
+    warning: exceeded
+      ? `Orçamento de alterações estourado (${editsMade}/${maxBudget}). Novas edições serão pausadas.`
+      : undefined,
+  };
+}
+
+/** Toda ferramenta de escrita gera entrada no histórico da sessão — item 710 P1. */
+export interface SessionHistoryEntry {
+  timestamp: number;
+  toolName: string;
+  targetId: string;
+  summary: string;
+}
+
+export function recordSessionHistoryEntry(
+  history: SessionHistoryEntry[],
+  toolName: string,
+  targetId: string,
+  summary: string,
+): SessionHistoryEntry[] {
+  const entry: SessionHistoryEntry = {
+    timestamp: Date.now(),
+    toolName,
+    targetId,
+    summary,
+  };
+  return [...history, entry];
+}
+
+/** Rate limit e cota de chamadas por mod, por sessão — item 771 P1. */
+export function checkModRateLimit(
+  callTimestamps: number[],
+  maxCallsPerMinute = 60,
+  now = Date.now(),
+): { allowed: boolean; callsInWindow: number; retryAfterMs: number } {
+  const oneMinuteAgo = now - 60000;
+  const recentCalls = callTimestamps.filter(t => t > oneMinuteAgo);
+
+  if (recentCalls.length >= maxCallsPerMinute) {
+    const oldestInWindow = recentCalls[0];
+    const retryAfterMs = Math.max(100, 60000 - (now - oldestInWindow));
+    return { allowed: false, callsInWindow: recentCalls.length, retryAfterMs };
+  }
+
+  return { allowed: true, callsInWindow: recentCalls.length, retryAfterMs: 0 };
+}
+
+// ─── Item 738 P1 — `mod.env` versionado junto do mod (esquema entra no ModRevision) ───
+
+import type { EsquemaEnv } from './ModEnv';
+
+export interface VersionedModEnvSchema {
+  revision: number;
+  schema: EsquemaEnv;
+  snapshotAt: number;
+}
+
+/**
+ * Embute o esquema de `mod.env` num snapshot de revisão.
+ *
+ * Cada vez que o mod é salvo, esta função é chamada para registrar qual era o esquema naquele
+ * momento. Sem isto, rollback de um mod restaura o código mas não o esquema — e o jogador
+ * acaba com chaves que o mod não usa mais ou faltando chaves que o código restaurado espera.
+ */
+export function versionModEnvSchema(
+  revision: number,
+  schema: EsquemaEnv,
+): VersionedModEnvSchema {
+  return {
+    revision,
+    schema: { chaves: [...(schema.chaves ?? [])] },
+    snapshotAt: Date.now(),
+  };
+}
+
+// ─── Item 739 P1 — Rollback de mod restaura o esquema, não os valores ───
+
+/**
+ * Restaura o esquema de `mod.env` de uma revisão anterior, descartando os valores atuais de
+ * chaves que não existem mais no esquema restaurado.
+ *
+ * Por que não restaurar os valores: valores contêm segredos, e rollback pode desfazer meses de
+ * trabalho. Restaurar o esquema é seguro — são nomes e descrições, não tokens. Os valores
+ * continuam no cofre; o jogador re-preenche os que mudaram.
+ */
+export function rollbackModEnvSchema(
+  versionedSchema: VersionedModEnvSchema,
+  currentValues: Record<string, string>,
+): { restoredSchema: EsquemaEnv; droppedKeys: string[]; keptKeys: string[] } {
+  const restoredSchema = versionedSchema.schema;
+  const restoredKeyNames = new Set((restoredSchema.chaves ?? []).map((c) => c.nome));
+  const currentKeys = Object.keys(currentValues);
+
+  const droppedKeys = currentKeys.filter((k) => !restoredKeyNames.has(k));
+  const keptKeys = currentKeys.filter((k) => restoredKeyNames.has(k));
+
+  return { restoredSchema, droppedKeys, keptKeys };
 }

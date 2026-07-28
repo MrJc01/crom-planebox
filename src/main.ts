@@ -57,6 +57,7 @@ import { DebugPanel } from './ui/DebugPanel';
 import { profiler } from './core/profiler';
 import { getPathCacheStats } from './entities/Pathfinding';
 import { CodeEditorPage } from './ui/CodeEditorPage';
+import { handleVisibilityChange } from './core/PauseManager';
 import { PlayerModel } from './player/PlayerModel';
 import { AvatarManager } from './player/AvatarManager';
 import { Appearance, DEFAULT_APPEARANCE } from './player/Appearance';
@@ -180,6 +181,7 @@ async function bootstrap() {
   const gameModeManager = new GameModeManager(cameraManager, player);
   const objetivos = new RastreadorDeObjetivos();
   const survivalSystem = new SurvivalSystem(player);
+  player.onVoidFall = () => survivalSystem.applyDamage(1000, 'abismo');
   const itemDropSystem = new ItemDropSystem(gs.scene, player);
 
   itemDropSystem.onCollect = (blockType, count) => {
@@ -1457,8 +1459,7 @@ async function bootstrap() {
     atualizarCartaoDeObjetivo();
     schedulePlayerSave();
   };
-  inventoryModal.gateOpen = () => gameModeManager.rules.hasCreativeInventory;
-  inventoryModal.onBlockedByMode = () => hud.showToast('Inventário criativo indisponível neste modo de jogo.');
+  inventoryModal.gateCreativeCatalog = () => gameModeManager.rules.hasCreativeInventory;
 
   survivalSystem.onDeath = (causa) => {
     audio.play(SOUNDS.morte, { volume: 1 });
@@ -2054,6 +2055,7 @@ async function bootstrap() {
       { icone: 'mods', titulo: 'Mods', tecla: 'F6', acao: () => uiManager.openBlocking('mods-page') },
       { icone: 'codigo', titulo: 'Editor', tecla: 'F7', acao: () => uiManager.openBlocking('code-editor') },
       { icone: 'inventario', titulo: 'Inventário', tecla: 'E', acao: () => uiManager.openBlocking('inventory') },
+      { icone: 'chat', titulo: 'Chat / IA', tecla: 'T', acao: () => uiManager.toggleFloating('chat') },
     ],
     guiaAtivo,
     listarObjetivos: () => objetivos.listar().map((o) => ({
@@ -2246,6 +2248,17 @@ async function bootstrap() {
   window.addEventListener('blur', () => {
     voz.definirTecla(false);
     painelDeJogadores.esconder();
+  });
+
+  // Pausa automática e limpeza de teclas presas ao trocar de aba (item 1056, 1057 P1)
+  document.addEventListener('visibilitychange', () => {
+    const hidden = document.visibilityState === 'hidden';
+    const isMultiplayer = peerSync.role === 'guest' || (peerSync.role === 'host' && peerSync.peerCount > 0);
+    if (hidden && gameStarted && !noMenuInicial) {
+      if (!isMultiplayer && !uiManager.isAnyBlockingOpen()) {
+        uiManager.openBlocking('pause');
+      }
+    }
   });
 
   window.addEventListener('keydown', (e) => {

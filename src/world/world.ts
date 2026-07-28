@@ -22,7 +22,7 @@ export class World {
     const cx = Math.floor(x / CX), cz = Math.floor(z / CZ);
     const c = this.chunks.get(chunkKey(cx, cz));
     if (!c) return B.AIR;
-    return c.data[(x - cx * CX) + CX * ((z - cz * CZ) + CZ * y)];
+    return c.get(x - cx * CX, y, z - cz * CZ);
   }
 
   /** Define bloco e marca os chunks afetados como dirty. Retorna false se o chunk não existe. */
@@ -32,7 +32,7 @@ export class World {
     const c = this.chunks.get(chunkKey(cx, cz));
     if (!c) return false;
     const lx = x - cx * CX, lz = z - cz * CZ;
-    c.data[lx + CX * (lz + CZ * y)] = t;
+    c.set(lx, y, lz, t);
     c.dirty = true;
     if (markEdited) c.edited = true;
     // bordas: vizinhos precisam re-mesh (culling/AO atravessa a fronteira)

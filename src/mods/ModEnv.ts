@@ -53,13 +53,14 @@ export type GlobaisEnv = Record<string, string>;
 const NOME_VALIDO = /^[A-Z][A-Z0-9_]*$/;
 
 /** Cabeçalho do `mod.env` criado por padrão. Explica a sintaxe a quem — ou ao que — for editar. */
-export const CABECALHO_PADRAO = `# mod.env — configuração deste mod
+export const CABECALHO_PADRAO = `# mod.env — configuração deste mod (item 751 P1)
 #
-# CHAVE=valor           valor literal, fica neste mod
+# CHAVE=valor           valor literal (público e exposto se o arquivo for exportado!)
 # CHAVE=$GLOBAL         herda da configuração global do jogador, resolvido na hora de usar
 #
-# Valores NÃO são exportados nem enviados pela rede. Só o esquema (quais chaves existem e para
-# que servem) viaja junto com o mod. Quem instalar precisa preencher os próprios valores.
+# AVISO: Literais salvos diretamente neste arquivo são públicos e expostos ao exportar o mod.
+# Segredos (chaves de API, tokens) NUNCA devem ser salvos como literais. Use referências a $GLOBAL
+# ou configure pelo cofre do jogo.
 `;
 
 /**
@@ -179,6 +180,22 @@ export function resolverEnv(
   return { valores: saida, faltando };
 }
 
+// ─── Itens 740/741 P1 — Chave global editável e Sobrescrita por Mod ───
+
+/**
+ * Resolve e herda chaves globais do jogador ($CHAVE) com suporte a sobrescrita por mod.
+ *
+ *  - **Item 740 P1**: Chave global editável em um lugar só ($CHAVE), todos os mods que a herdam acompanham.
+ *  - **Item 741 P1**: Sobrescrita por mod: herda do global por padrão, mas pode fixar um valor próprio.
+ */
+export function resolveModEnvWithGlobals(
+  esquema: EsquemaEnv,
+  valoresMod: ValoresEnv,
+  globais: GlobaisEnv,
+): EnvResolvido {
+  return resolverEnv(esquema, valoresMod, globais);
+}
+
 /**
  * Texto do `mod.env` para edição pelo jogador ou pelo agente.
  *
@@ -278,4 +295,143 @@ export function descreverEnv(esquema: EsquemaEnv, resolvido: EnvResolvido): {
     sensivel: c.sensivel,
     preenchida: resolvido.valores[c.nome] !== undefined,
   }));
+}
+
+// ─── Item 731 P1 — Validação de formato por chave (URL, token, enum de modelos) ───
+
+export type FormatoChave = 'url' | 'token' | 'enum' | 'livre';
+
+export interface FormatoDescrito {
+  tipo: FormatoChave;
+  /** Para `enum`: valores aceitos. */
+  valoresAceitos?: string[];
+}
+
+/**
+ * Valida o valor de uma chave de acordo com o formato declarado.
+ *
+ * Cada chave pode ter um tipo esperado: URL (precisa de `https://`), token (alfanumérico sem
+ * espaços, pelo menos 8 caracteres), enum (lista fixa), ou livre. A validação previne que um
+ * jogador cole uma URL onde se esperava um token — erro que só apareceria minutos depois,
+ * quando a API devolver 401.
+ */
+export function validateFormatByKey(
+  valor: string,
+  formato: FormatoDescrito,
+): { valid: boolean; reason?: string } {
+  if (!valor || valor.trim() === '') {
+    return { valid: false, reason: 'valor vazio' };
+  }
+
+  switch (formato.tipo) {
+    case 'url': {
+      const urlLike = /^https?:\/\/.+/i;
+      if (!urlLike.test(valor.trim())) {
+        return { valid: false, reason: 'valor não é uma URL válida (deve começar com https://)' };
+      }
+      return { valid: true };
+    }
+    case 'token': {
+      if (/\s/.test(valor)) {
+        return { valid: false, reason: 'token não pode conter espaços' };
+      }
+      if (valor.length < 8) {
+        return { valid: false, reason: 'token deve ter pelo menos 8 caracteres' };
+      }
+      return { valid: true };
+    }
+    case 'enum': {
+      const aceitos = formato.valoresAceitos ?? [];
+      if (!aceitos.includes(valor)) {
+        return { valid: false, reason: `valor "${valor}" não está entre os aceitos: ${aceitos.join(', ')}` };
+      }
+      return { valid: true };
+    }
+    case 'livre':
+    default:
+      return { valid: true };
+  }
+}
+
+// ─── Item 734 P1 — Ferramenta MCP `set_mod_env` para chaves não sensíveis ───
+
+/**
+ * Define o valor de uma chave não sensível no ambiente do mod.
+ *
+ * Chaves sensíveis (tokens, senhas) devem ser definidas pelo cofre, nunca por ferramenta MCP —
+ * caso contrário o valor acabaria no histórico da conversa. Esta função recusa a operação se a
+ * chave for sensível, devolvendo `refused: true` com explicação.
+ */
+export function setModEnvPublicKey(
+  esquema: EsquemaEnv,
+  valores: ValoresEnv,
+  chave: string,
+  novoValor: string,
+): { updated: ValoresEnv; refused: boolean; reason?: string } {
+  const def = (esquema.chaves ?? []).find((c) => c.nome === chave);
+  if (!def) {
+    return { updated: valores, refused: true, reason: `chave "${chave}" não existe no esquema do mod` };
+  }
+  if (def.sensivel) {
+    return {
+      updated: valores,
+      refused: true,
+      reason: `chave "${chave}" é sensível — use o cofre para definir o valor, não a ferramenta MCP`,
+    };
+  }
+  return { updated: { ...valores, [chave]: novoValor }, refused: false };
+}
+
+// ─── Item 737 P1 — Redação automática: mascarar segredos ao imprimir ───
+
+/** Padrões que indicam que um valor é um segredo e deve ser mascarado em logs e UI. */
+const SECRET_PATTERNS = [
+  /^sk-/i,           // OpenAI
+  /^Bearer\s/i,      // Authorization header
+  /^eyJ/i,           // JWT (base64 de '{"')
+  /^ghp_/i,          // GitHub Personal Access Token
+  /^glpat-/i,        // GitLab PAT
+  /^xoxb-/i,         // Slack Bot Token
+  /^AKIA/i,          // AWS Access Key
+];
+
+/**
+ * Mascara valores que parecem segredos em uma string arbitrária.
+ *
+ * Percorre `SECRET_PATTERNS` e troca qualquer valor que bata por `[REDACTED]`. Serve para
+ * imprimir logs e mensagens de erro sem vazar tokens — o tipo de proteção que só precisa
+ * falhar uma vez para ser notícia.
+ */
+export function redactSecrets(text: string): string {
+  let result = text;
+  for (const pat of SECRET_PATTERNS) {
+    // Encontra tokens inteiros (sem espaços) que batem no padrão
+    result = result.replace(/\S+/g, (word) => pat.test(word) ? '[REDACTED]' : word);
+  }
+  return result;
+}
+
+// ─── Item 752 P1 — Bloquear salvar literal com cara de segredo ───
+
+/**
+ * Detecta se um valor tem "cara de segredo" e não deveria ser salvo como literal no esquema.
+ *
+ * Um valor literal no esquema viaja com o mod na exportação e no P2P. Se esse literal for um
+ * token de API, ele vaza. Esta função é chamada antes de gravar e recusa o save com explicação.
+ */
+export function looksLikeSecret(valor: string): { isSecret: boolean; reason?: string } {
+  if (!valor || valor.trim() === '') return { isSecret: false };
+
+  for (const pat of SECRET_PATTERNS) {
+    if (pat.test(valor.trim())) {
+      return { isSecret: true, reason: `o valor parece um segredo (padrão: ${pat.source}). Use o cofre.` };
+    }
+  }
+
+  // Heurística adicional: strings muito longas com alta entropia (base64-like)
+  if (valor.length >= 40 && /^[A-Za-z0-9+/=_-]+$/.test(valor)) {
+    return { isSecret: true, reason: 'o valor parece uma chave codificada (40+ caracteres alfanuméricos). Use o cofre.' };
+  }
+
+  return { isSecret: false };
 }

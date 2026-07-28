@@ -247,6 +247,24 @@ function toHex(value: number | string | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function rgbToHex(rgb: [number, number, number]): number {
+  const r = Math.min(255, Math.max(0, Math.round(rgb[0] * 255)));
+  const g = Math.min(255, Math.max(0, Math.round(rgb[1] * 255)));
+  const b = Math.min(255, Math.max(0, Math.round(rgb[2] * 255)));
+  return (r << 16) | (g << 8) | b;
+}
+
+/** Derivação automática de cor lateral/base a partir do topo (escurecimento consistente) — item 077. */
+export function deriveSideAndBottomColors(topRGB: [number, number, number]): {
+  sideRGB: [number, number, number];
+  bottomRGB: [number, number, number];
+} {
+  return {
+    sideRGB: [topRGB[0] * 0.82, topRGB[1] * 0.82, topRGB[2] * 0.82],
+    bottomRGB: [topRGB[0] * 0.65, topRGB[1] * 0.65, topRGB[2] * 0.65],
+  };
+}
+
 /**
  * Registra um bloco de mod **num id explícito e estável**. É o caminho usado ao reaplicar um
  * mod salvo: o id vem do pacote persistido, então o mesmo bloco recebe o mesmo id em toda
@@ -264,8 +282,13 @@ export function registerCustomBlockAt(blockId: number, spec: CustomBlockSpec): n
   for (let i = BLOCKS.length; i < blockId; i++) BLOCKS[i] = reservedSlot();
 
   const top = toHex(spec.topColor, 0x38bdf8);
-  const side = toHex(spec.sideColor, top);
-  const bottom = toHex(spec.bottomColor, side);
+  const derived = deriveSideAndBottomColors([
+    ((top >> 16) & 255) / 255,
+    ((top >> 8) & 255) / 255,
+    (top & 255) / 255,
+  ]);
+  const side = spec.sideColor !== undefined ? toHex(spec.sideColor, top) : rgbToHex(derived.sideRGB);
+  const bottom = spec.bottomColor !== undefined ? toHex(spec.bottomColor, side) : rgbToHex(derived.bottomRGB);
 
   const created = def(spec.name || `bloco ${blockId}`, top, side, bottom, {
     solid: spec.solid ?? true,
@@ -328,6 +351,16 @@ export function listCustomBlocks(): { id: number; def: BlockDef }[] {
   return out;
 }
 
+/** Estatísticas de uso de blocos customizados com limite claro — item 092. */
+export function getCustomBlockUsage(): { current: number; max: number; remaining: number } {
+  const current = listCustomBlocks().length;
+  return {
+    current,
+    max: MAX_CUSTOM_BLOCKS,
+    remaining: Math.max(0, MAX_CUSTOM_BLOCKS - current),
+  };
+}
+
 /** Água e lava: voxels de fluido finito, com escoamento próprio (ver `src/world/fluids.ts`). */
 export function isFluid(t: number): boolean { return t === B.WATER || t === B.LAVA; }
 
@@ -365,4 +398,46 @@ export function isSupport(t: number): boolean {
 /** Célula onde se pode colocar bloco por cima (substituível). */
 export function isReplaceable(t: number): boolean {
   return t === B.AIR || t === B.WATER || t === B.LAVA || isDecor(t);
+}
+
+/** Guia de arte escrito para a IA seguir ao inventar blocos (saturação e luminância) — item 078. */
+export function validateAIBlockArtGuide(colorHex: number): { valid: boolean; reason?: string } {
+  const r = (colorHex >> 16) & 0xff;
+  const g = (colorHex >> 8) & 0xff;
+  const b = colorHex & 0xff;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lum = (max + min) / 2 / 255;
+  const sat = max === min ? 0 : (max - min) / (lum > 0.5 ? 510 - max - min : max + min);
+
+  if (lum < 0.08 || lum > 0.95) {
+    return { valid: false, reason: 'Luminância muito extrema (muito escuro ou estourado). Alvo: 0.15 a 0.85.' };
+  }
+  if (sat > 0.90) {
+    return { valid: false, reason: 'Saturação excessiva (cor néon/estridora). Alvo: até 0.85 para coerência com a paleta nativa.' };
+  }
+  return { valid: true };
+}
+
+/** Suporte a textura procedural por bloco (ruído, listras, xadrez) além de cor sólida — item 079. */
+export function generateProceduralTexturePattern(
+  pattern: 'noise' | 'stripes' | 'checker',
+  baseColorHex: number,
+  x: number,
+  y: number,
+): number {
+  let factor = 1.0;
+  if (pattern === 'noise') {
+    const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    factor = 0.9 + (n - Math.floor(n)) * 0.2;
+  } else if (pattern === 'stripes') {
+    factor = (x + y) % 2 === 0 ? 1.1 : 0.9;
+  } else if (pattern === 'checker') {
+    factor = (Math.floor(x / 2) + Math.floor(y / 2)) % 2 === 0 ? 1.15 : 0.85;
+  }
+
+  const r = Math.min(255, Math.max(0, Math.floor(((baseColorHex >> 16) & 0xff) * factor)));
+  const g = Math.min(255, Math.max(0, Math.floor(((baseColorHex >> 8) & 0xff) * factor)));
+  const b = Math.min(255, Math.max(0, Math.floor((baseColorHex & 0xff) * factor)));
+  return (r << 16) | (g << 8) | b;
 }

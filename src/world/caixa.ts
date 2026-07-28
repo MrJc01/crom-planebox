@@ -125,3 +125,96 @@ export function recusaDeCaixa(volumePedido: number): string {
   return `Caixa grande demais: ${volumePedido.toLocaleString('pt-BR')} blocos, e o limite é `
     + `${MAX_CELULAS_DA_CAIXA.toLocaleString('pt-BR')}. Divida em partes menores.`;
 }
+
+/** Percorre as células de uma esfera procedural (item 1615). */
+export function percorrerEsfera(
+  cx: number, cy: number, cz: number, raio: number, vazada: boolean,
+  visitar: (x: number, y: number, z: number) => boolean | void,
+): ResultadoDaCaixa {
+  const r2 = raio * raio;
+  const innerR2 = (raio - 1) * (raio - 1);
+  const minX = Math.floor(cx - raio), maxX = Math.ceil(cx + raio);
+  const minY = Math.floor(cy - raio), maxY = Math.ceil(cy + raio);
+  const minZ = Math.floor(cz - raio), maxZ = Math.ceil(cz + raio);
+  const volumePedido = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+
+  if (volumePedido > MAX_CELULAS_DA_CAIXA) return { visitadas: 0, truncada: true, volumePedido };
+
+  let visitadas = 0;
+  for (let x = minX; x <= maxX; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        const d2 = (x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2;
+        if (d2 > r2) continue;
+        if (vazada && d2 <= innerR2) continue;
+        visitadas++;
+        if (visitar(x, y, z) === false) return { visitadas, truncada: false, volumePedido };
+      }
+    }
+  }
+  return { visitadas, truncada: false, volumePedido };
+}
+
+/** Percorre as células de um cilindro vertical (item 1615). */
+export function percorrerCilindro(
+  cx: number, cy: number, cz: number, raio: number, altura: number, vazada: boolean,
+  visitar: (x: number, y: number, z: number) => boolean | void,
+): ResultadoDaCaixa {
+  const r2 = raio * raio;
+  const innerR2 = (raio - 1) * (raio - 1);
+  const minX = Math.floor(cx - raio), maxX = Math.ceil(cx + raio);
+  const minZ = Math.floor(cz - raio), maxZ = Math.ceil(cz + raio);
+  const minY = Math.floor(cy), maxY = Math.floor(cy + altura - 1);
+  const volumePedido = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+
+  if (volumePedido > MAX_CELULAS_DA_CAIXA) return { visitadas: 0, truncada: true, volumePedido };
+
+  let visitadas = 0;
+  for (let y = minY; y <= maxY; y++) {
+    const isTopOrBottom = y === minY || y === maxY;
+    for (let x = minX; x <= maxX; x++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        const d2 = (x - cx) ** 2 + (z - cz) ** 2;
+        if (d2 > r2) continue;
+        if (vazada && !isTopOrBottom && d2 <= innerR2) continue;
+        visitadas++;
+        if (visitar(x, y, z) === false) return { visitadas, truncada: false, volumePedido };
+      }
+    }
+  }
+  return { visitadas, truncada: false, volumePedido };
+}
+
+/** Percorre as células de um telhado inclinado (item 1616). */
+export function percorrerTelhado(
+  x1: number, y1: number, z1: number,
+  x2: number, y2: number, z2: number,
+  visitar: (x: number, y: number, z: number) => boolean | void,
+): ResultadoDaCaixa {
+  const l = limitesDaCaixa(x1, y1, z1, x2, y2, z2);
+  const volumePedido = volumeDaCaixa(l);
+
+  if (volumePedido > MAX_CELULAS_DA_CAIXA) return { visitadas: 0, truncada: true, volumePedido };
+
+  let visitadas = 0;
+  const widthX = l.maxX - l.minX + 1;
+  const widthZ = l.maxZ - l.minZ + 1;
+  const halfWidth = Math.floor(Math.min(widthX, widthZ) / 2);
+
+  for (let y = l.minY; y <= l.maxY; y++) {
+    const layer = y - l.minY;
+    if (layer > halfWidth) break;
+    const minX = l.minX + layer, maxX = l.maxX - layer;
+    const minZ = l.minZ + layer, maxZ = l.maxZ - layer;
+    if (minX > maxX || minZ > maxZ) break;
+
+    for (let x = minX; x <= maxX; x++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        visitadas++;
+        if (visitar(x, y, z) === false) return { visitadas, truncada: false, volumePedido };
+      }
+    }
+  }
+  return { visitadas, truncada: false, volumePedido };
+}
+

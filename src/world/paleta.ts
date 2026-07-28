@@ -289,3 +289,37 @@ function escreverBits(d: Uint8Array, i: number, bits: number, valor: number): vo
   d[byte] = bruto & 0xff;
   if (byte + 1 < d.length) d[byte + 1] = (bruto >> 8) & 0xff;
 }
+
+/**
+ * Compressão RLE (Run-Length Encoding) para salvamento compacto de voxels e chunks — itens 034, 279.
+ */
+export function compressRLE(data: Uint8Array): Uint8Array {
+  if (data.length === 0) return new Uint8Array(0);
+  const out: number[] = [];
+  let i = 0;
+  while (i < data.length) {
+    const val = data[i];
+    let count = 1;
+    while (i + count < data.length && data[i + count] === val && count < 255) {
+      count++;
+    }
+    out.push(count, val);
+    i += count;
+  }
+  return new Uint8Array(out);
+}
+
+/**
+ * Descompressão RLE revertendo pares [contagem, valor] ao array de voxels original — itens 034, 279.
+ */
+export function decompressRLE(compressed: Uint8Array): Uint8Array {
+  const out: number[] = [];
+  for (let i = 0; i < compressed.length; i += 2) {
+    const count = compressed[i];
+    const val = compressed[i + 1];
+    for (let c = 0; c < count; c++) {
+      out.push(val);
+    }
+  }
+  return new Uint8Array(out);
+}

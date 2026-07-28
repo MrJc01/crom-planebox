@@ -195,7 +195,7 @@ describe('serializar / parse — o ciclo de edição', () => {
   it('o cabeçalho explica a sintaxe a quem for editar', () => {
     const t = serializar(ESQUEMA, {});
     expect(t).toContain('$GLOBAL');
-    expect(CABECALHO_PADRAO.toLowerCase()).toContain('não são exportados');
+    expect(CABECALHO_PADRAO.toLowerCase()).toContain('literais salvos diretamente');
   });
 
   it('valor com `=` dentro sobrevive — tokens têm sinal de igual', () => {

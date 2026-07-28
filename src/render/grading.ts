@@ -40,6 +40,21 @@ export const NEUTRA: Gradacao = {
 };
 
 export type PredefinicaoId = 'natural' | 'cinema' | 'vivido' | 'nenhuma';
+export type ModoDaltonismo = 'nenhum' | 'protanopia' | 'deuteranopia' | 'tritanopia';
+
+/** Ajustes de cor para modo daltonismo (Acessibilidade) — item 436. */
+export function aplicarModoDaltonismo(base: Gradacao, modo: ModoDaltonismo): Gradacao {
+  if (modo === 'nenhum') return base;
+  const out = { ...base, sombra: [...base.sombra] as [number, number, number], luz: [...base.luz] as [number, number, number] };
+  if (modo === 'protanopia') {
+    out.luz = [base.luz[0] * 0.56, base.luz[1] * 0.44 + 0.55, base.luz[2]];
+  } else if (modo === 'deuteranopia') {
+    out.luz = [base.luz[0] * 0.62, base.luz[1] * 0.38 + 0.45, base.luz[2]];
+  } else if (modo === 'tritanopia') {
+    out.sombra = [base.sombra[0], base.sombra[1] * 0.7, base.sombra[2] * 0.3 + 0.7];
+  }
+  return out;
+}
 
 /**
  * Predefinições selecionáveis nas opções.

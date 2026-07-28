@@ -200,6 +200,17 @@ export class CameraManager {
     this.onRenderDistanceChanged(distanceInChunks);
   }
 
+  public headBobbingEnabled = true;
+
+  /** Distância de render adaptativa ao FPS medido (item 975 P1). */
+  public adjustRenderDistanceForFps(currentFps: number): void {
+    if (currentFps < 30 && this.renderDistance > 4) {
+      this.setRenderDistance(Math.max(4, this.renderDistance - 1));
+    } else if (currentFps > 58 && this.renderDistance < 12) {
+      this.setRenderDistance(Math.min(12, this.renderDistance + 1));
+    }
+  }
+
   public getActiveCameraPosition(): THREE.Vector3 {
     return this.activeCamera.position;
   }

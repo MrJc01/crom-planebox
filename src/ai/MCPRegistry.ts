@@ -742,5 +742,20 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
         required: ['code']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_mod_script',
+      description: 'Testa um script de mod em ambiente isolado (sandbox) sem salvar ou alterar o pacote do mod permanentemente (item 825 P1). Retorna o resultado ou erros da simulação.',
+      parameters: {
+        type: 'object',
+        properties: {
+          script: { type: 'string', description: 'Código do script a ser testado na sandbox.' },
+          sandbox_mode: { type: 'boolean', description: 'Se true, simula sem modificar o terreno real (padrão: true).' }
+        },
+        required: ['script']
+      }
+    }
   }
 ];

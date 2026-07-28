@@ -67,11 +67,61 @@ export class PeerSync {
     return this.peers.size;
   }
 
-  public async hostRoom(worldName: string): Promise<string | null> {
+  public explicitOffline = false;
+
+  private mutedPeers = new Set<string>();
+  private peerVolumes = new Map<string, number>();
+  private speakingPeers = new Set<string>();
+
+  /** Silencia um jogador específico — item 934 P1. */
+  public mutePeer(peerId: string, mute: boolean): void {
+    if (mute) this.mutedPeers.add(peerId);
+    else this.mutedPeers.delete(peerId);
+  }
+
+  public isPeerMuted(peerId: string): boolean {
+    return this.mutedPeers.has(peerId);
+  }
+
+  /** Ajusta volume específico de um jogador (0.0 a 2.0) — item 934 P1. */
+  public setPeerVolume(peerId: string, volume: number): void {
+    const vol = Math.max(0, Math.min(2, volume));
+    this.peerVolumes.set(peerId, vol);
+  }
+
+  public getPeerVolume(peerId: string): number {
+    return this.peerVolumes.get(peerId) ?? 1.0;
+  }
+
+  /** Registra/consulta se um participante está falando — item 935 P1. */
+  public setPeerSpeaking(peerId: string, speaking: boolean): void {
+    if (speaking) this.speakingPeers.add(peerId);
+    else this.speakingPeers.delete(peerId);
+  }
+
+  public isPeerSpeaking(peerId: string): boolean {
+    return this.speakingPeers.has(peerId);
+  }
+
+  public getSpeakingPeers(): string[] {
+    return Array.from(this.speakingPeers);
+  }
+
+  /** Modo offline explícito, desabilitando toda a rede — item 612. */
+  public setExplicitOfflineMode(offline: boolean): void {
+    this.explicitOffline = offline;
+    if (offline) {
+      this.stop();
+    }
+  }
+
+  public async hostRoom(roomName: string, maxPlayers = 8, passKey?: string): Promise<string | null> {
+    if (this.explicitOffline) return null;
     if (!this.signaling.isConfigured()) return null;
     const connected = this.signaling.connected || (await this.signaling.connect());
     if (!connected) return null;
-    const roomId = await this.signaling.createRoom(worldName);
+
+    const roomId = await this.signaling.createRoom(roomName); // Mantido o signature original createRoom
     if (!roomId) return null;
     this.role = 'host';
     this.roomId = roomId;
@@ -79,6 +129,7 @@ export class PeerSync {
   }
 
   public async joinRoom(roomId: string): Promise<boolean> {
+    if (this.explicitOffline) return false;
     if (!this.signaling.isConfigured()) return false;
     const connected = this.signaling.connected || (await this.signaling.connect());
     if (!connected) return false;
@@ -409,4 +460,84 @@ export class PeerSync {
     }
     return false;
   }
+
+  /**
+   * Interpolação de posição de jogadores remotos — item 383 P1.
+   * Suaviza o movimento entre pacotes recebidos usando LERP.
+   */
+  interpolateRemotePlayer(
+    lastPos: { x: number; y: number; z: number },
+    targetPos: { x: number; y: number; z: number },
+    t: number,
+  ): { x: number; y: number; z: number } {
+    const clamp = Math.max(0, Math.min(1, t));
+    return {
+      x: lastPos.x + (targetPos.x - lastPos.x) * clamp,
+      y: lastPos.y + (targetPos.y - lastPos.y) * clamp,
+      z: lastPos.z + (targetPos.z - lastPos.z) * clamp,
+    };
+  }
+
+  /**
+   * Consulta de reconexão — item 384 P1.
+   * Retorna informações sobre a próxima tentativa de reconexão (backoff exponencial).
+   * Usa os contadores internos que já existem na classe.
+   */
+  queryReconnectInfo(): { willRetry: boolean; attempt: number; delayMs: number } {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      return { willRetry: false, attempt: this.reconnectAttempts, delayMs: 0 };
+    }
+    // Backoff exponencial: 1s, 2s, 4s, 8s
+    const nextAttempt = this.reconnectAttempts + 1;
+    const delayMs = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 16000);
+    return { willRetry: true, attempt: nextAttempt, delayMs };
+  }
+
+  resetReconnect(): void {
+    this.reconnectAttempts = 0;
+  }
+
+  /**
+   * Delta sync em vez de mundo inteiro ao reconectar — item 385 P1.
+   * Compara timestamps de chunks e retorna apenas os alterados.
+   */
+  computeDeltaSync(
+    localVersions: Map<string, number>,
+    remoteVersions: Map<string, number>,
+  ): { chunksToSend: string[]; chunksToRequest: string[] } {
+    const chunksToSend: string[] = [];
+    const chunksToRequest: string[] = [];
+
+    for (const [key, localV] of localVersions) {
+      const remoteV = remoteVersions.get(key) ?? 0;
+      if (localV > remoteV) chunksToSend.push(key);
+    }
+    for (const [key, remoteV] of remoteVersions) {
+      const localV = localVersions.get(key) ?? 0;
+      if (remoteV > localV) chunksToRequest.push(key);
+    }
+    return { chunksToSend, chunksToRequest };
+  }
+
+  /**
+   * Validação de permissão (OP) no host antes de aplicar edição do convidado — item 387 P1.
+   * Verifica se um peer tem permissão para executar uma ação.
+   */
+  validatePeerPermission(
+    peerId: string,
+    action: 'build' | 'destroy' | 'command' | 'op',
+    opList: Set<string>,
+  ): { allowed: boolean; reason: string } {
+    // O host sempre pode tudo
+    if (this.role === 'host') return { allowed: true, reason: 'host' };
+
+    // Ações que precisam de OP
+    const opRequired = new Set(['command', 'op']);
+    if (opRequired.has(action) && !opList.has(peerId)) {
+      return { allowed: false, reason: `Ação '${action}' requer OP.` };
+    }
+
+    return { allowed: true, reason: 'permitido' };
+  }
 }
+

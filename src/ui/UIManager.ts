@@ -37,6 +37,32 @@ export class UIManager {
   private lockElement: Element | null = null;
   private shouldRelock: () => boolean = () => false;
 
+  /** Guarda a última aba aberta por tela/modal — item 1155 P1. */
+  private lastActiveTabs = new Map<string, string>();
+
+  public saveActiveTab(screenId: string, tabId: string): void {
+    this.lastActiveTabs.set(screenId, tabId);
+  }
+
+  public getLastActiveTab(screenId: string): string | undefined {
+    return this.lastActiveTabs.get(screenId);
+  }
+
+  /**
+   * Animação de entrada e saída das telas, respeitando `prefers-reduced-motion` — item 1153 P1.
+   */
+  public animateScreenTransition(element: HTMLElement, entering: boolean): void {
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      element.style.opacity = entering ? '1' : '0';
+      element.style.transform = 'none';
+      return;
+    }
+    element.style.transition = 'opacity 150ms ease-out, transform 150ms ease-out';
+    element.style.opacity = entering ? '1' : '0';
+    element.style.transform = entering ? 'scale(1)' : 'scale(0.96)';
+  }
+
   /** Elemento do canvas que recebe pointer lock, e uma função que diz se o modo atual usa pointer lock. */
   public configureLock(lockElement: Element, shouldRelock: () => boolean): void {
     this.lockElement = lockElement;

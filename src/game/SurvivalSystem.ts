@@ -87,10 +87,21 @@ export class SurvivalSystem {
     this.onChanged();
   }
 
+  public armorPoints = 0;
+  public currentBiomeTemperature?: number;
+  public isSheltered = false;
+
   public applyDamage(amount: number, cause: string): void {
     if (!this.alive || amount <= 0) return;
-    this.health = Math.max(0, this.health - amount);
-    this.onDamage(amount, cause);
+
+    let finalDamage = amount;
+    if (this.armorPoints > 0 && cause !== 'fome' && cause !== 'afogamento') {
+      const reduction = Math.min(0.8, this.armorPoints * 0.04);
+      finalDamage = Math.max(1, amount * (1 - reduction));
+    }
+
+    this.health = Math.max(0, this.health - finalDamage);
+    this.onDamage(finalDamage, cause);
     this.onChanged();
     if (this.health <= 0) {
       this.alive = false;
@@ -141,13 +152,28 @@ export class SurvivalSystem {
       }
     }
 
-    // Fome decai com o tempo; sem fome, a vida decai; com fome > 50%, a vida regenera aos poucos.
-    this.hunger = Math.max(0, this.hunger - HUNGER_DECAY_PER_SEC * dt);
+    // Fome decai com o tempo (correr acelera o consumo 2.5x) — item 226.
+    const hungerMult = (this.player as any).isSprinting ? 2.5 : 1.0;
+    this.hunger = Math.max(0, this.hunger - HUNGER_DECAY_PER_SEC * dt * hungerMult);
     if (this.hunger <= 0) {
       this.applyDamage(STARVE_DAMAGE_PER_SEC * dt, 'fome');
     } else if (this.hunger > 50 && this.health < this.maxHealth) {
       this.health = Math.min(this.maxHealth, this.health + REGEN_PER_SEC * dt);
       this.onChanged();
+    }
+
+    // Temperatura por bioma e exposição ao clima — item 128.
+    if (this.currentBiomeTemperature !== undefined && !this.isSheltered) {
+      if (this.currentBiomeTemperature < 0.1 && this.armorPoints < 4) {
+        this.applyDamage(1.5 * dt, 'congelamento');
+      } else if (this.currentBiomeTemperature > 0.95 && this.armorPoints < 2) {
+        this.applyDamage(1.0 * dt, 'calor');
+      }
+    }
+
+    // Morte ao cair no vão inferior (void/abismo) — item 1651
+    if (this.player?.pos?.y !== undefined && this.player.pos.y < -20) {
+      this.applyDamage(1000, 'abismo');
     }
   }
 

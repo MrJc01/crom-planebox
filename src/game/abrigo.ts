@@ -46,6 +46,14 @@ export interface LeitorDeBlocos {
  */
 export const ORCAMENTO_DE_BUSCA = 1200;
 
+/** Verifica se um abrigo é uma casa válida para mudança de NPCs — item 501. */
+export function checkNPCHousingQualification(validShelter: boolean): { canMoveIn: boolean; reason: string } {
+  if (validShelter) {
+    return { canMoveIn: true, reason: 'Abrigo seguro e fechado. Um NPC pode se mudar para cá.' };
+  }
+  return { canMoveIn: false, reason: 'A estrutura precisa estar fechada e segura para abrigar um morador.' };
+}
+
 /** Bloco que barra passagem. Decoração (capim, flor, tocha) não fecha nada. */
 function barra(tipo: number): boolean {
   const def = BLOCKS[tipo];

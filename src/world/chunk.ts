@@ -1,5 +1,13 @@
 // Chunk de coluna inteira: 32 × 256 × 32 mini-voxels em um Uint8Array.
 // Escala estilo Lay of the Land: 3 mini-voxels por metro (SCALE).
+import {
+  Secao,
+  secaoHomogenea,
+  lerSecao,
+  escreverSecao,
+  empacotarDePlano,
+  escreverPlanoEm,
+} from './paleta';
 
 export const CX = 32;
 
@@ -62,7 +70,7 @@ export function chunkKey(cx: number, cz: number): string {
 }
 
 export class Chunk {
-  data: Uint8Array;
+  secoes: Secao[];
   /**
    * Luz por voxel, `(sol << 4) | bloco`. Não entra no save: é derivada dos blocos e
    * recalculada ao carregar, então persistir só gastaria espaço e arriscaria ficar defasada.
@@ -80,15 +88,91 @@ export class Chunk {
     public cz: number,
     data?: Uint8Array,
   ) {
-    this.data = data ?? new Uint8Array(CHUNK_VOLUME);
     this.light = new Uint8Array(CHUNK_VOLUME);
+    this.secoes = new Array(512);
+    if (data) {
+      this.fromFlatArray(data);
+    } else {
+      for (let i = 0; i < 512; i++) {
+        this.secoes[i] = secaoHomogenea(0);
+      }
+    }
+  }
+
+  /** Compatibilidade para código legado que acessa `.data` como Uint8Array plano. */
+  get data(): Uint8Array {
+    return this.toFlatArray();
+  }
+
+  set data(flat: Uint8Array) {
+    this.fromFlatArray(flat);
   }
 
   get(x: number, y: number, z: number): number {
-    return this.data[x + CX * (z + CZ * y)];
+    const sx = x >> 3, sy = y >> 3, sz = z >> 3;
+    const secIdx = sx + 4 * (sz + 4 * sy);
+    const lx = x & 7, ly = y & 7, lz = z & 7;
+    const localIdx = lx + 8 * (lz + 8 * ly);
+    return lerSecao(this.secoes[secIdx], localIdx);
   }
 
   set(x: number, y: number, z: number, t: number): void {
-    this.data[x + CX * (z + CZ * y)] = t;
+    const sx = x >> 3, sy = y >> 3, sz = z >> 3;
+    const secIdx = sx + 4 * (sz + 4 * sy);
+    const lx = x & 7, ly = y & 7, lz = z & 7;
+    const localIdx = lx + 8 * (lz + 8 * ly);
+    this.secoes[secIdx] = escreverSecao(this.secoes[secIdx], localIdx, t);
+  }
+
+  toFlatArray(out?: Uint8Array): Uint8Array {
+    const res = out ?? new Uint8Array(CHUNK_VOLUME);
+    for (let sy = 0; sy < 32; sy++) {
+      for (let sz = 0; sz < 4; sz++) {
+        for (let sx = 0; sx < 4; sx++) {
+          const secIdx = sx + 4 * (sz + 4 * sy);
+          const base = 8 * sx + 256 * sz + 8192 * sy;
+          escreverPlanoEm(this.secoes[secIdx], res, base, 32, 1024);
+        }
+      }
+    }
+    return res;
+  }
+
+  fromFlatArray(fonte: Uint8Array): void {
+    for (let sy = 0; sy < 32; sy++) {
+      for (let sz = 0; sz < 4; sz++) {
+        for (let sx = 0; sx < 4; sx++) {
+          const secIdx = sx + 4 * (sz + 4 * sy);
+          const base = 8 * sx + 256 * sz + 8192 * sy;
+          this.secoes[secIdx] = empacotarDePlano(fonte, base, 32, 1024);
+        }
+      }
+    }
   }
 }
+
+/**
+ * Paletização de chunk — item 033 P1.
+ * Converte um array de blocos para uma tabela de paleta + índices locais,
+ * reduzindo memória quando poucos tipos distintos são usados.
+ */
+export function paletizeChunk(
+  blocks: Uint8Array,
+): { palette: number[]; indices: Uint8Array } {
+  const paletteMap = new Map<number, number>();
+  const palette: number[] = [];
+  const indices = new Uint8Array(blocks.length);
+
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    let idx = paletteMap.get(b);
+    if (idx === undefined) {
+      idx = palette.length;
+      palette.push(b);
+      paletteMap.set(b, idx);
+    }
+    indices[i] = idx;
+  }
+  return { palette, indices };
+}
+

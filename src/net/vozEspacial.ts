@@ -39,6 +39,20 @@ import { distanceGain, stereoPan } from '../audio/synth';
 export const ALCANCE_DA_VOZ = 96;
 
 /**
+ * Detector de silêncio para economizar transmissão quando ninguém fala — item 939 P1.
+ * Devolve true se o valor RMS do buffer de áudio estiver abaixo do limiar.
+ */
+export function detectVoiceSilence(samples: Float32Array, threshold = 0.01): boolean {
+  if (!samples || samples.length === 0) return true;
+  let sumSquare = 0;
+  for (let i = 0; i < samples.length; i++) {
+    sumSquare += samples[i] * samples[i];
+  }
+  const rms = Math.sqrt(sumSquare / samples.length);
+  return rms < threshold;
+}
+
+/**
  * Abaixo desta distância a voz sai em volume cheio e sem panorâmica.
  *
  * Sem essa zona morta, quem está ao lado do jogador tem a voz saltando de um lado para o outro a

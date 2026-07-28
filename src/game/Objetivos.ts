@@ -303,4 +303,14 @@ export class RastreadorDeObjetivos {
       if (typeof v === 'number' && v > 0) this.progresso.set(def.id, v);
     }
   }
+
+  /** Diário de bordo no mundo registrando marcos e conquistas alcançadas — item 012. */
+  getDiarioDeBordo(): { id: string; titulo: string; concluido: boolean; dica: string }[] {
+    return this.defs.map((d) => ({
+      id: d.id,
+      titulo: d.titulo,
+      concluido: this.concluido(d.id),
+      dica: d.dica,
+    }));
+  }
 }

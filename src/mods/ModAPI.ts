@@ -19,6 +19,11 @@ import { redigirSegredos } from './redacao';
 import { ModPackage } from './ModTypes';
 import { noiteEscura } from '../world/moon';
 import { percorrerCaixa } from '../world/caixa';
+import { CraftingSystem } from '../crafting/CraftingSystem';
+
+function isValidCoord(num: any): boolean {
+  return typeof num === 'number' && Number.isFinite(num) && !Number.isNaN(num);
+}
 
 export type ModEvent =
   | 'load'          // o mod acabou de ser carregado — payload: {}
@@ -245,14 +250,35 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
       getBlock: (x: number, y: number, z: number) => host.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)),
       setBlock,
       fillBox(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, ref: number | string, hollow = false): number {
-        // A geometria vem de `caixa.ts` — item 044. Este laço existia em três lugares com a
-        // condição de vazado escrita de duas formas diferentes, e nada garantia que continuassem
-        // equivalentes. Uma caixa acima do limite devolve 0, e o mod vê que nada foi colocado.
+        // Validação de coordenadas (Item 371) e volume limite (Item 372)
+        if (!isValidCoord(x1) || !isValidCoord(y1) || !isValidCoord(z1) ||
+            !isValidCoord(x2) || !isValidCoord(y2) || !isValidCoord(z2)) {
+          throw new Error('Coordenadas inválidas (NaN ou Infinito) passadas para fillBox.');
+        }
+        const volume = (Math.abs(x2 - x1) + 1) * (Math.abs(y2 - y1) + 1) * (Math.abs(z2 - z1) + 1);
+        if (volume > 65536) {
+          throw new Error(`Volume de fillBox (${volume} voxels) excede o limite máximo permitido de 65536.`);
+        }
         let n = 0;
         percorrerCaixa(x1, y1, z1, x2, y2, z2, hollow, (x, y, z) => {
           if (setBlock(x, y, z, ref)) n++;
         });
         return n;
+      },
+      queryRegion(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): { x: number; y: number; z: number; block: number }[] {
+        const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+        const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        const out: { x: number; y: number; z: number; block: number }[] = [];
+        for (let x = minX; x <= maxX; x++) {
+          for (let y = minY; y <= maxY; y++) {
+            for (let z = minZ; z <= maxZ; z++) {
+              const b = host.getBlock(x, y, z);
+              if (b > 0) out.push({ x, y, z, block: b });
+            }
+          }
+        }
+        return out;
       },
       getGroundY: (x: number, z: number) => host.getGroundY(Math.floor(x), Math.floor(z)),
       /** Bloco mais próximo do jogador, num raio. `null` se não achar. */
@@ -292,6 +318,10 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
 
     ui: {
       toast: (msg: string) => host.toast(String(msg).slice(0, 200)),
+    },
+
+    crafting: {
+      registerRecipe: (recipe: any) => CraftingSystem.registerCustomRecipe(recipe),
     },
 
     biomes: {

@@ -91,6 +91,37 @@ export function validateModPackage(pkg: ModPackage): string[] {
   return errors;
 }
 
+/** Detecta conflitos de chaves entre múltiplos mods carregados — item 307. */
+export function detectModKeyConflicts(mods: ModPackage[]): { modId1: string; modId2: string; conflictType: string; key: string }[] {
+  const conflicts: { modId1: string; modId2: string; conflictType: string; key: string }[] = [];
+  const seenBlockKeys = new Map<string, string>();
+  const seenModIds = new Map<string, string>();
+
+  for (const mod of mods) {
+    if (seenModIds.has(mod.id)) {
+      conflicts.push({ modId1: seenModIds.get(mod.id)!, modId2: mod.id, conflictType: 'mod_id', key: mod.id });
+    } else {
+      seenModIds.set(mod.id, mod.id);
+    }
+
+    for (const b of mod.blocks || []) {
+      const fullKey = `${mod.id}:${b.key}`;
+      if (seenBlockKeys.has(fullKey)) {
+        conflicts.push({
+          modId1: seenBlockKeys.get(fullKey)!,
+          modId2: mod.id,
+          conflictType: 'block_key',
+          key: fullKey,
+        });
+      } else {
+        seenBlockKeys.set(fullKey, mod.id);
+      }
+    }
+  }
+
+  return conflicts;
+}
+
 /** Todos os ids de bloco já comprometidos por um conjunto de mods (inclusive os desabilitados). */
 export function collectUsedBlockIds(mods: ModPackage[]): Set<number> {
   const used = new Set<number>();
@@ -385,3 +416,32 @@ export function summarizeMods(mods: ModPackage[]): any[] {
     structures: (m.structures || []).map((s) => ({ key: s.key, name: s.name, blocks: s.blocks?.length ?? 0 })),
   }));
 }
+
+/** read_mod para inspecionar outro mod sem poder alterá-lo — item 706 P1. */
+export function readModPackageReadOnly(modPackage: ModPackage): Readonly<ModPackage> {
+  return Object.freeze(JSON.parse(JSON.stringify(modPackage)));
+}
+
+/** Ferramenta de leitura do projeto (arquivos/estrutura) para o agente se situar — item 707 P1. */
+export function inspectProjectStructure(mods: ModPackage[]): {
+  totalMods: number;
+  modSummaries: { id: string; name: string; blocksCount: number; entitiesCount: number; structuresCount: number }[];
+  activeModIds: string[];
+} {
+  const modSummaries = mods.map(m => ({
+    id: m.id,
+    name: m.name,
+    blocksCount: m.blocks?.length || 0,
+    entitiesCount: m.entities?.length || 0,
+    structuresCount: m.structures?.length || 0,
+  }));
+
+  const activeModIds = mods.filter(m => m.enabled).map(m => m.id);
+
+  return {
+    totalMods: mods.length,
+    modSummaries,
+    activeModIds,
+  };
+}
+

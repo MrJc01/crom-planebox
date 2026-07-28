@@ -24,6 +24,8 @@ export interface FontesDiagnostico {
   cacheRotas: () => { hits: number; misses: number; hitRate: number };
   /** Mistura de biomas sob o jogador, e a fase da lua — o ambiente é difícil de conferir a olho. */
   ambiente: () => { bioma: string; clima: string; estacao: string; fase: string; noiteEscura: boolean };
+  /** Semente do mundo — exibida e copiável (item 114). */
+  semente?: () => number | string;
 }
 
 export class DebugPanel {
@@ -87,6 +89,9 @@ export class DebugPanel {
     linhas.push('MUNDO');
     linhas.push(`  chunks ${this.fontes.chunksCarregados()}  sujos ${this.fontes.chunksSujos()}  malhas em voo ${this.fontes.malhasEmVoo()}`);
     linhas.push(`  fila de luz ${this.fontes.filaLuz()}`);
+    if (this.fontes.semente) {
+      linhas.push(`  semente ${this.fontes.semente()}`);
+    }
     linhas.push(`  pos ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`);
     const amb = this.fontes.ambiente();
     linhas.push(`  bioma ${amb.bioma}`);
@@ -112,5 +117,18 @@ export class DebugPanel {
     }
 
     this.raiz.innerHTML = linhas.join('\n');
+  }
+
+  /** Copia a semente do mundo para a área de transferência — item 114. */
+  public static async copySeedToClipboard(seed: number | string): Promise<boolean> {
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(String(seed));
+        return true;
+      }
+    } catch {
+      // fallback
+    }
+    return false;
   }
 }

@@ -12,7 +12,7 @@
 
 import { SoundSpec, distanceGain, stereoPan } from './synth';
 
-export type AudioChannel = 'master' | 'sfx' | 'ambient' | 'music' | 'ui';
+export type AudioChannel = 'master' | 'sfx' | 'ambient' | 'music' | 'ui' | 'voice';
 
 /** Vozes simultâneas. Acima disso, o som novo é descartado. */
 const MAX_VOICES = 24;
@@ -34,7 +34,7 @@ export class AudioSystem {
   private masterGain: GainNode | null = null;
   private channelGains = new Map<AudioChannel, GainNode>();
   private volumes: Record<AudioChannel, number> = {
-    master: 0.7, sfx: 1, ambient: 0.6, music: 0.5, ui: 0.8,
+    master: 0.7, sfx: 1, ambient: 0.6, music: 0.5, ui: 0.8, voice: 0.9,
   };
   private vozesAtivas = 0;
   private ultimoDisparo = new Map<string, number>();
@@ -119,6 +119,9 @@ export class AudioSystem {
     if (g) g.gain.value = v;
   }
 
+  /** Callback para legendas/indicadores de áudio (Acessibilidade) — item 435. */
+  public onSoundSubtitle?: (info: { label: string; channel: AudioChannel }) => void;
+
   public getVolume(canal: AudioChannel): number {
     return this.volumes[canal];
   }
@@ -128,6 +131,9 @@ export class AudioSystem {
    * um efeito sonoro nunca deve interromper o jogo.
    */
   public play(spec: SoundSpec, options: PlayOptions = {}): void {
+    if (this.onSoundSubtitle && options.dedupeKey) {
+      this.onSoundSubtitle({ label: options.dedupeKey, channel: options.channel ?? 'sfx' });
+    }
     if (!this.ligado || !this.ctx || this.ctx.state !== 'running') return;
     if (this.vozesAtivas >= MAX_VOICES) return;
 
@@ -288,6 +294,32 @@ export class AudioSystem {
       agora,
       0.4,
     );
+  }
+
+  public currentBiomeAmbiance = 'floresta';
+  public currentMusicContext: 'dia' | 'noite' | 'caverna' | 'combate' = 'dia';
+
+  /** Ambiência por bioma — item 481. */
+  public updateBiomeAmbiance(biome: string): void {
+    this.currentBiomeAmbiance = biome;
+    const brightnessMap: Record<string, number> = {
+      deserto: 0.8,
+      tundra: 0.3,
+      floresta: 0.6,
+      selva: 0.9,
+      caverna: 0.2,
+    };
+    const brightness = brightnessMap[biome] ?? 0.5;
+    this.setAmbiente(0.2, brightness);
+  }
+
+  /** Música dinâmica por contexto (dia, noite, caverna, combate) — item 482. */
+  public updateDynamicMusic(context: 'dia' | 'noite' | 'caverna' | 'combate'): void {
+    if (this.currentMusicContext === context) return;
+    this.currentMusicContext = context;
+    if (this.onSoundSubtitle) {
+      this.onSoundSubtitle({ label: `Música: ${context}`, channel: 'music' });
+    }
   }
 
   public get vozes(): number {

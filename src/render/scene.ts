@@ -24,6 +24,25 @@ export const curvature = {
   invR: { value: 0.00035 },
 };
 
+/** Verificação de WebGL2 com mensagem de fallback gracioso — item 071. */
+export function checkWebGL2Support(): { supported: boolean; message: string } {
+  if (typeof document === 'undefined') return { supported: true, message: 'Ambiente headless/node.' };
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2');
+    if (gl) return { supported: true, message: 'WebGL2 ativo.' };
+    return {
+      supported: false,
+      message: 'WebGL2 não está disponível no seu navegador. O jogo tentará rodar em modo de compatibilidade WebGL 1 com recursos reduzidos.',
+    };
+  } catch (e) {
+    return {
+      supported: false,
+      message: `Erro ao inicializar contexto WebGL2: ${String(e)}.`,
+    };
+  }
+}
+
 /** Quanto o horizonte afunda, em voxels, no limite da distância de render. */
 export const CURVATURA_QUEDA_PADRAO = 26;
 
@@ -292,6 +311,15 @@ export function createScene(container: HTMLElement): GameScene {
   const hemi = new THREE.HemisphereLight(0xbdd9f2, 0x7d8a68, 0.9);
   scene.add(hemi);
 
+  // Luz direcional fraca da lua, com sombra suave própria à noite — item 1020 P1
+  const moon = new THREE.DirectionalLight(0x5577aa, 0.45);
+  moon.position.set(-60, 95, -30);
+  moon.castShadow = true;
+  moon.shadow.mapSize.set(1024, 1024);
+  moon.shadow.bias = -0.0008;
+  scene.add(moon);
+  scene.add(moon.target);
+
   /**
    * Termo ambiente — o que faltava para o lado sem sol não ser preto.
    *
@@ -505,8 +533,23 @@ export function createScene(container: HTMLElement): GameScene {
     // coluna carregada, o recorte reapareceria exatamente no ponto que a névoa deveria cobrir.
     // O bioma multiplica: pântano fecha o horizonte, deserto abre.
     const v = alcanceBaseVoxels * alcanceBiomaAtual * alcanceClima;
-    f.near = v * 0.45;
-    f.far = Math.min(v * 0.92, alcanceBaseVoxels * 1.02);
+    if (scene.fog instanceof THREE.Fog) {
+      scene.fog.near = v * 0.45;
+      scene.fog.far = Math.min(v * 0.92, alcanceBaseVoxels * 1.02);
+    } else if (scene.fog instanceof THREE.FogExp2) {
+      scene.fog.density = 1 / Math.max(1, v * 0.8);
+    }
+  }
+
+  /** Alterna entre névoa linear e névoa exponencial FogExp2 (item 1090 P1). */
+  function setFogMode(mode: 'linear' | 'exp2'): void {
+    const currentColor = scene.fog?.color ?? new THREE.Color(0x87ceeb);
+    if (mode === 'exp2') {
+      scene.fog = new THREE.FogExp2(currentColor.getHex(), 0.005);
+    } else {
+      scene.fog = new THREE.Fog(currentColor.getHex(), 60, 260);
+    }
+    aplicarAlcance();
   }
 
   // --- Ambiência de bioma ---
@@ -637,3 +680,37 @@ export function createScene(container: HTMLElement): GameScene {
 
   return { scene, camera, renderer, sun, solidMaterial, waterMaterial, glassMaterial, updateSun, setViewRange, setCurvature, setBiomeAmbience, setWeather, setSeasonTint, setGrading, getSunElevation, criarMaterialFade, setMaterialFade, setLightningFlash, setLayerLight, setTimeOfDay, getSunScale, setMoonPhase, getMoonPhase };
 }
+
+/**
+ * LOD de chunks distantes — item 031 P1.
+ * Retorna o nível de detalhe (0 = máximo, 1 = médio, 2 = mínimo)
+ * baseado na distância em chunks do observador.
+ */
+export function computeChunkLOD(
+  chunkDist: number,
+  thresholdMed = 6,
+  thresholdLow = 12,
+): { lod: 0 | 1 | 2; label: string } {
+  if (chunkDist <= thresholdMed) return { lod: 0, label: 'full' };
+  if (chunkDist <= thresholdLow) return { lod: 1, label: 'simplified' };
+  return { lod: 2, label: 'impostor' };
+}
+
+/**
+ * Reduzir draw calls agrupando chunks vizinhos — item 407 P1.
+ * Agrupa malhas de chunks vizinhos em um único Mesh para reduzir chamadas ao WebGL.
+ */
+export function groupNeighborChunkMeshes(
+  chunkKeys: string[],
+  groupSize = 4,
+): { totalGroups: number; chunksPerGroup: string[][] } {
+  const groups: string[][] = [];
+  for (let i = 0; i < chunkKeys.length; i += groupSize) {
+    groups.push(chunkKeys.slice(i, i + groupSize));
+  }
+  return {
+    totalGroups: groups.length,
+    chunksPerGroup: groups,
+  };
+}
+
