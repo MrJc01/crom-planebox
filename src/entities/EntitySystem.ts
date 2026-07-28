@@ -3,6 +3,8 @@ import { World } from '../world/world';
 import { B, isSolid } from '../world/blocks';
 import { CombatTimers, MOB_PROFILES, MobKind, MobProfile, knockbackFrom } from './Combat';
 import { PathNode, findPathCached } from './Pathfinding';
+import { deveSimular, distancia2 } from './simulacao';
+import { CARENCIA_APOS_COMBATE_S } from './despawn';
 
 export type EntityType = 'human' | 'orc' | 'goblin' | 'animal' | 'hero';
 
@@ -56,6 +58,14 @@ export interface EntityRecord {
    * relógio que zera, para que a pergunta "faz quanto tempo?" tenha uma resposta direta.
    */
   ultimoCombate?: number;
+  /**
+   * Estava sendo simulada no quadro anterior? — item 180.
+   *
+   * Guardado por entidade porque é o que dá histerese à fronteira: sem ele, quem está exatamente no
+   * limite alterna entre simulada e congelada a cada quadro, e o resultado é um andar aos
+   * solavancos visível no limite do campo de visão.
+   */
+  simulando?: boolean;
 }
 
 export class EntitySystem {
@@ -665,6 +675,21 @@ export class EntitySystem {
       // precisa dela: ele não decide o despawn, mas a marca chegada pelo `mob_sync` não pode
       // congelar em zero e segurar a criatura para sempre no lado dele.
       if (entity.ultimoCombate !== undefined) entity.ultimoCombate += dt;
+
+      // Congelamento por distância — item 180.
+      //
+      // Vem DEPOIS do envelhecimento da marca de combate, e isso não é ordem à toa: uma criatura
+      // congelada com a marca parada nunca deixaria a carência do despawn, e ficaria no mundo para
+      // sempre ocupando o teto de hostis. O relógio precisa correr mesmo para quem não pensa.
+      if (playerPos) {
+        const perto = deveSimular(
+          distancia2(entity.pos, playerPos),
+          entity.simulando ?? true,
+          (entity.ultimoCombate ?? Infinity) < CARENCIA_APOS_COMBATE_S,
+        );
+        entity.simulando = perto;
+        if (!perto) continue;
+      }
 
       // Hostis têm IA própria (perceber/perseguir/atacar) e colisão com o mundo; o vagar
       // aleatório abaixo continua valendo só para os NPCs decorativos.

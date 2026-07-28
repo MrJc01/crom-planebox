@@ -15,6 +15,7 @@ import { ModService } from '../mods/ModService';
 import { ModRuntime } from '../mods/ModRuntime';
 import { MOD_API_REFERENCE } from '../mods/ModAPIReference';
 import { resolveBlockRef } from '../mods/ModRegistry';
+import { percorrerCaixa, recusaDeCaixa } from '../world/caixa';
 
 /**
  * `modsForLookup` é preenchido pelo `MCPExecutors` ativo para que `parseBlockType` também
@@ -228,18 +229,13 @@ export class MCPExecutors {
         const isHollow = !!args.hollow;
         const mods: { x: number; y: number; z: number; blockType: number }[] = [];
 
-        for (let x = minX; x <= maxX; x++) {
-          for (let y = minY; y <= maxY; y++) {
-            for (let z = minZ; z <= maxZ; z++) {
-              if (isHollow) {
-                const isEdge = x === minX || x === maxX || y === minY || y === maxY || z === minZ || z === maxZ;
-                if (!isEdge) continue;
-              }
-              this.escreverBloco(x, y, z, type);
-              mods.push({ x, y, z, blockType: type });
-            }
-          }
-        }
+        // Geometria e limite vêm de `caixa.ts` — item 044. Antes não havia limite nenhum: uma caixa
+        // de 200 de lado são oito milhões de células, e a aba trava sem erro e sem fim.
+        const percurso = percorrerCaixa(minX, minY, minZ, maxX, maxY, maxZ, isHollow, (x, y, z) => {
+          this.escreverBloco(x, y, z, type);
+          mods.push({ x, y, z, blockType: type });
+        });
+        if (percurso.truncada) return { result: recusaDeCaixa(percurso.volumePedido) };
 
         await WorldRepository.saveBlockModBatch(this.currentWorldId, mods);
         this.onBlocksChanged(mods);
@@ -477,21 +473,9 @@ export class MCPExecutors {
 
         const fillBox = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, blockType: any, hollow: boolean = false) => {
           const type = typeof blockType === 'number' ? blockType : parseBlockType(String(blockType));
-          const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-          const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-          const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
-
-          for (let x = minX; x <= maxX; x++) {
-            for (let y = minY; y <= maxY; y++) {
-              for (let z = minZ; z <= maxZ; z++) {
-                if (hollow) {
-                  const isEdge = x === minX || x === maxX || y === minY || y === maxY || z === minZ || z === maxZ;
-                  if (!isEdge) continue;
-                }
-                setBlock(x, y, z, type);
-              }
-            }
-          }
+          // Mesma geometria e mesmo limite das outras duas — item 044. Um script de mod que pede
+          // uma caixa absurda simplesmente não coloca nada, em vez de travar a aba.
+          percorrerCaixa(x1, y1, z1, x2, y2, z2, hollow, (x, y, z) => setBlock(x, y, z, type));
         };
 
         const getBlock = (x: number, y: number, z: number) => {

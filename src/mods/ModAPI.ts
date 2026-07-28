@@ -18,6 +18,7 @@ import { B, BLOCKS } from '../world/blocks';
 import { redigirSegredos } from './redacao';
 import { ModPackage } from './ModTypes';
 import { noiteEscura } from '../world/moon';
+import { percorrerCaixa } from '../world/caixa';
 
 export type ModEvent =
   | 'load'          // o mod acabou de ser carregado — payload: {}
@@ -244,18 +245,13 @@ export function buildModAPI(ctx: ModContext, host: ModHostBridge, scriptKey: str
       getBlock: (x: number, y: number, z: number) => host.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)),
       setBlock,
       fillBox(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, ref: number | string, hollow = false): number {
-        const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-        const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-        const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        // A geometria vem de `caixa.ts` — item 044. Este laço existia em três lugares com a
+        // condição de vazado escrita de duas formas diferentes, e nada garantia que continuassem
+        // equivalentes. Uma caixa acima do limite devolve 0, e o mod vê que nada foi colocado.
         let n = 0;
-        for (let x = minX; x <= maxX; x++) {
-          for (let y = minY; y <= maxY; y++) {
-            for (let z = minZ; z <= maxZ; z++) {
-              if (hollow && x !== minX && x !== maxX && y !== minY && y !== maxY && z !== minZ && z !== maxZ) continue;
-              if (setBlock(x, y, z, ref)) n++;
-            }
-          }
-        }
+        percorrerCaixa(x1, y1, z1, x2, y2, z2, hollow, (x, y, z) => {
+          if (setBlock(x, y, z, ref)) n++;
+        });
         return n;
       },
       getGroundY: (x: number, z: number) => host.getGroundY(Math.floor(x), Math.floor(z)),

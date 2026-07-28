@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1494 itens)
+# Checklist Mestre — Painel de Especialistas (1502 itens)
 
-> **Estado em 27/07/2026** — 826 de 1494 itens tratados (55%), com **1376 testes** passando,
+> **Estado em 27/07/2026** — 833 de 1502 itens tratados (55%), com **1408 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 98 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 728 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 668 | Pendente. |
+> | `[~]` | 735 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 669 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -144,7 +144,7 @@ verticalidade limitada e ausência de LOD.*
 - [ ] 041 `P2` Regiões protegidas (claim) que bloqueiam edição por script ou por outro jogador
 - [ ] 042 `P3` Streaming infinito real em ambos os eixos horizontais sem perda de precisão
 - [ ] 043 `P3` Grafo de conectividade para colapso estrutural mais realista
-- [ ] 044 `P1` `World.fillBox` nativo (hoje o preenchimento é laço em `MCPExecutors`, duplicado 3×)
+- [~] 044 `P1` **`caixa.ts`**: a geometria num lugar só, com o limite de tamanho que faltava nas três
 - [ ] 045 `P1` Batch de re-mesh: agrupar N `setBlock` numa única invalidação por chunk
 - [ ] 046 `P2` Undo/redo com limite de memória configurável — base em `src/storage/UndoManager.ts`
 - [ ] 047 `P2` Snapshot/clone de região (copiar-colar estruturas grandes)
@@ -311,7 +311,7 @@ reload** e o pathfinding ignora obstáculos verticais.*
 - [~] 177 `P1` **Máquina de estados (ocioso, perseguir, atacar)**
 - [~] 178 `P1` **Percepção com raio de visão (`aggroRange`)**
 - [~] 179 `P1` **Limite de entidades hostis ativas (`MAX_HOSTILES`)**
-- [ ] 180 `P1` Congelar update de entidades fora do raio de render
+- [~] 180 `P1` **Congelamento por distância**, com histerese e sem soltar a marca de combate
 - [ ] 181 `P2` Rotinas diárias de NPC (dormir, trabalhar, socializar)
 - [ ] 182 `P2` Diálogo com NPC e árvore de conversa
 - [ ] 183 `P2` Comércio com NPC
@@ -5184,3 +5184,59 @@ nada reprovasse.
 - [ ] 1506 `P2` **A causa da morte aparece num toast** que some em segundos, e não numa tela de morte — quem estava olhando para outro canto perde a única explicação que o jogo dá
 - [ ] 1507 `P2` **A dica de morte repete toda vez** — na décima morte por fome ela já ensinou o que tinha para ensinar e vira barulho
 - [ ] 1508 `P3` **A barra de ar não pisca no fim** — as últimas bolhas somem no mesmo ritmo das primeiras, e o momento em que o dano vai começar não é destacado
+
+## 87. A caixa e o congelamento — itens 044 e 180
+
+### 044 — as três cópias, e o limite que faltava nas três
+
+O item dizia "duplicado 3×" e estava certo: `ModAPI.fillBox`, o caso `fill_box` do `MCPExecutors`, e
+de novo dentro de `execute_voxel_script`. As três fazem coisas diferentes com cada célula — contar,
+acumular lote para salvar, registrar o desfazer —, e é por isso que a duplicação sobreviveu tanto
+tempo: não dava para extrair "preencher uma caixa" sem escolher um dos três efeitos.
+
+O que dá para extrair é a **geometria**. E duas das três já tinham divergido na escrita: `ModAPI`
+usava `hollow && x !== minX && ...`, as outras `if (hollow) { const isEdge = ...; }`. Equivalentes
+hoje; nada garantia que continuassem.
+
+**Nenhuma das três perguntava o tamanho antes de começar.** Uma caixa de 200 de lado são oito
+milhões de células: a aba trava, sem erro e sem fim, e do lado de fora parece que o jogo morreu. É
+um pedido que a IA faz sozinha, por um dígito a mais, e o jogador não tem como cancelar. O corte é
+por número de células e não por aresta — uma caixa de 400×400×1 é tão cara quanto uma de 58³ e
+passaria por qualquer limite de lado.
+
+E a recusa é **total**, não "faz o que couber": uma caixa cortada pela metade deixa uma construção
+incompleta que parece defeito de geração, e quem pediu não sabe onde ela parou.
+
+O caso que quase escapou: numa laje de um bloco de altura, `minY === maxY`, então toda célula é
+casca. Sem isso, pedir um piso "oco" devolveria nada — um chão que não aparece, com o argumento
+`hollow` como única pista, três chamadas acima.
+
+### 180 — o custo que estava sempre ligado
+
+Tudo rodava para todo mundo, todo quadro, a qualquer distância. E o ramo dos NPCs decorativos faz
+uma varredura de chão que desce da cabeça da entidade **até o y zero**: até cento e trinta consultas
+por entidade por quadro, para mover um boneco que ninguém está vendo. Nada falha — o jogo só fica
+mais lento à medida que o mundo se povoa, proporcional a quantas criaturas existem e não a quantas
+importam.
+
+Congelar, e não simular devagar: um `dt` grande na colisão atravessa parede, e o A* com alvo velho
+manda a criatura para onde o jogador estava. Uma criatura parada a cem metros é indistinguível de
+uma andando a cem metros; uma criatura dentro da pedra não é.
+
+**A ordem com o item 1321 é o detalhe que importa.** O congelamento fica *depois* do envelhecimento
+da marca de combate. Antes dele, uma criatura congelada teria a marca parada, nunca deixaria a
+carência do despawn, e ficaria no mundo para sempre ocupando o teto de hostis — o congelamento
+reintroduziria por um caminho novo exatamente o defeito que o 1321 acabou de fechar. Há um teste
+comparando as posições no arquivo.
+
+- [~] 1509 `P1` **`caixa.ts`** com limites, casca, percurso e recusa
+- [~] 1510 `P1` **`MAX_CELULAS_DA_CAIXA`**, que não existia em nenhuma das três cópias
+- [~] 1511 `P1` **`simulacao.ts`** com histerese e isenção por combate
+- [~] 1512 `P2` **Raios cruzados com `aggroRange` e `DISTANCIA_DE_ESQUECIMENTO`** por teste — congelar depois do despawn faria o sistema rodar sem efeito
+- [~] 1513 `P1` **32 testes** entre os dois, com sete laços de fiação
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1514 `P2` **A entidade congelada continua desenhada e continua no `Map`** — o ganho é de CPU e não de memória nem de draw call; itens 031 e 032 continuam abertos
+- [ ] 1515 `P2` **O limite de caixa não vale para `set_block` em laço** — um script de mod que escreve um milhão de blocos um a um passa por fora do corte inteiro
+- [ ] 1516 `P3` **A varredura de chão do NPC ainda desce até y = 0** quando ele está perto — o congelamento reduziu quantas vezes ela roda, não o que ela custa
