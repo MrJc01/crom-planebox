@@ -4,6 +4,19 @@ import { Appearance } from '../player/Appearance';
 
 export type GameMode = 'classic' | 'survival' | 'ghost' | 'creative' | 'adventure';
 
+/**
+ * Conteúdo de um baú — item 137.
+ *
+ * `key` é a posição do bloco (`"x,y,z"`), e é o que amarra o registro ao mundo em vez de a um
+ * objeto: quando o bloco deixa de existir, quem o quebrou apaga esta linha, e não há nada para
+ * ficar órfão.
+ */
+export interface ChestRecord {
+  worldId: string;
+  key: string;
+  slots: ({ block: number; count: number } | null)[];
+}
+
 export interface WorldRecord {
   id: string;
   name: string;
@@ -268,6 +281,7 @@ export class VoxelDatabase extends Dexie {
   modSecrets!: Table<ModSecretRecord, string>;
   modConsents!: Table<ModConsentRecord, string>;
   modNetLog!: Table<ModNetLogRecord, number>;
+  chestContents!: Table<ChestRecord, [string, string]>;
 
   constructor() {
     super('CromPlaneboxDB');
@@ -316,6 +330,14 @@ export class VoxelDatabase extends Dexie {
     this.version(9).stores({
       modConsents: 'id, worldId, [worldId+modId]',
       modNetLog: '++id, worldId, [worldId+modId], quando'
+    });
+    // v10: conteúdo dos baús, indexado por mundo + posição do bloco — item 137.
+    //
+    // A chave composta é `[worldId+key]` e não um id próprio, e isso é o desenho inteiro: o baú não
+    // é uma entidade, é um bloco. Sem id não há registro órfão quando o bloco some por um caminho
+    // que não passa pela interface — explosão, `fill_box`, script de mod.
+    this.version(10).stores({
+      chestContents: '[worldId+key], worldId'
     });
   }
 }

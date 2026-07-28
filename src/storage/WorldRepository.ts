@@ -1,4 +1,4 @@
-import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord, ModRevisionRecord, ModConsentRecord, ModNetLogRecord } from './Database';
+import { db, WorldRecord, BlockModRecord, ChatMessageRecord, ChatThreadRecord, AppSettingsRecord, PlayerRecord, UICustomizationRecord, ModRecord, ModEntityInstanceRecord, ModRevisionRecord, ModConsentRecord, ModNetLogRecord, ChestRecord } from './Database';
 import { ModPackage, ModRevision } from '../mods/ModTypes';
 import { Appearance, sanitizeAppearance } from '../player/Appearance';
 
@@ -80,6 +80,36 @@ export class WorldRepository {
    * de ~650 mini-blocos (ex.: `stamp_structure` de um muro) levava mais de 1 minuto e parecia
    * travado. Agora faz 1 leitura em lote + no máximo 2 escritas em lote, independente de N.
    */
+  // --- Baús — item 137 -----------------------------------------------------------------------
+  //
+  // Indexados por mundo + posição do bloco. Não há id: o baú é um bloco, e um registro sem dono
+  // some junto com ele em vez de ficar órfão esperando que alguém repare.
+
+  /** Conteúdo de um baú, ou `null` se aquela posição nunca guardou nada. */
+  static async carregarBau(worldId: string, key: string): Promise<ChestRecord | null> {
+    return (await db.chestContents.get([worldId, key])) ?? null;
+  }
+
+  /**
+   * Grava o conteúdo. Um baú vazio é **apagado** em vez de gravado vazio.
+   *
+   * Sem isso, cada baú aberto por curiosidade deixaria uma linha para sempre, e a tabela cresceria
+   * com o número de baús que o jogador já olhou em vez de com os que ele usa.
+   */
+  static async salvarBau(worldId: string, key: string, slots: ({ block: number; count: number } | null)[]): Promise<void> {
+    const temAlgo = slots.some((p) => p && p.count > 0);
+    if (!temAlgo) {
+      await db.chestContents.delete([worldId, key]);
+      return;
+    }
+    await db.chestContents.put({ worldId, key, slots });
+  }
+
+  /** Apaga o registro. Chamado por quem quebra o bloco, depois de devolver o conteúdo. */
+  static async apagarBau(worldId: string, key: string): Promise<void> {
+    await db.chestContents.delete([worldId, key]);
+  }
+
   static async saveBlockModBatch(worldId: string, mods: { x: number; y: number; z: number; blockType: number }[], modId?: string): Promise<void> {
     if (mods.length === 0) return;
 

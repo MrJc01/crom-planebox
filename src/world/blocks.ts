@@ -45,6 +45,13 @@ export const enum B {
    * lago viraria uma laje branca. Ver o que dele é feito em `src/world/invernada.ts`.
    */
   ICE = 35,
+  /**
+   * Baú — item 137. O conteúdo mora em `chestContents`, indexado pela POSIÇÃO deste bloco.
+   *
+   * Não é opaco: a tampa é mais baixa que um cubo cheio e um baú encostado noutro precisa mostrar
+   * a divisão entre os dois.
+   */
+  CHEST = 36,
 }
 
 export interface BlockDef {
@@ -157,6 +164,12 @@ BLOCKS[B.ICE] = def('gelo', 0xbfe6f5, 0xa9dcf0, 0x93d2ea, {
   // Não dropa nada: recolher gelo daria uma fonte de água infinita que se colhe uma vez por ano, e
   // o item nasceria com uma economia inteira pendurada nele sem ninguém ter decidido isso.
   drops: -1,
+});
+BLOCKS[B.CHEST] = def('baú', 0x9a6b3f, 0x8a5c33, 0x6b4526, {
+  solid: true, opaque: false,
+  // Dropa a si mesmo: quebrar um baú devolve o baú E o conteúdo — quem quebra é que cuida do
+  // conteúdo, ver `bau.ts`. Sem o drop, mover um baú de lugar custaria a madeira de novo.
+  drops: B.CHEST,
 });
 BLOCKS[B.BED] = def('cama', 0xdc2626, 0xb45309, 0x78350f, {
   solid: false, opaque: false, decor: true, drops: B.BED, interactive: true,

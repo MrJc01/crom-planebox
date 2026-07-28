@@ -1,12 +1,12 @@
-# Checklist Mestre — Painel de Especialistas (1502 itens)
+# Checklist Mestre — Painel de Especialistas (1511 itens)
 
-> **Estado em 27/07/2026** — 833 de 1502 itens tratados (55%), com **1408 testes** passando,
+> **Estado em 27/07/2026** — 842 de 1511 itens tratados (56%), com **1441 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
-> | `[x]` | 98 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 735 | **Entregue** ao longo das rodadas, com teste. |
+> | `[x]` | 101 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
+> | `[~]` | 741 | **Entregue** ao longo das rodadas, com teste. |
 > | `[ ]` | 669 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
@@ -132,7 +132,7 @@ verticalidade limitada e ausência de LOD.*
 - [~] 029 `P0` **Mundo de 85 m, com o mar a 46** — e a medição mostrou que o item apontava para o lado errado: o teto nunca era tocado, o aperto era embaixo. Ver a seção 79
 - [~] 030 `P0` **`WORLD_MAX_Y` e `TOPO_VARREDURA` em `world/chunk.ts`** — e a extração revelou um teto silencioso de 8 voxels
 - [ ] 031 `P1` LOD de chunks distantes (mesh simplificado além de N chunks)
-- [ ] 032 `P1` Descarregar chunks fora do raio de render liberando memória de GPU
+- [x] 032 `P1` **Já existia** — `disposeChunkMesh` remove da cena, chama `geometry.dispose()` e o chunk sai do `Map`. Auditado
 - [ ] 033 `P1` Paletização de chunk (índices locais + tabela) para reduzir memória
 - [ ] 034 `P1` Compressão RLE de chunks salvos
 - [ ] 035 `P2` Chunks verticais (seções de 16³) em vez de coluna inteira
@@ -145,7 +145,7 @@ verticalidade limitada e ausência de LOD.*
 - [ ] 042 `P3` Streaming infinito real em ambos os eixos horizontais sem perda de precisão
 - [ ] 043 `P3` Grafo de conectividade para colapso estrutural mais realista
 - [~] 044 `P1` **`caixa.ts`**: a geometria num lugar só, com o limite de tamanho que faltava nas três
-- [ ] 045 `P1` Batch de re-mesh: agrupar N `setBlock` numa única invalidação por chunk
+- [x] 045 `P1` **Já existia** — `dirty` é uma flag por chunk, e o laço de quadro varre com orçamento. Auditado
 - [ ] 046 `P2` Undo/redo com limite de memória configurável — base em `src/storage/UndoManager.ts`
 - [ ] 047 `P2` Snapshot/clone de região (copiar-colar estruturas grandes)
 - [ ] 048 `P3` Determinismo verificável: hash do mundo gerado por semente em teste de regressão
@@ -259,7 +259,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [ ] 134 `P2` Criação de animais e reprodução
 - [ ] 135 `P2` Pesca
 - [ ] 136 `P2` Fornalha com combustível e tempo de queima
-- [ ] 137 `P1` Baús com inventário persistente por posição
+- [~] 137 `P1` **Baús**, indexados por posição — e o `grant` que perdia item em silêncio, corrigido
 - [ ] 138 `P2` Peso/limite de inventário opcional
 - [ ] 139 `P1` Sono passando a noite quando todos os jogadores dormem
 - [ ] 140 `P2` Sede como terceiro recurso (opcional por mundo)
@@ -5238,5 +5238,52 @@ comparando as posições no arquivo.
 ### Lacunas anotadas nesta rodada
 
 - [ ] 1514 `P2` **A entidade congelada continua desenhada e continua no `Map`** — o ganho é de CPU e não de memória nem de draw call; itens 031 e 032 continuam abertos
-- [ ] 1515 `P2` **O limite de caixa não vale para `set_block` em laço** — um script de mod que escreve um milhão de blocos um a um passa por fora do corte inteiro
+- [x] 1515 `P2` ~~O limite de caixa não vale para `set_block` em laço~~ **A nota estava errada** — o caminho da IA tem prazo de 4 s e o de mods tem `CHAMADAS_POR_QUADRO`. Auditado e descartado
 - [ ] 1516 `P3` **A varredura de chão do NPC ainda desce até y = 0** quando ele está perto — o congelamento reduziu quantas vezes ela roda, não o que ela custa
+
+## 88. Onde guardar as coisas — item 137
+
+Auditoria: **032** e **045** já estavam feitos. `disposeChunkMesh` remove da cena, descarta a
+geometria e tira o chunk do `Map`; e `dirty` sempre foi uma flag por chunk, com o laço de quadro
+varrendo por orçamento — N `setBlock` no mesmo chunk sempre colapsaram numa invalidação só.
+
+E a lacuna **1515** que eu mesmo anotei na rodada passada estava **errada**: o caminho da IA tem um
+prazo de 4 s e o de mods tem `CHAMADAS_POR_QUADRO`. Descartada com a justificativa.
+
+### O baú, e por que ele não é uma entidade
+
+Não havia armazenamento nenhum. Tudo o que o jogador tem cabe na hotbar, e o que não cabe é largado
+no chão — onde agora expira. O efeito em cascata é maior do que parece: sem onde guardar, minerar
+além do necessário não faz sentido, construir uma base não tem função além de dormir, e a progressão
+inteira fica presa ao que se carrega.
+
+O conteúdo é indexado pela **posição do bloco**, não por um id. Um baú não anda, não tem estado além
+do conteúdo, e some quando o bloco some. Sem id não há registro órfão quando o bloco desaparece por
+um caminho que não passa pela interface — `fill_box`, script de mod, explosão. O preço é que quebrar
+o bloco tem de devolver o conteúdo, e essa é a única regra que `bau.ts` não consegue impor sozinho.
+
+Um baú vazio é **apagado** do banco em vez de gravado vazio: sem isso, a tabela cresceria com o
+número de baús que o jogador já olhou por curiosidade, e não com os que ele usa.
+
+### O defeito antigo que o baú expôs
+
+`Interaction.grant` era `hotbar.find(s => s.block === t)` e, se não achasse, **não fazia nada**.
+Pegar do chão um bloco que não estava na barra perdia o item em silêncio: sem mensagem, sem som
+diferente, com a pilha sumindo ao ser tocada. Ele é chamado por `itemDropSystem.onCollect` — ou
+seja, isso acontecia na coleta de todo dia.
+
+Só apareceu porque o baú **precisa saber quanto coube**, para devolver a sobra. `guardarNaHotbar`
+agora abre slot vazio e devolve o número aceito; `grant` delega.
+
+- [~] 1517 `P1` **`bau.ts`** com empilhamento, sobra, esvaziamento e saneamento do que vem do banco
+- [~] 1518 `P1` **Bloco `CHEST`** e tabela `chestContents` na v10, com chave `[worldId+key]`
+- [~] 1519 `P1` **`BauModal`**, tela própria com clique-move-pilha e sem arrastar
+- [~] 1520 `P1` **`guardarNaHotbar`** — o `grant` que perdia item em silêncio
+- [~] 1521 `P1` **33 testes**, dez deles de fiação
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1522 `P1` **O baú não é sincronizado no P2P** — dois jogadores no mesmo baú escrevem por cima um do outro, e o conteúdo mora no banco local de cada um. Num mundo compartilhado o baú é do anfitrião e ninguém mais o vê
+- [ ] 1523 `P2` **Não há como fabricar um baú** — o bloco existe, dropa a si mesmo e não tem receita, então só chega ao jogador pelo inventário criativo
+- [ ] 1524 `P2` **A tela do baú não mostra a hotbar** — guardar é às cegas pelo [G], e o jogador não vê o que está prestes a guardar
+- [ ] 1525 `P3` **O baú não tem visual próprio** — é um cubo marrom não-opaco, e a tampa mais baixa que o comentário descreve não existe na malha

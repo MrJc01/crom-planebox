@@ -79,6 +79,8 @@ import { MixerDeVoz } from './net/MixerDeVoz';
 import { SilenciadosDeVoz, misturaDaVoz } from './net/vozEspacial';
 import { interpretarComandoDeSilencio } from './net/comandoDeSilencio';
 import { textoDaMorte } from './game/causaDaMorte';
+import { BauModal } from './ui/BauModal';
+import { PilhaDeBau, chaveDoBau, depositar, esvaziar, retirar, sanearBau } from './game/bau';
 import { CommandSystem, CommandContext, KnownPlayer } from './commands/CommandSystem';
 import { NetMessage } from './net/protocol';
 import { hashAppearance } from './net/codec';
@@ -181,6 +183,10 @@ async function bootstrap() {
     audio.play(SOUNDS.pegarItem, { channel: 'ui', dedupeKey: 'pegarItem' });
   };
   inter.onItemDrop = (blockType, count, x, y, z) => itemDropSystem.spawn(blockType, count, x, y, z);
+
+  // Baús — item 137. O conteúdo mora no banco por posição; isto é só o que está aberto agora.
+  const bauModal = new BauModal();
+  let bauAberto: { key: string; slots: (PilhaDeBau | null)[] } | null = null;
 
   function findSpawn(): THREE.Vector3 {
     for (let r = 0; r < 64; r++) {
@@ -1313,6 +1319,12 @@ async function bootstrap() {
   };
 
   inter.onBlockChange = (x, y, z, blockType, blocoAnterior) => {
+    // Baú quebrado devolve o conteúdo — item 137. É a única regra que `bau.ts` não consegue impor
+    // sozinho: o conteúdo está amarrado à POSIÇÃO, e quando o bloco some não sobra ninguém para
+    // lembrar dele. Sem isto, quebrar um baú apaga tudo o que estava dentro, em silêncio.
+    if (blockType === 0 && blocoAnterior === B.CHEST) {
+      void devolverConteudoDoBau(x, y, z);
+    }
     relight(x, y, z);
     modRuntime.dispatch(blockType === 0 ? 'blockBroken' : 'blockPlaced', { x, y, z, block: blockType });
 
@@ -1411,7 +1423,94 @@ async function bootstrap() {
   // Cama: define onde renascer. Guardar a posição do jogador, e não a do bloco, evita renascer
   // dentro da própria cama — que é um bloco `decor` e não empurraria ninguém para fora, mas deixa a
   // câmera enfiada no colchão no instante em que ela mais precisa mostrar o que houve.
-  inter.onUseBlock = (blockType) => {
+  // --- Baús — item 137 -------------------------------------------------------------------------
+  //
+  // O conteúdo é indexado pela POSIÇÃO do bloco, e não por um id de objeto: um baú não é uma
+  // entidade, é um bloco. Sem id não há registro órfão quando o bloco some por um caminho que não
+  // passa por aqui — `fill_box`, script de mod, um mundo recarregado.
+
+  async function abrirBau(x: number, y: number, z: number): Promise<void> {
+    if (!currentWorld.id) return;
+    const key = chaveDoBau(x, y, z);
+    const gravado = await WorldRepository.carregarBau(currentWorld.id, key);
+    // `sanearBau` sempre, inclusive num baú novo: o caminho de dado inválido tem de ser o mesmo do
+    // caminho normal, senão ele é exercitado uma vez a cada mil sessões e apodrece.
+    bauAberto = { key, slots: sanearBau(gravado?.slots) };
+    audio.play(SOUNDS.uiAbrir, { channel: 'ui' });
+    bauModal.abrir(bauAberto.slots, `Baú (${Math.floor(x)}, ${Math.floor(y)}, ${Math.floor(z)})`);
+    uiManager.openBlocking('bau');
+  }
+
+  async function gravarBauAberto(): Promise<void> {
+    if (!bauAberto || !currentWorld.id) return;
+    await WorldRepository.salvarBau(currentWorld.id, bauAberto.key, bauAberto.slots);
+  }
+
+  async function devolverConteudoDoBau(x: number, y: number, z: number): Promise<void> {
+    if (!currentWorld.id) return;
+    const key = chaveDoBau(x, y, z);
+
+    // Se for o baú que está aberto, o estado da memória é o que vale — ele pode ter mudado sem ter
+    // sido gravado ainda. Quebrar o bloco com a tela aberta é raro e é exatamente o caso que
+    // perderia itens se lêssemos do banco.
+    const slots = bauAberto?.key === key
+      ? bauAberto.slots
+      : sanearBau((await WorldRepository.carregarBau(currentWorld.id, key))?.slots);
+
+    const fora = esvaziar(slots);
+    await WorldRepository.apagarBau(currentWorld.id, key);
+    if (bauAberto?.key === key) {
+      bauAberto = null;
+      bauModal.fechar();
+    }
+
+    for (const p of fora) {
+      itemDropSystem.spawn(p.block, p.count, x + 0.5, y + 0.6, z + 0.5);
+    }
+    if (fora.length > 0) hud.showToast(`O baú se abriu: ${fora.length} pilha(s) caíram no chão.`);
+  }
+
+  bauModal.onRetirar = (indice) => {
+    if (!bauAberto) return;
+    const p = retirar(bauAberto.slots, indice);
+    if (!p) return;
+    const guardou = inter.guardarNaHotbar(p.block, p.count);
+    if (guardou < p.count) {
+      // O que não coube volta para o baú. Largar no chão seria pior: o jogador clicou para PEGAR,
+      // e ver a pilha cair aos pés dele parece um erro do jogo, não um inventário cheio.
+      depositar(bauAberto.slots, p.block, p.count - guardou);
+      hud.showToast('Sua barra está cheia — parte voltou para o baú.');
+    }
+    bauModal.atualizar();
+    void gravarBauAberto();
+  };
+
+  bauModal.onGuardarSelecionado = () => {
+    if (!bauAberto) return;
+    const slot = inter.hotbar[inter.selected];
+    if (!slot || slot.block === B.AIR || slot.infinite || slot.count <= 0) return;
+    const r = depositar(bauAberto.slots, slot.block, slot.count);
+    if (r.guardados === 0) {
+      hud.showToast('O baú está cheio.');
+      return;
+    }
+    slot.count -= r.guardados;
+    if (slot.count <= 0) inter.hotbar[inter.selected] = { label: '', block: -1, count: 0 };
+    inter.onChanged();
+    bauModal.atualizar();
+    void gravarBauAberto();
+  };
+
+  bauModal.onFechar = () => {
+    void gravarBauAberto().then(() => { bauAberto = null; });
+    uiManager.closeBlocking('bau');
+  };
+
+  inter.onUseBlock = (blockType, bx, by, bz) => {
+    if (blockType === B.CHEST) {
+      void abrirBau(bx, by, bz);
+      return;
+    }
     if (blockType !== B.BED) return;
 
     // Definir o ponto acontece SEMPRE, e antes de qualquer recusa de dormir. É a metade da cama que
@@ -1726,6 +1825,7 @@ async function bootstrap() {
   uiManager.registrarAtalho('KeyT', 'chat', 'floating');
 
   uiManager.registerBlocking(inventoryModal);
+  uiManager.registerBlocking(bauModal);
   uiManager.registerBlocking(characterCreator);
   uiManager.registerBlocking(modsPage);
   uiManager.registerBlocking(codeEditor);
@@ -2015,6 +2115,14 @@ async function bootstrap() {
       // Atalhos de tela: um caminho só, pelo registro do `UIManager`. Cada `if` aqui era um dono
       // a mais do teclado, e donos independentes é como se chega a "apertei F6 e abriu o
       // inventário" — cada um só conhece a própria tela e nenhum fecha a do outro.
+      // [G] guarda o que está na mão, e só faz sentido com um baú aberto — item 137. Vem antes do
+      // registro de atalhos porque não abre nem fecha tela nenhuma: é uma ação dentro da que já
+      // está aberta, e o `UIManager` só sabe falar de telas.
+      if (e.code === 'KeyG' && bauModal.isOpen) {
+        e.preventDefault();
+        bauModal.onGuardarSelecionado();
+        return;
+      }
       if (uiManager.tratarAtalho(e.code)) {
         e.preventDefault();
         return;

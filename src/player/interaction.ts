@@ -135,9 +135,43 @@ export class Interaction {
     return null;
   }
 
+  /**
+   * Põe itens na barra e devolve **quantos couberam**.
+   *
+   * ## O buraco que isto fecha
+   *
+   * `grant` só somava num slot que já tivesse aquele bloco: `hotbar.find(s => s.block === t)`, e se
+   * não achasse, não fazia nada. Pegar do chão um bloco que não estava na barra **perdia o item em
+   * silêncio** — sem mensagem, sem som diferente, com a pilha simplesmente sumindo ao ser tocada.
+   * O caminho do baú tornou isso visível porque precisa saber quanto coube; o defeito já estava
+   * aqui, na coleta de todo dia.
+   *
+   * Um slot vazio é `block: -1`, como o que a penalidade de morte deixa para trás.
+   */
+  public guardarNaHotbar(blockType: number, n: number): number {
+    if (blockType === B.AIR || n <= 0) return 0;
+
+    const slot = this.hotbar.find((s) => s.block === blockType && !s.infinite);
+    if (slot) { slot.count += n; this.onChanged(); return n; }
+
+    const vazio = this.hotbar.find((s) => s.block === -1 || (s.block === B.AIR && !s.infinite && s.count <= 0));
+    if (vazio) {
+      vazio.block = blockType;
+      vazio.label = BLOCKS[blockType]?.name ?? `bloco ${blockType}`;
+      vazio.count = n;
+      delete vazio.toolTier;
+      delete vazio.durability;
+      delete vazio.maxDurability;
+      delete vazio.structureId;
+      this.onChanged();
+      return n;
+    }
+
+    return 0; // barra cheia: quem chamou decide o que fazer com a sobra
+  }
+
   public grant(blockType: number, n: number): void {
-    const slot = this.hotbar.find((s) => s.block === blockType);
-    if (slot) { slot.count += n; this.onChanged(); }
+    this.guardarNaHotbar(blockType, n);
   }
 
   /** Concede o drop respeitando o tier de ferramenta (Sobrevivência) e o efeito de item físico. */
@@ -369,7 +403,10 @@ export class Interaction {
     // clicar numa cama é uma ação sobre o bloco existente, não sobre o que está na hotbar. Sem esta
     // ordem, o jogador com a picareta selecionada — o estado normal de quem acabou de minerar —
     // clicaria na cama e nada aconteceria, sem nada explicando por quê.
-    if (hit.type === B.BED) {
+    // Blocos que respondem ao clique. A lista é explícita e não uma propriedade da paleta porque
+    // "usar" não é uma característica do bloco — é a existência de um tratador no `main` para ele,
+    // e uma flag em `BlockDef` prometeria comportamento a blocos de mod que ninguém trata.
+    if (hit.type === B.BED || hit.type === B.CHEST) {
       this.placeCooldown = 0.3;
       this.onUseBlock(hit.type, hit.x, hit.y, hit.z);
       return;
