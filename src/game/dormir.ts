@@ -19,8 +19,6 @@
 export interface EstadoParaDormir {
   ehNoite: boolean;
   abrigado: boolean;
-  /** Este cliente é a autoridade do relógio do mundo (anfitrião ou partida local). */
-  souORelogio: boolean;
   jaDormindo: boolean;
 }
 
@@ -43,10 +41,14 @@ export function porQueNaoPodeDormir(e: EstadoParaDormir): string | null {
   // recompensa por ter se preparado, em vez de a maneira de não precisar se preparar.
   if (!e.abrigado) return 'É perigoso dormir a céu aberto — feche um espaço primeiro.';
 
-  // O relógio do mundo é do anfitrião. Um convidado adiantando o próprio relógio veria um
-  // amanhecer que não aconteceu para mais ninguém, e a correção seguinte o puxaria de volta para a
-  // noite — o sol subiria e desceria na cara dele.
-  if (!e.souORelogio) return 'Só o anfitrião pode adiantar o relógio deste mundo.';
+  // Havia uma quarta recusa aqui: `souORelogio`, que proibia o convidado de dormir porque o
+  // relógio do mundo é do anfitrião. A razão era boa e a consequência não: num mundo compartilhado
+  // a noite deixava de ter saída — quem hospeda passa a noite sozinho e quem entrou fica acordado
+  // no escuro, sem nada que possa fazer e sem nada explicando por quê.
+  //
+  // Deitar virou um **pedido** (item 139): o convidado deita, o anfitrião conta, e o relógio só
+  // acelera quando todos estiverem deitados. O campo saiu junto com a regra em vez de ficar aqui
+  // sem leitor, que é como um parâmetro morto sobrevive a três refatorações.
 
   return null;
 }

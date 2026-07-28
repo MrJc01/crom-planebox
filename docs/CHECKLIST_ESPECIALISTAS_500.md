@@ -1,13 +1,13 @@
-# Checklist Mestre — Painel de Especialistas (1516 itens)
+# Checklist Mestre — Painel de Especialistas (1522 itens)
 
-> **Estado em 27/07/2026** — 849 de 1516 itens tratados (56%), com **1452 testes** passando,
+> **Estado em 27/07/2026** — 856 de 1522 itens tratados (56%), com **1475 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
 > |---|---|---|
 > | `[x]` | 101 | Já existia no repositório e foi **verificado no código**. Inclui itens que eu havia marcado como pendentes por erro de auditoria (053, 1077) e itens descartados com justificativa (1064, 1066). |
-> | `[~]` | 748 | **Entregue** ao longo das rodadas, com teste. |
-> | `[ ]` | 670 | Pendente. |
+> | `[~]` | 755 | **Entregue** ao longo das rodadas, com teste. |
+> | `[ ]` | 671 | Pendente. |
 >
 > **A seção 44 é a mais importante deste documento.** Ela registra o primeiro relato do jogador
 > vendo o jogo numa tela — e encontrou, em cinco frases, defeitos que os 696 testes não pegariam,
@@ -261,7 +261,7 @@ destruir essa coerência sem um guia de cor obrigatório.*
 - [ ] 136 `P2` Fornalha com combustível e tempo de queima
 - [~] 137 `P1` **Baús**, indexados por posição — e o `grant` que perdia item em silêncio, corrigido
 - [ ] 138 `P2` Peso/limite de inventário opcional
-- [ ] 139 `P1` Sono passando a noite quando todos os jogadores dormem
+- [~] 139 `P1` **A noite passa quando todos deitam** — e a recusa `souORelogio` saiu junto com a regra
 - [ ] 140 `P2` Sede como terceiro recurso (opcional por mundo)
 - [ ] 141 `P2` Dificuldade configurável afetando dano e spawn
 - [ ] 142 `P2` Modo hardcore com mundo apagado na morte
@@ -5330,5 +5330,58 @@ nova, e agora nenhuma delas pode nascer morta.
 ### Lacunas anotadas nesta rodada
 
 - [ ] 1531 `P2` **O convidado não sabe que o baú está vazio ou que ele nem existe** — se o bloco sumiu entre o clique e a resposta, a tela fica aberta e vazia sem explicação
-- [ ] 1532 `P2` **Quebrar um baú no convidado não devolve o conteúdo** — o `devolverConteudoDoBau` roda do lado errado, e quem quebra é quem tem o inventário; o anfitrião precisa tratar o `blockBroken` de baú
+- [~] 1532 `P2` **O anfitrião confere o baú quebrado** antes do `setBlock`, nos dois caminhos de rede
 - [ ] 1533 `P3` **Duas pessoas guardando ao mesmo tempo perdem a ordem** — o anfitrião aplica na ordem de chegada, o que é correto, mas nenhum dos dois vê o que aconteceu com o pedido do outro
+
+## 90. A noite compartilhada — itens 139 e 1532
+
+### 1532 — a ordem é a função inteira
+
+Quebrar um baú no convidado não devolvia nada: o `devolverConteudoDoBau` rodava do lado errado, lia
+o banco local (vazio), e deixava o conteúdo real órfão no banco do anfitrião. O item sumia duas
+vezes, de dois jeitos diferentes.
+
+O anfitrião agora confere no `block_update` e no `block_batch` — **antes** do `setBlock`. Depois
+dele o bloco já é ar e não há mais como saber que ali havia um baú.
+
+### 139 — a recusa boa com a consequência ruim
+
+`porQueNaoPodeDormir` recusava o convidado com `souORelogio`, e a razão era boa: o relógio do mundo
+é do anfitrião, e um convidado adiantando o próprio relógio veria um amanhecer que não aconteceu
+para mais ninguém. A consequência não era boa: num mundo compartilhado **a noite deixava de ter
+saída**. Quem hospeda dorme sozinho e passa a noite; quem entrou fica acordado no escuro, sem nada
+que possa fazer e sem nada explicando por quê.
+
+Deitar virou um pedido. O convidado deita, o anfitrião conta, e o relógio só acelera quando todos
+estiverem deitados.
+
+**Todos, e não a maioria.** Maioria significa ter a noite pulada contra a própria vontade — e quem
+estava minerando no fundo de uma caverna acabou de perder a noite inteira de trabalho seguro. Numa
+sessão de dois, que é o caso comum, "maioria" nem sequer quer dizer alguma coisa.
+
+O custo assumido é que uma pessoa distraída segura a noite dos outros, e por isso a função devolve
+**quem falta** e o aviso vai para todos. Sem o nome, o recurso vira uma espera silenciosa em que
+ninguém entende o que está acontecendo.
+
+**Quem sai deixa de contar.** É o modo de falha que trava a noite para sempre: alguém que
+desconecta *dormindo* ficaria no conjunto e o "todos dormiram" nunca mais seria verdade. Só acontece
+quando alguém sai enquanto dorme — raro o bastante para nunca aparecer num teste manual, e
+permanente quando acontece.
+
+### O campo morto saiu junto
+
+`souORelogio` deixou de ser lido. Removi do tipo em vez de deixá-lo lá: um parâmetro sem leitor
+sobrevive a três refatorações e depois confunde quem tenta entender a regra. Dois testes antigos
+apontavam para ele e para a forma antiga do `ritmo`; atualizei os dois mantendo o que garantem.
+
+- [~] 1534 `P1` **`sonoColetivo.ts`**, com `RegistroDeSono` separado da regra
+- [~] 1535 `P1` **`sleep_state`** no protocolo
+- [~] 1536 `P1` **`souORelogio` removido** do tipo, do `main` e dos testes
+- [~] 1537 `P1` **`conferirBauQuebrado`** antes do `setBlock`, nos dois caminhos
+- [~] 1538 `P1` **23 testes** entre os dois
+
+### Lacunas anotadas nesta rodada
+
+- [ ] 1539 `P2` **Não há como recusar o sono coletivo** — quem não quer dormir só pode não deitar, e não tem como dizer "podem ir, me deixem fora"; numa sessão grande isso trava a noite sem conversa
+- [ ] 1540 `P2` **O convidado deitado não vê o próprio contador** — a mensagem chega pelo chat, e quem está com a tela de sono aberta não a lê
+- [ ] 1541 `P3` **Deitar não tem carência** — deitar e levantar em sequência dispara um aviso a cada vez, para todo mundo

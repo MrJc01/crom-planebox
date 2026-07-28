@@ -309,7 +309,10 @@ describe('cama — o ponto de renascimento chega ao jogo (item 010)', () => {
     // `porQueNaoPodeDormir` e `RITMO_DORMINDO` são um módulo puro: sem estas duas linhas, ele
     // passaria nos 11 testes próprios e a cama continuaria só definindo o spawn.
     expect(/porQueNaoPodeDormir\(/.test(main), 'ninguém pergunta se pode').toBe(true);
-    expect(/if \(dormindo\) ritmo = RITMO_DORMINDO/.test(main), 'o relógio não acelera').toBe(true);
+    // A forma mudou com o item 139 — o relógio só acelera quando TODOS estão deitados —, mas a
+    // garantia é a mesma: `RITMO_DORMINDO` tem de chegar ao `ritmo` do laço de quadro.
+    expect(/ritmo = RITMO_DORMINDO/.test(main), 'o relógio não acelera').toBe(true);
+    expect(/todosDormem\) \{\s*\n\s*ritmo = RITMO_DORMINDO/.test(main), 'acelera sem conferir a sessão').toBe(true);
     expect(/deveAcordar\(/.test(main), 'ninguém acorda').toBe(true);
   });
 

@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { RITMO_DORMINDO, deveAcordar, porQueNaoPodeDormir, EstadoParaDormir } from '../../src/game/dormir';
 
 const podeDormir: EstadoParaDormir = {
-  ehNoite: true, abrigado: true, souORelogio: true, jaDormindo: false,
+  ehNoite: true, abrigado: true, jaDormindo: false,
 };
 
 describe('quando dá para dormir', () => {
@@ -33,9 +33,8 @@ describe('as quatro recusas', () => {
   });
 
   it('CRÍTICO: o convidado não adianta o relógio do mundo', () => {
-    // Ele veria um amanhecer que não aconteceu para mais ninguém, e a correção seguinte o puxaria
-    // de volta para a noite — o sol subiria e desceria na cara dele.
-    expect(porQueNaoPodeDormir({ ...podeDormir, souORelogio: false })).toMatch(/anfitri/i);
+    // Esta recusa deixou de existir com o item 139: o convidado deita, e é o anfitrião que acelera
+    // quando todos estiverem deitados. Ver `sonoColetivo.test.ts`.
   });
 
   it('dormir duas vezes seguidas não reinicia nada', () => {
@@ -48,13 +47,13 @@ describe('as quatro recusas', () => {
     const casos: EstadoParaDormir[] = [
       { ...podeDormir, ehNoite: false },
       { ...podeDormir, abrigado: false },
-      { ...podeDormir, souORelogio: false },
       { ...podeDormir, jaDormindo: true },
     ];
     const frases = casos.map((c) => porQueNaoPodeDormir(c)!);
     for (const f of frases) expect(f.length).toBeGreaterThan(15);
-    // ...e cada motivo diz uma coisa diferente: quatro recusas com a mesma frase seriam uma só.
-    expect(new Set(frases).size).toBe(4);
+    // ...e cada motivo diz uma coisa diferente: três recusas com a mesma frase seriam uma só.
+    // Eram quatro. `souORelogio` saiu com o item 139 — o convidado agora deita e o anfitrião conta.
+    expect(new Set(frases).size).toBe(3);
   });
 });
 

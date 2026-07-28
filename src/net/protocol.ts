@@ -187,6 +187,14 @@ export interface ChestMoveMsg {
   count?: number;
 }
 
+/**
+ * Alguém deitou ou levantou — item 139.
+ *
+ * O convidado avisa; o anfitrião conta e decide. Nenhum relógio corre no convidado: ele continua
+ * recebendo `world_time`, como sempre.
+ */
+export interface SleepStateMsg { type: 'sleep_state'; playerId: string; dormindo: boolean }
+
 export type NetMessage =
   | BlockUpdateMsg
   | BlockBatchMsg
@@ -205,4 +213,5 @@ export type NetMessage =
   | KickMsg
   | ChestOpenMsg
   | ChestStateMsg
-  | ChestMoveMsg;
+  | ChestMoveMsg
+  | SleepStateMsg;

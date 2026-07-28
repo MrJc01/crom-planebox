@@ -353,7 +353,7 @@ describe('o baú no mundo compartilhado — item 1522', () => {
     for (const t of ['chest_open', 'chest_state', 'chest_move']) {
       expect(protocolo).toMatch(new RegExp(`type: '${t}'`));
     }
-    expect(protocolo).toMatch(/\| ChestOpenMsg\n\s*\| ChestStateMsg\n\s*\| ChestMoveMsg;/);
+    expect(protocolo).toMatch(/\| ChestOpenMsg\n\s*\| ChestStateMsg\n\s*\| ChestMoveMsg\b/);
   });
 });
 
@@ -391,5 +391,30 @@ describe('a receita do baú — item 1523', () => {
         }
       }
     }
+  });
+});
+
+describe('quebrar um baú do lado certo — item 1532', () => {
+  const main = readFileSync('src/main.ts', 'utf8');
+
+  it('CRÍTICO: o convidado NÃO devolve conteúdo localmente', () => {
+    // Rodar ali leria o banco local (vazio), não devolveria nada, e ainda deixaria o conteúdo real
+    // órfão no banco do anfitrião — o item some duas vezes, de dois jeitos diferentes.
+    expect(main).toMatch(/blocoAnterior === B\.CHEST && peerSync\.role !== 'guest'/);
+  });
+
+  it('CRÍTICO: o anfitrião confere ANTES do `setBlock`', () => {
+    // Depois dele o bloco já é ar e não há mais como saber que ali havia um baú. A ordem é a
+    // função inteira.
+    const i = main.indexOf("case 'block_update':");
+    const trecho = main.slice(i, i + 260);
+    expect(trecho.indexOf('conferirBauQuebrado')).toBeLessThan(trecho.indexOf('world.setBlock'));
+  });
+
+  it('o lote também é conferido', () => {
+    // Um `fill_box` do convidado chega como `block_batch`, e um baú apagado por um lote some tão
+    // silenciosamente quanto um apagado por um clique.
+    const i = main.indexOf("case 'block_batch':");
+    expect(main.slice(i, i + 300)).toMatch(/conferirBauQuebrado\(b\.x, b\.y, b\.z, b\.blockType\)/);
   });
 });

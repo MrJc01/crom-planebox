@@ -69,6 +69,7 @@ import { EventoDeProgresso, RastreadorDeObjetivos } from './game/Objetivos';
 import { chaveDeCelula, mapearAbrigo } from './game/abrigo';
 import { aplicarPenalidade, penalidadeDoMundo } from './game/penalidadeDeMorte';
 import { RITMO_DORMINDO, deveAcordar, porQueNaoPodeDormir } from './game/dormir';
+import { RegistroDeSono, estadoDoSonoColetivo } from './game/sonoColetivo';
 import { SurvivalSystem } from './game/SurvivalSystem';
 import { ItemDropSystem } from './game/ItemDropSystem';
 import { SignalingClient } from './net/SignalingClient';
@@ -972,6 +973,12 @@ async function bootstrap() {
       // autoridade, dois jogadores no mesmo baú escrevem por cima um do outro e cada um vê um
       // conteúdo diferente do mesmo bloco. É a forma mais confusa possível de perder itens, porque
       // os dois juram que guardaram.
+      case 'sleep_state': {
+        if (peerSync.role !== 'host') break;
+        registroDeSono.marcar(msg.playerId, msg.dormindo);
+        avaliarSonoColetivo();
+        break;
+      }
       case 'chest_open': {
         if (peerSync.role !== 'host' || !currentWorld.id) break;
         void WorldRepository.carregarBau(currentWorld.id, msg.key).then((r) => {
@@ -1023,10 +1030,14 @@ async function bootstrap() {
         break;
       }
       case 'block_update':
+        conferirBauQuebrado(msg.x, msg.y, msg.z, msg.blockType);
         world.setBlock(msg.x, msg.y, msg.z, msg.blockType);
         break;
       case 'block_batch':
-        for (const b of msg.blocks) world.setBlock(b.x, b.y, b.z, b.blockType);
+        for (const b of msg.blocks) {
+          conferirBauQuebrado(b.x, b.y, b.z, b.blockType);
+          world.setBlock(b.x, b.y, b.z, b.blockType);
+        }
         break;
       case 'full_sync': {
         // Ordem obrigatória: registrar os mods primeiro, aplicar os blocos depois.
@@ -1078,6 +1089,11 @@ async function bootstrap() {
       case 'player_left':
         remotePlayers.delete(msg.playerId);
         avatars.remove(msg.playerId);
+        // Quem sai deixa de contar — item 139. Esquecer isto é o modo de falha que trava a noite
+        // para sempre: alguém que desconecta DORMINDO ficaria no conjunto, e o "todos dormiram"
+        // nunca mais aconteceria. Só acontece quando alguém sai enquanto dorme, que é raro o
+        // bastante para não aparecer em teste manual nenhum.
+        avaliarSonoColetivo();
         chatOverlay.receiveWorldChatMessage('', 'Um jogador saiu do mundo.', true);
         break;
       case 'player_state': {
@@ -1147,7 +1163,10 @@ async function bootstrap() {
   peerSync.onPeerDisconnected = (peerId) => {
     const p = remotePlayers.get(peerId);
     remotePlayers.delete(peerId);
-    if (peerSync.role === 'host' && p) peerSync.broadcast({ type: 'player_left', playerId: peerId });
+    if (peerSync.role === 'host' && p) {
+      peerSync.broadcast({ type: 'player_left', playerId: peerId });
+      avaliarSonoColetivo();
+    }
     // O elemento de áudio daquele par vira lixo preso ao DOM se ninguém o remover — e um
     // `srcObject` apontando para um stream morto segura o stream junto.
     mixerDeVoz?.desconectar(peerId);
@@ -1378,7 +1397,10 @@ async function bootstrap() {
     // Baú quebrado devolve o conteúdo — item 137. É a única regra que `bau.ts` não consegue impor
     // sozinho: o conteúdo está amarrado à POSIÇÃO, e quando o bloco some não sobra ninguém para
     // lembrar dele. Sem isto, quebrar um baú apaga tudo o que estava dentro, em silêncio.
-    if (blockType === 0 && blocoAnterior === B.CHEST) {
+    // No convidado, quem tem o conteúdo é o anfitrião — item 1532. Rodar aqui leria o banco local
+    // (vazio), não devolveria nada, e ainda deixaria o conteúdo real órfão do outro lado. O
+    // anfitrião detecta a quebra pelo `block_update` que já lhe chega.
+    if (blockType === 0 && blocoAnterior === B.CHEST && peerSync.role !== 'guest') {
       void devolverConteudoDoBau(x, y, z);
     }
     relight(x, y, z);
@@ -1484,6 +1506,21 @@ async function bootstrap() {
   // O conteúdo é indexado pela POSIÇÃO do bloco, e não por um id de objeto: um baú não é uma
   // entidade, é um bloco. Sem id não há registro órfão quando o bloco some por um caminho que não
   // passa por aqui — `fill_box`, script de mod, um mundo recarregado.
+
+  /**
+   * O anfitrião devolve o conteúdo de um baú que um CONVIDADO quebrou — item 1532.
+   *
+   * Chamado **antes** do `setBlock`, e essa ordem é a função inteira: depois dele o bloco já é ar e
+   * não há mais como saber que ali havia um baú. O convidado não pode fazer isso sozinho porque o
+   * conteúdo é do anfitrião, e sem este caminho quebrar um baú do outro lado apagava tudo o que
+   * estava dentro — em silêncio, com o registro ficando órfão no banco do anfitrião.
+   */
+  function conferirBauQuebrado(x: number, y: number, z: number, novoTipo: number): void {
+    if (peerSync.role !== 'host') return;
+    if (novoTipo !== 0) return;
+    if (world.getBlock(x, y, z) !== B.CHEST) return;
+    void devolverConteudoDoBau(x, y, z);
+  }
 
   async function abrirBau(x: number, y: number, z: number): Promise<void> {
     const key = chaveDoBau(x, y, z);
@@ -1608,7 +1645,6 @@ async function bootstrap() {
     const motivo = porQueNaoPodeDormir({
       ehNoite: fasesDoDia(horaAparente(timeOfDay, estacao.efeito.duracaoDoDia)) === 'noite',
       abrigado: abrigoAtual !== null,
-      souORelogio: peerSync.role !== 'guest',
       jaDormindo: dormindo,
     });
     if (motivo) {
@@ -1619,7 +1655,52 @@ async function bootstrap() {
     dormindo = true;
     horaAoDeitar = timeOfDay;
     hud.mostrarSono(true);
+    anunciarSono(true);
   };
+
+  /**
+   * Avisa a sessão que este jogador deitou ou levantou — item 139.
+   *
+   * O convidado manda ao anfitrião; o anfitrião marca a si mesmo e recalcula. Ninguém acelera
+   * relógio nenhum aqui: quem faz isso é o laço de quadro, e só no anfitrião.
+   */
+  function anunciarSono(estaDormindo: boolean): void {
+    if (peerSync.role === 'guest') {
+      peerSync.sendToHost({ type: 'sleep_state', playerId: localPlayerId, dormindo: estaDormindo });
+      return;
+    }
+    registroDeSono.marcar(localPlayerId, estaDormindo);
+    avaliarSonoColetivo();
+  }
+
+  /** Ids de todo mundo na sessão, incluindo este cliente. */
+  function presentesNaSessao(): string[] {
+    return [localPlayerId, ...remotePlayers.keys()];
+  }
+
+  /**
+   * Só o anfitrião. Conta quem está deitado e avisa a todos o que falta.
+   *
+   * A mensagem sai para **todos** e não só para quem deitou: quem está acordado precisa saber que
+   * os outros estão esperando por ele, senão o recurso vira uma espera silenciosa em que ninguém
+   * entende o que está acontecendo.
+   */
+  function avaliarSonoColetivo(): void {
+    if (peerSync.role === 'guest') return;
+    const presentes = presentesNaSessao();
+    registroDeSono.sairam(presentes);
+
+    const estado = estadoDoSonoColetivo({
+      presentes,
+      dormindo: registroDeSono.conjunto,
+      nomes: new Map([[localPlayerId, localPlayerName], ...Array.from(remotePlayers, ([id, p]) => [id, p.name] as [string, string])]),
+    });
+
+    if (estado.mensagem && presentes.length > 1) {
+      hud.showToast(estado.mensagem);
+      peerSync.broadcast({ type: 'chat_message', playerId: 'system', name: 'Sistema', text: estado.mensagem, timestamp: Date.now() });
+    }
+  }
 
   chatOverlay.getLocationContext = () => {
     const p = player.pos;
@@ -2257,6 +2338,8 @@ async function bootstrap() {
   let avisouDescoberto = false;
   /** O jogador está dormindo: o relógio do mundo corre acelerado até o amanhecer. */
   let dormindo = false;
+  /** Quem está deitado na sessão — item 139. Só o anfitrião mantém. */
+  const registroDeSono = new RegistroDeSono();
   /** Hora do mundo no momento de deitar, para cobrar do corpo o tempo que o mundo pulou. */
   let horaAoDeitar = 0;
   let netAccum = 0;
@@ -2357,7 +2440,16 @@ async function bootstrap() {
     }
     // Dormir corre o relógio em vez de saltá-lo. Um salto faria `sunScale` cruzar o limiar de uma
     // vez, com o mundo inteiro re-meshado num quadro e o sol pulando no céu.
-    if (dormindo) ritmo = RITMO_DORMINDO;
+    // Acelera só quando TODOS estão deitados — item 139. Maioria significaria ter a noite pulada
+    // contra a própria vontade, e quem estava minerando no fundo de uma caverna acabou de perder a
+    // noite inteira de trabalho seguro. Numa sessão de dois, "maioria" nem quer dizer nada.
+    if (dormindo && peerSync.role !== 'guest') {
+      const presentes = presentesNaSessao();
+      registroDeSono.sairam(presentes);
+      if (estadoDoSonoColetivo({ presentes, dormindo: registroDeSono.conjunto }).todosDormem) {
+        ritmo = RITMO_DORMINDO;
+      }
+    }
     timeOfDay = (timeOfDay + (dt * ritmo) / DAY_LENGTH) % 1;
 
     // O anfitrião é o relógio do mundo: sem isto, cada par contava o tempo desde que entrou, e
@@ -2404,6 +2496,7 @@ async function bootstrap() {
     if (dormindo && deveAcordar(faseAtual)) {
       dormindo = false;
       hud.mostrarSono(false);
+      anunciarSono(false);
 
       // O corpo atravessa o mesmo período que o mundo. Sem isto, uma noite inteira passava para o
       // mundo (uns seis minutos) e quatro segundos para o jogador — metade da barra de fome deixava
