@@ -1,6 +1,6 @@
-# Checklist Mestre — Painel de Especialistas (1620 itens)
+# Checklist Mestre — Painel de Especialistas (1629 itens)
 
-> **Estado em 28/07/2026** — 872 de 1620 itens tratados (54%), com **1527 testes** passando,
+> **Estado em 28/07/2026** — 875 de 1629 itens tratados (54%), com **1551 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
@@ -5451,6 +5451,9 @@ melhoria; `P3` é acabamento.
 - [~] 1550 `P0` **Os atalhos do navegador são tomados enquanto se joga** — e devolvidos fora dele. Era: — Ctrl+W fecha a aba no meio de uma partida, F5 recarrega, Ctrl+S abre "salvar página", Ctrl+D favorita, F3 abre a busca do Firefox. Nenhum deles é recuperável: o jogador perde o que estava fazendo sem nada avisar. Só o Tab foi tratado (item 1497), e por acaso — porque tirava o foco do canvas
 - [~] 1551 `P0` **A barra começa vazia, com a mão e nada mais.** Era: — a barra começa com 6.000 de terra, 9.000 de pedregulho, 6.000 de tábuas, 6.000 de tijolo, 2.400 de tronco, 3.000 de areia, 3.000 de pedra e 2.400 de folhas. Com isso, minerar não tem função, a fabricação não tem função, o baú não tem função e os objetivos de "quebre um tronco" já estão cumpridos antes do primeiro clique. **Deve começar vazio**, com a mão e nada mais
 - [ ] 1552 `P1` **Trocar a aparência não aparece para os outros** — a `Appearance` vai no `player_joined` e no `player_state`, mas trocar de skin com a sessão aberta não reemite nada: os outros continuam vendo o boneco antigo até reconectarem
+- [ ] 1632 `P1` **O item não tem atributos** — um slot da barra é `{label, block, count}` e mais nada. Só ferramenta tem `durability`, e mesmo essa é um par de campos soltos no mesmo tipo. Não há como um bloco ter vida, peso, raridade, encantamento ou qualquer coisa que um mod queira inventar. É o mesmo problema do item 1561 nas entidades: um campo novo por necessidade nova, no tipo de todo mundo
+- [ ] 1633 `P1` **Atributos de item por dado, não por campo** — um saco de valores nomeados, com o mesmo modelo dos itens 1561 e 1572, para que "vida do item" e "o que mais vier" não exijam tocar em `HotbarSlot`
+- [ ] 1634 `P2` **Item como entidade de dado própria** — hoje "item" só existe como slot da barra e como cubo caído. Sem um registro de item separado do bloco, atributo nenhum sobrevive a ser guardado num baú
 - [ ] 1553 `P2` **As ferramentas de desenvolvedor não têm porta** — com os atalhos do navegador desabilitados (item 1550), abrir o DevTools precisa de um caminho no jogo: um comando de chat e um item nas configurações
 
 ## 93. O chat, unificado
@@ -5601,10 +5604,10 @@ Os dois primeiros deixaram de ser "pré-requisito de uma mudança futura" e vira
 próprio: eles pagam onze vezes o que custam **hoje**, com `SCALE = 3`, e é essa economia que abre
 espaço para o resto.
 
-- [ ] 1579 `P0` **Paletização por seção com bits empacotados** (item 033) — **medido: 256 KB → 23 KB
+- [~] 1579 `P0` **`paleta.ts`: estrutura pronta e medida** — falta trocar o `Uint8Array` do `Chunk` por ela (item 1635). Era: (item 033) — **medido: 256 KB → 23 KB
   por chunk, onze vezes menos, sem perder um voxel.** A paleta mediana de uma seção de 8³ é **2**:
   quase todo pedaço do mundo é ar-e-mais-uma-coisa, e guardar isso em 8 bits desperdiça sete deles
-- [ ] 1580 `P0` **Seção de valor único guarda um valor** — 42,7% das seções de 8³ já são homogêneas
+- [~] 1580 `P0` **Seção de valor único guarda um valor** — 42,9% medidos num chunk real. Era: — 42,7% das seções de 8³ já são homogêneas
   no mundo de hoje, e a fração **sobe** quando o bloco fica menor, porque fronteira é superfície
 - [ ] 1581 `P1` **Compressão no save** (item 034) — o disco herda a mesma estrutura de graça
 - [ ] 1582 `P1` **Gerar grosso e refinar** — é o par do compressor e não é opcional: 729 amostras de
@@ -5844,3 +5847,62 @@ Não consigo assistir vídeo, e baixá-lo não mudaria isso. Consegui o título 
 Official Gameplay Trailer* — e pesquisei o jogo em texto; o que está registrado na seção 104 vem
 dessa pesquisa, não do vídeo. Se houver algo específico ali que não apareça na descrição do jogo,
 duas frases descrevendo valem mais do que qualquer coisa que eu consiga extrair sozinho.
+
+## 107. A paletização, medida e construída — itens 1579 e 1580
+
+Construí a estrutura antes de trocar o `Chunk`, e a ordem é deliberada: é uma mudança que atravessa
+o gerador, o mesher, o save e a rede, e fazer tudo de uma vez daria um defeito impossível de
+localizar. O módulo está pronto, medido e testado; a troca é o item 1635.
+
+### O que a medição diz
+
+| aresta | no mundo | seções mistas | bytes/chunk |
+|---|---|---|---|
+| 4³ | 1,33 m | 18,8% | 41 KB |
+| **8³** | **2,67 m** | **41,1%** | **23 KB** |
+| 16³ | 5,33 m | 57,3% | 37 KB |
+| 32³ | 10,67 m | 62,5% | 54 KB |
+
+**A curva tem um mínimo, e ele não está na ponta.** Seções grandes desperdiçam porque quase todas
+ficam mistas; seções pequenas desperdiçam porque o cabeçalho passa a pesar mais que os voxels. Oito
+é onde as duas se cruzam **neste** mundo — 16³ é o número de costume em outros jogos e aqui custa
+60% mais. Por isso a aresta está medida, e não herdada por analogia.
+
+### Onde este tipo de código erra
+
+A maior parte dos testes é sobre o empacotamento de bits, e por um motivo concreto: um índice pode
+cruzar a fronteira de dois bytes. A implementação ingênua — que lê um byte só — funciona para 1, 2,
+4 e 8 bits e **falha para 3, 5, 6 e 7**. Ou seja, passa em qualquer teste com paleta pequena e
+quebra no mundo real, com o chunk saindo embaralhado em vez de vazio, que é muito pior de
+diagnosticar.
+
+Há um teste por largura de paleta, incluindo as quatro que quebram, e uma ida e volta sobre um chunk
+gerado de verdade — porque "sem perder um voxel" é a promessa inteira, e uma compressão que erra
+0,01% dos blocos é pior que nenhuma.
+
+### Uma decisão que o teste trava
+
+`escreverSecao` **devolve** a seção em vez de mutá-la, porque quando a paleta cresce além do que os
+bits comportam tudo precisa ser reempacotado — e a seção passa a ser outro objeto. Um `void` aqui
+produziria escritas que somem, e só nas seções que por acaso ganharam um bloco novo.
+
+E escrever o mesmo valor numa seção homogênea **não a acorda**. Sem isso, um `setBlock` que não muda
+nada a converteria para o formato caro, e o mundo iria perdendo a compressão sozinho sem nenhum
+bloco ter mudado de fato.
+
+- [~] 1635 `P0` **`paleta.ts`** com seção homogênea, bits empacotados, crescimento de paleta e valor
+  dominante
+- [~] 1636 `P0` **24 testes**, incluindo as quatro larguras de bit que cruzam byte e a ida e volta
+  num chunk real
+- [~] 1637 `P1` **`valorDominante`** — a cor de longe do LOD (item 1627), de graça numa seção
+  homogênea
+
+### O que falta para o ganho chegar ao jogo
+
+- [ ] 1638 `P0` **Trocar o `Uint8Array` do `Chunk` pela estrutura** — é onde os 11× viram memória de
+  verdade. Atravessa `chunk.ts`, `worldgen.ts` (que escreve por índice plano), `mesher.ts` (que lê
+  por índice plano no `padded`), o save e o `full_sync`
+- [ ] 1639 `P1` **O `padded` do mesher continua plano** — ele monta um bloco com borda de 1 voxel, e
+  é a estrutura que o Worker recebe. Paletizá-lo também é o que reduz o tráfego entre threads
+- [ ] 1640 `P1` **Medir de novo depois de trocar** — 23 KB é o custo da estrutura, não o do jogo; o
+  número que importa é a memória do processo com o raio carregado
