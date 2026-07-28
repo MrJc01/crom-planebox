@@ -20,6 +20,8 @@ import {
   valorDominante,
   ARESTA_DA_SECAO,
   VOXELS_POR_SECAO,
+  empacotarDePlano,
+  escreverPlanoEm,
 } from '../../src/world/paleta';
 import { WorldGen } from '../../src/world/worldgen';
 import { CX, CY, CZ } from '../../src/world/chunk';
@@ -220,5 +222,76 @@ describe('a economia, medida num chunk de verdade', () => {
     expect(CX % ARESTA_DA_SECAO).toBe(0);
     expect(CY % ARESTA_DA_SECAO).toBe(0);
     expect(CZ % ARESTA_DA_SECAO).toBe(0);
+  });
+});
+
+describe('os caminhos em bloco — o que torna isto usável', () => {
+  const SX = CX / ARESTA_DA_SECAO, SY = CY / ARESTA_DA_SECAO, SZ = CZ / ARESTA_DA_SECAO;
+  const passoZ = CX, passoY = CX * CZ;
+  const baseDe = (sx: number, sy: number, sz: number) =>
+    sx * ARESTA_DA_SECAO + CX * (sz * ARESTA_DA_SECAO + CZ * (sy * ARESTA_DA_SECAO));
+
+  function empacotarChunk(d: Uint8Array) {
+    const out = [];
+    for (let sy = 0; sy < SY; sy++) for (let sz = 0; sz < SZ; sz++) for (let sx = 0; sx < SX; sx++)
+      out.push(empacotarDePlano(d, baseDe(sx, sy, sz), passoZ, passoY));
+    return out;
+  }
+  function desempacotarChunk(secs: ReturnType<typeof empacotarChunk>, out: Uint8Array) {
+    let k = 0;
+    for (let sy = 0; sy < SY; sy++) for (let sz = 0; sz < SZ; sz++) for (let sx = 0; sx < SX; sx++)
+      escreverPlanoEm(secs[k++], out, baseDe(sx, sy, sz), passoZ, passoY);
+  }
+
+  it('CRÍTICO: um chunk inteiro sobrevive à ida e volta, byte a byte', () => {
+    // A promessa é "sem perder um voxel". Uma compressão que erra 0,01% dos blocos é pior que
+    // nenhuma: o mundo fica com buracos que ninguém consegue reproduzir.
+    const gen = new WorldGen(2024);
+    const original = gen.generateChunk(2, -3);
+    const volta = new Uint8Array(original.length);
+    desempacotarChunk(empacotarChunk(original), volta);
+    for (let i = 0; i < original.length; i++) {
+      if (volta[i] !== original[i]) throw new Error(`voxel ${i}: ${volta[i]} != ${original[i]}`);
+    }
+    expect(volta.length).toBe(original.length);
+  });
+
+  it('CRÍTICO: o caminho rápido dá exatamente o mesmo que o caminho de referência', () => {
+    // Duas implementações da mesma coisa é como uma delas diverge em silêncio. `empacotarSecao`
+    // continua existindo para testes e fontes exóticas; se as duas discordarem, é aqui que aparece.
+    const gen = new WorldGen(31337);
+    const d = gen.generateChunk(0, 1);
+    for (const [sx, sy, sz] of [[0, 0, 0], [1, 5, 2], [3, 20, 3], [2, 31, 1]]) {
+      const rapido = empacotarDePlano(d, baseDe(sx, sy, sz), passoZ, passoY);
+      const referencia = empacotarSecao((i) => {
+        const A = ARESTA_DA_SECAO;
+        const x = i % A, z = (i / A | 0) % A, y = (i / (A * A)) | 0;
+        return d[(sx * A + x) + CX * ((sz * A + z) + CZ * (sy * A + y))];
+      });
+      for (let i = 0; i < VOXELS_POR_SECAO; i++) {
+        expect(lerSecao(rapido, i), `seção (${sx},${sy},${sz}) voxel ${i}`).toBe(lerSecao(referencia, i));
+      }
+    }
+  });
+
+  it('CRÍTICO: uma seção homogênea é escrita sem tocar em bit nenhum', () => {
+    // É o caso da maioria do mundo, e é por isso que descomprimir sai mais barato que comprimir:
+    // vira `fill` de oito bytes por linha.
+    const destino = new Uint8Array(CX * CZ * ARESTA_DA_SECAO).fill(99);
+    escreverPlanoEm(secaoHomogenea(7), destino, 0, CX, CX * CZ);
+    for (let y = 0; y < ARESTA_DA_SECAO; y++)
+      for (let z = 0; z < ARESTA_DA_SECAO; z++)
+        for (let x = 0; x < ARESTA_DA_SECAO; x++)
+          expect(destino[x + CX * (z + CZ * y)], `${x},${y},${z}`).toBe(7);
+    // E não escreveu fora da seção.
+    expect(destino[ARESTA_DA_SECAO]).toBe(99);
+  });
+
+  it('o empacotamento em bloco não passa por cima do array de origem', () => {
+    const gen = new WorldGen(5);
+    const d = gen.generateChunk(0, 0);
+    const copia = Uint8Array.from(d);
+    empacotarChunk(d);
+    expect(d).toEqual(copia);
   });
 });

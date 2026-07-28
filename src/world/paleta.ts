@@ -142,6 +142,108 @@ export function escreverSecao(s: Secao, i: number, valor: number): Secao {
   return { paleta, dados, bits };
 }
 
+/**
+ * Empacota uma seção lendo direto de um array plano — o caminho rápido.
+ *
+ * ## Por que existe, se `empacotarSecao` já faz isso
+ *
+ * `empacotarSecao` recebe uma função e a chama **duas vezes por voxel** (uma para montar a paleta,
+ * outra para escrever), com um `Map` no meio. Medido: 43 ms por chunk — tão caro quanto gerar o
+ * chunk inteiro. Serve para testar e para fontes exóticas; não serve para o caminho por onde todo
+ * chunk do mundo passa.
+ *
+ * Aqui a fonte é o `Uint8Array` que o gerador já produz, a paleta cabe num array de 256 posições
+ * indexado pelo próprio valor do bloco (não há bloco acima de 255, por construção), e cada voxel é
+ * lido uma vez só.
+ *
+ * `base` é o índice do voxel (0,0,0) da seção no array plano; `passoZ` e `passoY` são os saltos
+ * entre linhas e camadas. X é sempre contíguo — é assim que `blockIndex` está montado.
+ */
+export function empacotarDePlano(
+  fonte: Uint8Array,
+  base: number,
+  passoZ: number,
+  passoY: number,
+): Secao {
+  const A = ARESTA_DA_SECAO;
+  // Indexado pelo valor do bloco: -1 = ainda não visto. Evita o `Map` e o hashing por voxel.
+  const posicaoNaPaleta = new Int16Array(256).fill(-1);
+  const paleta: number[] = [];
+
+  for (let y = 0; y < A; y++) {
+    const oy = base + y * passoY;
+    for (let z = 0; z < A; z++) {
+      const oz = oy + z * passoZ;
+      for (let x = 0; x < A; x++) {
+        const v = fonte[oz + x];
+        if (posicaoNaPaleta[v] < 0) {
+          posicaoNaPaleta[v] = paleta.length;
+          paleta.push(v);
+        }
+      }
+    }
+  }
+
+  if (paleta.length === 1) return secaoHomogenea(paleta[0]);
+
+  const bits = bitsPara(paleta.length);
+  const dados = new Uint8Array(Math.ceil((VOXELS_POR_SECAO * bits) / 8));
+  let i = 0;
+  for (let y = 0; y < A; y++) {
+    const oy = base + y * passoY;
+    for (let z = 0; z < A; z++) {
+      const oz = oy + z * passoZ;
+      for (let x = 0; x < A; x++) {
+        escreverBits(dados, i++, bits, posicaoNaPaleta[fonte[oz + x]]);
+      }
+    }
+  }
+  return { paleta, dados, bits };
+}
+
+/**
+ * Escreve a seção de volta num array plano — o caminho rápido de leitura.
+ *
+ * O par do `empacotarDePlano`, e o que permite ao mesher continuar recebendo um bloco contíguo sem
+ * pagar uma leitura de bits por voxel.
+ *
+ * Uma seção homogênea vira oito `fill` de oito bytes por camada, sem tocar em bit nenhum — e é o
+ * caso da maioria do mundo. É por isso que descomprimir sai mais barato que comprimir.
+ */
+export function escreverPlanoEm(
+  s: Secao,
+  destino: Uint8Array,
+  base: number,
+  passoZ: number,
+  passoY: number,
+): void {
+  const A = ARESTA_DA_SECAO;
+
+  if (s.dados === null) {
+    const v = s.paleta[0];
+    for (let y = 0; y < A; y++) {
+      const oy = base + y * passoY;
+      for (let z = 0; z < A; z++) {
+        const oz = oy + z * passoZ;
+        destino.fill(v, oz, oz + A);
+      }
+    }
+    return;
+  }
+
+  const { paleta, dados, bits } = s;
+  let i = 0;
+  for (let y = 0; y < A; y++) {
+    const oy = base + y * passoY;
+    for (let z = 0; z < A; z++) {
+      const oz = oy + z * passoZ;
+      for (let x = 0; x < A; x++) {
+        destino[oz + x] = paleta[lerBits(dados, i++, bits)];
+      }
+    }
+  }
+}
+
 /** Bytes que esta seção ocupa de fato. Existe para medir, e o teste mede. */
 export function bytesDaSecao(s: Secao): number {
   // 8 de cabeçalho (bits, comprimento) + 1 por entrada de paleta + os dados.

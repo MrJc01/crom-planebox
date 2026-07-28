@@ -1,6 +1,6 @@
-# Checklist Mestre — Painel de Especialistas (1629 itens)
+# Checklist Mestre — Painel de Especialistas (1635 itens)
 
-> **Estado em 28/07/2026** — 875 de 1629 itens tratados (54%), com **1551 testes** passando,
+> **Estado em 28/07/2026** — 878 de 1635 itens tratados (54%), com **1555 testes** passando,
 > `tsc --noEmit` limpo e build funcionando. **Nenhum `P0` pendente.**
 >
 > | Status | Itens | Significado |
@@ -5906,3 +5906,48 @@ bloco ter mudado de fato.
   é a estrutura que o Worker recebe. Paletizá-lo também é o que reduz o tráfego entre threads
 - [ ] 1640 `P1` **Medir de novo depois de trocar** — 23 KB é o custo da estrutura, não o do jogo; o
   número que importa é a memória do processo com o raio carregado
+
+## 108. Os caminhos em bloco — o que torna a paletização usável
+
+A estrutura da seção 107 estava certa e era **lenta demais para o caminho por onde todo chunk
+passa**. Medi antes de seguir, e o número condenava a API:
+
+| | antes | com caminho em bloco |
+|---|---|---|
+| empacotar | 43,3 ms/chunk | **1,92 ms** |
+| desempacotar | — | **0,91 ms** |
+
+Quarenta e três milissegundos é tão caro quanto **gerar o chunk inteiro**. A causa era a API:
+`empacotarSecao` recebe uma função e a chama **duas vezes por voxel** — uma para montar a paleta,
+outra para escrever —, com um `Map` no meio. Boa para testar e para fontes exóticas; péssima para o
+caminho quente.
+
+`empacotarDePlano` lê direto do `Uint8Array` que o gerador já produz, com a paleta num array de 256
+posições indexado pelo próprio valor do bloco. Cada voxel é lido uma vez. Vinte e duas vezes mais
+rápido.
+
+**Desempacotar sai mais barato que empacotar**, e isso não é acidente: uma seção homogênea vira
+`fill` de oito bytes por linha, sem tocar em bit nenhum — e é o caso da maioria do mundo.
+
+### Medido em escala
+
+Com 121 chunks carregados: **30,3 MB → 3,0 MB, 10,1× menos.** É o ganho do item 1579 em memória de
+verdade, e não em bytes de estrutura.
+
+- [~] 1641 `P0` **`empacotarDePlano` e `escreverPlanoEm`** — 22× e a ida e volta byte a byte
+- [~] 1642 `P0` **Teste que cruza o caminho rápido com o de referência** — duas implementações da
+  mesma coisa é como uma delas diverge em silêncio
+- [~] 1643 `P1` **28 testes** no arquivo da paleta
+
+### O achado que não estava no plano
+
+- [ ] 1644 `P1` **`padChunkInto` custa 16,66 ms por re-mesh** — medido, e ninguém sabia. Ele monta o
+  bloco de 34×258×34 lendo nove vizinhos, roda na thread principal, e o orçamento de malha permite
+  vários por quadro. É provavelmente o maior engasgo de quadro que resta, e é anterior à
+  paletização — não foi ela que o criou
+- [ ] 1645 `P1` **Desempacotar direto no `padded` pode ser mais RÁPIDO que hoje** — 0,91 ms por
+  chunk contra 16,66 ms do pad atual. Escrever o miolo com `escreverPlanoEm` e buscar só os planos
+  de borda dos vizinhos deve sair na frente, o que faria a paletização **pagar** em quadro além de
+  pagar em memória
+- [ ] 1646 `P2` **`empacotarSecao` sobrevive só para teste** — se algum caminho de produção voltar a
+  usá-la, o custo volta com ela
