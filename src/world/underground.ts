@@ -104,6 +104,12 @@ export class UndergroundGen {
     return this.nCavern.fbm(x * 0.035, y * 0.05, z * 0.035, 2) > 0.62;
   }
 
+  /** Consulta de caverna otimizada com curto-circuito rápido — item 1457 P1. */
+  isCaveOptimized(vx: number, vy: number, vz: number, surfaceY: number): boolean {
+    if (vy <= BEDROCK || vy > surfaceY - SURFACE_MARGIN) return false;
+    return this.isCave(vx, vy, vz, surfaceY);
+  }
+
   /**
    * Minério nesta posição, ou 0 se for pedra comum.
    *
@@ -166,5 +172,14 @@ export class UndergroundGen {
    */
   isDeepLava(vy: number): boolean {
     return vy > BEDROCK && vy <= BEDROCK + 3 * SCALE;
+  }
+
+  /** Geração de formações em cavernas (estalactites e colunas) — item 1611 P2. */
+  generateCaveFormations(vx: number, vy: number, vz: number): 'stalactite' | 'stalagmite' | 'column' | null {
+    const h = hash3(vx, vy, vz, this.seed ^ 0x999);
+    if (h > 0.95) return 'column';
+    if (h > 0.88) return 'stalactite';
+    if (h > 0.81) return 'stalagmite';
+    return null;
   }
 }

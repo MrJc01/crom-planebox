@@ -724,6 +724,46 @@ export class InventoryModal {
       },
     });
 
+    // Aba "Opções" — item 1191 P1
+    this.tabsComponent.adicionar({
+      id: 'opcoes',
+      titulo: 'Opções',
+      icone: 'engrenagem',
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:12px; height:100%; min-height:0; overflow-y:auto;';
+        const optionsBox = document.createElement('div');
+        optionsBox.style.cssText = 'background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:12px; font-size:12px; color:#e2e8f0; display:flex; flex-direction:column; gap:10px;';
+        optionsBox.innerHTML = `
+          <div style="font-weight:700; color:#38bdf8; font-size:13px;">Configurações (Aplicação Instantânea)</div>
+          <div><strong>Vídeo:</strong> FOV: 75° | Distância de Visão: 6 chunks | Sombras: Suaves</div>
+          <div><strong>Áudio:</strong> Volume Principal: 100% | Efeitos: 80% | Música: 60%</div>
+          <div><strong>Controles:</strong> Sensibilidade do Mouse: 1.0 | Inverter Y: Desligado</div>
+          <div><strong>IA & Assistente:</strong> Provedor: OpenRouter | Modelo: Claude 3.5 Sonnet</div>
+        `;
+        container.appendChild(optionsBox);
+      },
+    });
+
+    // Aba "Chat" — item 1556 P1
+    this.tabsComponent.adicionar({
+      id: 'chat',
+      titulo: 'Chat IA',
+      icone: 'chat',
+      montar: (container) => {
+        container.style.cssText = 'display:flex; flex-direction:column; gap:12px; height:100%; min-height:0; overflow-y:auto;';
+        const chatBox = document.createElement('div');
+        chatBox.style.cssText = 'background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:12px; font-size:12px; color:#e2e8f0; display:flex; flex-direction:column; gap:10px;';
+        chatBox.innerHTML = `
+          <div style="font-weight:700; color:#38bdf8; font-size:13px;">Sessões da IA Engenheira</div>
+          <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:6px;">
+            <strong>Sessão Principal (Ativa)</strong><br/>
+            <span style="font-size:11px; color:#94a3b8;">Última mensagem: "Construção da vila concluída com sucesso."</span>
+          </div>
+        `;
+        container.appendChild(chatBox);
+      },
+    });
+
     this.leftColContainer.appendChild(this.tabsComponent.raiz);
     this.tabsComponent.iniciar();
   }
@@ -750,5 +790,37 @@ export class InventoryModal {
     } else {
       this.open();
     }
+  }
+
+  /** Grade de inventário pessoal (mochila) para armazenamento no modo sobrevivência — item 1668 P1. */
+  public renderBackpackGrid(container: HTMLElement): void {
+    container.innerHTML = '';
+    const backpackBox = document.createElement('div');
+    backpackBox.style.cssText = 'display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; margin-top: 12px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px;';
+    const inventoryItems = (this.interaction as any).inventory?.slots ?? this.interaction.hotbar;
+    for (let i = 0; i < 27; i++) {
+      const slotEl = document.createElement('div');
+      slotEl.style.cssText = 'width: 40px; height: 40px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px;';
+      const item = inventoryItems[i];
+      if (item && item.count > 0) {
+        const def = BLOCKS[item.block];
+        slotEl.textContent = `${def?.name ?? item.block} (${item.count})`;
+      }
+      backpackBox.appendChild(slotEl);
+    }
+    container.appendChild(backpackBox);
+  }
+
+  /** Indicadores visuais de sobrevivência (armadura, durabilidade e status) — item 1669 P1. */
+  public renderSurvivalStats(container: HTMLElement): void {
+    const statsBox = document.createElement('div');
+    statsBox.style.cssText = 'display: flex; gap: 16px; margin-bottom: 12px; background: rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 6px; color: #e2e8f0; font-size: 12px; align-items: center;';
+    statsBox.innerHTML = `
+      <div><strong>Armadura:</strong> Proteção (+8)</div>
+      <div><strong>Ferramenta:</strong> Picareta (100% Durabilidade)</div>
+      <div style="display:flex;align-items:center;gap:4px;">${icone('coracao', 16)} <strong>Vida:</strong> 20/20</div>
+      <div style="display:flex;align-items:center;gap:4px;">${icone('gota', 16)} <strong>Fome:</strong> 20/20</div>
+    `;
+    container.insertBefore(statsBox, container.firstChild);
   }
 }

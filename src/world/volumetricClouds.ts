@@ -91,3 +91,22 @@ export class VolumetricClouds {
     }
   }
 }
+
+/**
+ * Concilia a curvatura do mundo com o alcance da neblina para ocultar a dobra do mundo — item 1037 P1.
+ */
+export function reconcileCurvatureAndFog(fogDistance: number, curvatureRadius = 2000): { effectiveFogDistance: number; maxVisibleCurvature: number } {
+  const maxVisibleCurvature = Math.min(fogDistance * 0.85, curvatureRadius * 0.1);
+  return {
+    effectiveFogDistance: Math.min(fogDistance, maxVisibleCurvature * 1.15),
+    maxVisibleCurvature,
+  };
+}
+
+/** Desfoque visual por distância (distance blur) — item 1630 P2. */
+export function applyDistanceBlur(fogDistance: number): { blurRadius: number; fogDensity: number } {
+  return {
+    blurRadius: Math.max(1, fogDistance * 0.05),
+    fogDensity: 1 / (fogDistance + 1),
+  };
+}

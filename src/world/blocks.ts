@@ -52,6 +52,8 @@ export const enum B {
    * a divisão entre os dois.
    */
   CHEST = 36,
+  /** Minério de Energia utilizado para aceleração de construções de grande escala — item 1657 P1. */
+  ENERGY_ORE = 37,
 }
 
 export interface BlockDef {
@@ -440,4 +442,293 @@ export function generateProceduralTexturePattern(
   const g = Math.min(255, Math.max(0, Math.floor(((baseColorHex >> 8) & 0xff) * factor)));
   const b = Math.min(255, Math.max(0, Math.floor((baseColorHex & 0xff) * factor)));
   return (r << 16) | (g << 8) | b;
+}
+
+/** Metadados por bloco (rotação, estado) — item 037 P2. */
+export interface BlockMeta {
+  rotation?: 0 | 1 | 2 | 3;
+  state?: string;
+  data?: Record<string, unknown>;
+}
+
+/** Armazena metadados associados a posições de bloco — item 037 P2. */
+export class BlockMetadataStore {
+  private meta = new Map<string, BlockMeta>();
+
+  private key(x: number, y: number, z: number): string {
+    return `${x},${y},${z}`;
+  }
+
+  public set(x: number, y: number, z: number, meta: BlockMeta): void {
+    this.meta.set(this.key(x, y, z), meta);
+  }
+
+  public get(x: number, y: number, z: number): BlockMeta | undefined {
+    return this.meta.get(this.key(x, y, z));
+  }
+
+  public remove(x: number, y: number, z: number): boolean {
+    return this.meta.delete(this.key(x, y, z));
+  }
+}
+
+/** Tick de bloco agendado (crescimento, fluido, fornalha) — item 036 P2. */
+export interface ScheduledTick {
+  x: number;
+  y: number;
+  z: number;
+  blockType: number;
+  ticksRemaining: number;
+}
+
+export class BlockTickSystem {
+  private queue: ScheduledTick[] = [];
+
+  public schedule(x: number, y: number, z: number, blockType: number, delay: number): void {
+    this.queue.push({ x, y, z, blockType, ticksRemaining: delay });
+  }
+
+  public tick(): ScheduledTick[] {
+    const ready: ScheduledTick[] = [];
+    const remaining: ScheduledTick[] = [];
+    for (const t of this.queue) {
+      t.ticksRemaining--;
+      if (t.ticksRemaining <= 0) ready.push(t);
+      else remaining.push(t);
+    }
+    this.queue = remaining;
+    return ready;
+  }
+
+  public pending(): number {
+    return this.queue.length;
+  }
+}
+
+export type BlockVariant = 'musgoso' | 'rachado' | 'polido';
+
+/** Variantes de bloco (musgo, rachado, polido) — item 080 P2. */
+export function generateBlockVariant(blockType: number, variant: BlockVariant): { variantName: string; colorOffset: number } {
+  if (variant === 'musgoso') return { variantName: 'Musgoso', colorOffset: 0x228b22 };
+  if (variant === 'rachado') return { variantName: 'Rachado', colorOffset: -0x111111 };
+  return { variantName: 'Polido', colorOffset: 0x111111 };
+}
+
+export interface BlockEntityData {
+  type: 'chest' | 'furnace' | 'sign';
+  items?: number[];
+  text?: string;
+  customData?: Record<string, unknown>;
+}
+
+/** Blocos com entidade associada e salvamento de dados — item 038 P2. */
+export class BlockEntityStore {
+  private entities = new Map<string, BlockEntityData>();
+
+  private key(x: number, y: number, z: number): string {
+    return `${x},${y},${z}`;
+  }
+
+  public set(x: number, y: number, z: number, data: BlockEntityData): void {
+    this.entities.set(this.key(x, y, z), data);
+  }
+
+  public get(x: number, y: number, z: number): BlockEntityData | undefined {
+    return this.entities.get(this.key(x, y, z));
+  }
+
+  public remove(x: number, y: number, z: number): boolean {
+    return this.entities.delete(this.key(x, y, z));
+  }
+}
+
+/** Vidro colorido com transparência parcial — item 081 P2. */
+export class StainedGlassBlock {
+  public static getTranslucencyConfig(colorHex: number, alpha = 0.6): { isTransparent: boolean; alpha: number; colorHex: number } {
+    return { isTransparent: true, alpha, colorHex };
+  }
+}
+
+export type MiniShape = 'escada' | 'laje' | 'poste' | 'cerca';
+
+/** Miniblocos com formas alternativas — item 084 P2. */
+export class MiniBlockShapes {
+  public static getShapeBounds(shape: MiniShape): { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number } {
+    if (shape === 'laje') return { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 };
+    if (shape === 'poste') return { minX: 0.375, minY: 0, minZ: 0.375, maxX: 0.625, maxY: 1, maxZ: 0.625 };
+    if (shape === 'cerca') return { minX: 0.25, minY: 0, minZ: 0.25, maxX: 0.75, maxY: 1, maxZ: 0.75 };
+    return { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }; // escada/padrão
+  }
+}
+
+/** Blocos emissivos com intensidade configurável — item 082 P2. */
+export class ConfigurableEmissiveBlock {
+  private intensityMap = new Map<number, number>();
+
+  public setEmission(blockType: number, level: number): void {
+    this.intensityMap.set(blockType, Math.max(0, Math.min(15, Math.floor(level))));
+  }
+
+  public getEmission(blockType: number, defaultLevel = 0): number {
+    return this.intensityMap.get(blockType) ?? defaultLevel;
+  }
+}
+
+export type CardinalDirection = 'north' | 'south' | 'east' | 'west';
+
+/** Rotação de bloco em 4 direções para peças direcionais — item 085 P2. */
+export class DirectionalBlockRotation {
+  public static getRotationAngle(direction: CardinalDirection): number {
+    if (direction === 'east') return Math.PI * 0.5;
+    if (direction === 'south') return Math.PI;
+    if (direction === 'west') return Math.PI * 1.5;
+    return 0; // north
+  }
+}
+
+export interface MiniPart {
+  dx: number;
+  dy: number;
+  dz: number;
+  width: number;
+  height: number;
+  depth: number;
+  blockType: number;
+}
+
+/** Modelos compostos (mesa, cadeira) montados de vários miniblocos — item 086 P2. */
+export class CompositeBlockModel {
+  public static createModel(type: 'mesa' | 'cadeira'): MiniPart[] {
+    if (type === 'mesa') {
+      return [
+        { dx: 0, dy: 0.8, dz: 0, width: 1, height: 0.2, depth: 1, blockType: 9 }, // tampo
+        { dx: 0.1, dy: 0, dz: 0.1, width: 0.15, height: 0.8, depth: 0.15, blockType: 7 }, // perna 1
+        { dx: 0.75, dy: 0, dz: 0.1, width: 0.15, height: 0.8, depth: 0.15, blockType: 7 }, // perna 2
+        { dx: 0.1, dy: 0, dz: 0.75, width: 0.15, height: 0.8, depth: 0.15, blockType: 7 }, // perna 3
+        { dx: 0.75, dy: 0, dz: 0.75, width: 0.15, height: 0.8, depth: 0.15, blockType: 7 }, // perna 4
+      ];
+    }
+    // cadeira
+    return [
+      { dx: 0.1, dy: 0.4, dz: 0.1, width: 0.8, height: 0.1, depth: 0.8, blockType: 9 }, // assento
+      { dx: 0.1, dy: 0.5, dz: 0.1, width: 0.8, height: 0.6, depth: 0.1, blockType: 9 }, // encosto
+      { dx: 0.1, dy: 0, dz: 0.1, width: 0.15, height: 0.4, depth: 0.15, blockType: 7 }, // perna 1
+      { dx: 0.75, dy: 0, dz: 0.1, width: 0.15, height: 0.4, depth: 0.15, blockType: 7 }, // perna 2
+      { dx: 0.1, dy: 0, dz: 0.75, width: 0.15, height: 0.4, depth: 0.15, blockType: 7 }, // perna 3
+      { dx: 0.75, dy: 0, dz: 0.75, width: 0.15, height: 0.4, depth: 0.15, blockType: 7 }, // perna 4
+    ];
+  }
+}
+
+/** Escala de referência visível no modo criativo (régua de miniblocos) — item 088 P2. */
+export class CreativeRuler {
+  public static getGridMarks(length: number, interval = 4): number[] {
+    const marks: number[] = [];
+    for (let i = 0; i <= length; i += interval) marks.push(i);
+    return marks;
+  }
+
+  public static getMeasurement(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): number {
+    return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2);
+  }
+}
+
+/** Biblioteca de paletas por bioma para a IA reutilizar — item 089 P2. */
+export class BiomePaletteLibrary {
+  private palettes = new Map<string, number[]>();
+
+  constructor() {
+    this.palettes.set('floresta', [1, 2, 7, 8, 13, 14]);
+    this.palettes.set('deserto', [4, 5, 3]);
+    this.palettes.set('neve', [12, 3, 17, 16]);
+    this.palettes.set('pântano', [2, 7, 8, 6, 18]);
+  }
+
+  public getPalette(biome: string): number[] {
+    return [...(this.palettes.get(biome) ?? [])];
+  }
+
+  public addBiomePalette(biome: string, blocks: number[]): void {
+    this.palettes.set(biome, [...blocks]);
+  }
+}
+
+/** Exportar/importar paleta de mod como JSON — item 091 P2. */
+export class ModPaletteExporter {
+  public static exportToJSON(name: string, blocks: number[]): string {
+    return JSON.stringify({ name, blocks, version: 1 });
+  }
+
+  public static importFromJSON(json: string): { name: string; blocks: number[] } | null {
+    try {
+      const data = JSON.parse(json);
+      if (typeof data.name === 'string' && Array.isArray(data.blocks)) {
+        return { name: data.name, blocks: data.blocks };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Deduplicação: avisar quando a IA registrar um bloco quase idêntico a outro — item 093 P2. */
+export class BlockDeduplicator {
+  public static findNearDuplicates(
+    blockDefs: Array<{ id: number; name: string; colorTop: number }>,
+    colorThreshold = 0x0f0f0f,
+  ): Array<{ a: number; b: number; reason: string }> {
+    const dupes: Array<{ a: number; b: number; reason: string }> = [];
+    for (let i = 0; i < blockDefs.length; i++) {
+      for (let j = i + 1; j < blockDefs.length; j++) {
+        const ai = blockDefs[i], bj = blockDefs[j];
+        const dr = Math.abs(((ai.colorTop >> 16) & 0xff) - ((bj.colorTop >> 16) & 0xff));
+        const dg = Math.abs(((ai.colorTop >> 8) & 0xff) - ((bj.colorTop >> 8) & 0xff));
+        const db = Math.abs((ai.colorTop & 0xff) - (bj.colorTop & 0xff));
+        if (dr + dg + db < ((colorThreshold >> 16) & 0xff) + ((colorThreshold >> 8) & 0xff) + (colorThreshold & 0xff)) {
+          dupes.push({ a: ai.id, b: bj.id, reason: `Cores muito próximas: ${ai.name} ↔ ${bj.name}` });
+        }
+      }
+    }
+    return dupes;
+  }
+}
+
+/** Nomes de bloco normalizados (sem duplicatas com acento/caixa diferentes) — item 094 P2. */
+export class BlockNameNormalizer {
+  public static normalize(name: string): string {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '_')
+      .trim();
+  }
+
+  public static isDuplicate(a: string, b: string): boolean {
+    return this.normalize(a) === this.normalize(b);
+  }
+}
+
+export type ColorblindMode = 'protanopia' | 'deuteranopia' | 'tritanopia';
+
+/** Modo daltonismo ajustando a paleta de blocos críticos — item 096 P2. */
+export class ColorblindPalette {
+  public static adjustColor(colorHex: number, mode: ColorblindMode): number {
+    const r = (colorHex >> 16) & 0xff;
+    const g = (colorHex >> 8) & 0xff;
+    const b = colorHex & 0xff;
+
+    if (mode === 'protanopia') {
+      const nr = Math.floor(r * 0.567 + g * 0.433);
+      return (nr << 16) | (g << 8) | b;
+    }
+    if (mode === 'deuteranopia') {
+      const ng = Math.floor(r * 0.625 + g * 0.375);
+      return (r << 16) | (ng << 8) | b;
+    }
+    // tritanopia
+    const nb = Math.floor(g * 0.5 + b * 0.5);
+    return (r << 16) | (g << 8) | nb;
+  }
 }

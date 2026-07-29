@@ -81,6 +81,8 @@ export interface BodyPartSpec {
 
 export type ColorSlot = 'skin' | 'hair' | 'shirt' | 'pants' | 'boots' | 'accent' | 'eyes';
 
+export type CharacterRace = 'humano' | 'elfo' | 'anão' | 'orc';
+
 export interface Appearance {
   name: string;
   skin: string;
@@ -94,6 +96,10 @@ export interface Appearance {
   hairStyle: HairStyle;
   /** Altura relativa (0.9 a 1.1) — dá variedade de silhueta sem quebrar a colisão. */
   build: number;
+  /** Raça do personagem, alterando silhueta e atributos de base — item 1571 P1. */
+  race?: CharacterRace;
+  /** Dicionário extensível por código para atributos de personagem — item 1572 P1. */
+  customAttributes?: Record<string, unknown>;
 }
 
 export type HairStyle = 'curto' | 'longo' | 'moicano' | 'careca';

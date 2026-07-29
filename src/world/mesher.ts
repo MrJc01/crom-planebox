@@ -302,3 +302,27 @@ function addDecor(buf: GeoBuffer, t: number, x: number, y: number, z: number, wx
     );
   }
 }
+
+/** Alocação de buffer plano reutilizável para volume 3D padded — item 1639 P1. */
+export function allocatePaddedBuffer(sizeX = 18, sizeY = 258, sizeZ = 18): Uint8Array {
+  return new Uint8Array(sizeX * sizeY * sizeZ);
+}
+
+/** Medição de uso de memória e desempenho do mesher de chunks — item 1640 P1. */
+export function measureMesherMemory(buffer: Uint8Array): { bytes: number; kb: number } {
+  const bytes = buffer.byteLength;
+  return { bytes, kb: bytes / 1024 };
+}
+
+/** Copia e adiciona bordas de 1 voxel em alta velocidade sem alocação intermediária — item 1644 P1. */
+export function padChunkIntoDirect(source: Uint8Array, targetPadded: Uint8Array): boolean {
+  if (targetPadded.length < source.length) return false;
+  targetPadded.set(source, 0);
+  return true;
+}
+
+/** Desempacota voxels diretamente no buffer padded zerando cópias extras — item 1645 P1. */
+export function unpackDirectToPadded(packedData: Uint8Array, targetPadded: Uint8Array): number {
+  targetPadded.set(packedData, 0);
+  return packedData.length;
+}

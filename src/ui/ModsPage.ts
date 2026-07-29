@@ -658,6 +658,19 @@ export class ModsPage implements UIScreen {
     URL.revokeObjectURL(url);
   }
 
+  /**
+   * Mostra o manifesto do mod antes de instalar para confirmação explícita — item 1409 P1.
+   * Também avisa que biomas de mods exigem explorar novos chunks — item 1422 P1.
+   */
+  public previewManifestBeforeImport(pkg: ModPackage): boolean {
+    const biomesCount = pkg.biomes?.length ?? 0;
+    const biomeNotice = biomesCount > 0 ? '\n\n[AVISO] Este mod inclui biomas novos. Eles só aparecerão em chunks virgens ainda não explorados no mapa.' : '';
+    const permissions = (pkg as any).permissions ?? ['storage', 'custom_blocks'];
+    return confirm(
+      `Deseja instalar o mod "${pkg.name}" (id: ${pkg.id})?\n\nPermissões declaradas: ${permissions.join(', ')}${biomeNotice}`
+    );
+  }
+
   private importar(): void {
     const input = document.createElement('input');
     input.type = 'file';
@@ -666,7 +679,9 @@ export class ModsPage implements UIScreen {
       const arquivo = input.files?.[0];
       if (!arquivo) return;
       try {
-        const r = await this.mods.importMod(JSON.parse(await arquivo.text()));
+        const pkg = JSON.parse(await arquivo.text());
+        if (!this.previewManifestBeforeImport(pkg)) return;
+        const r = await this.mods.importMod(pkg);
         alert(r.message);
         this.onChanged();
         this.render();

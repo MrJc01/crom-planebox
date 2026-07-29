@@ -329,3 +329,11 @@ export function buildLightTable(sunScale = 1): Float32Array {
   for (let packed = 0; packed < 256; packed++) tabela[packed] = lightFactor(packed, sunScale);
   return tabela;
 }
+
+/** Configuração de bloom/glow sutil para blocos emissivos — item 058 P2. */
+export function getEmissiveGlowConfig(blockType: number): { intensity: number; color: [number, number, number] } | null {
+  if (blockType === B.GLOWSTONE) return { intensity: 0.8, color: [1.0, 0.9, 0.4] };
+  if (blockType === B.LAVA) return { intensity: 1.0, color: [1.0, 0.3, 0.1] };
+  if (blockType === B.TORCH) return { intensity: 0.5, color: [1.0, 0.8, 0.2] };
+  return null;
+}

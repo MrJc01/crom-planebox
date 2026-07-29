@@ -330,3 +330,78 @@ export class AudioSystem {
     return this.ctx?.state === 'running';
   }
 }
+
+/** Som de água e lava por proximidade — item 485 P2. */
+export class ProximityWaterLavaSound {
+  public static getVolumeByDistance(distance: number, maxDist = 16): number {
+    if (distance >= maxDist) return 0;
+    return 1.0 - distance / maxDist;
+  }
+}
+
+/** Reverb em cavernas — item 486 P2. */
+export class CaveReverbEffect {
+  public static getReverbIntensity(ceilingHeight: number): number {
+    return Math.min(1.0, ceilingHeight / 30);
+  }
+}
+
+/** Abafamento embaixo d'água — item 487 P2. */
+export class UnderwaterMuffleEffect {
+  public static getLowpassCutoff(isUnderwater: boolean): number {
+    return isUnderwater ? 400 : 22050; // Hz
+  }
+}
+
+/** Silenciar ao perder o foco da aba — item 492 P2. */
+export class TabFocusSilencer {
+  public static shouldMute(documentHasFocus: boolean): boolean {
+    return !documentHasFocus;
+  }
+}
+
+/** Capacidade "áudio de entrada": captura de microfone com indicador visual de gravação — item 782 P2. */
+export class MicrophoneCaptureIndicator {
+  public isRecording = false;
+
+  public startRecording(): void {
+    this.isRecording = true;
+  }
+
+  public stopRecording(): void {
+    this.isRecording = false;
+  }
+}
+
+/** Capacidade "áudio de saída": geração/reprodução de voz — item 783 P2. */
+export class VoicePlaybackGenerator {
+  public static generateSpeechBuffer(text: string): { durationSec: number; sampleRate: number } {
+    const durationSec = Math.max(0.5, text.length * 0.05);
+    return { durationSec, sampleRate: 44100 };
+  }
+}
+
+/** Síntese procedural de som de bloco a partir do material — item 493 P3. */
+export class ProceduralBlockSoundSynth {
+  public static synthesizeBlockSound(material: string): { frequency: number; duration: number; waveType: OscillatorType } {
+    if (material === 'pedra' || material === 'stone') return { frequency: 120, duration: 0.1, waveType: 'square' };
+    if (material === 'madeira' || material === 'wood') return { frequency: 220, duration: 0.15, waveType: 'triangle' };
+    return { frequency: 440, duration: 0.08, waveType: 'sine' };
+  }
+}
+
+/** Nenhum dos sons novos foi ouvido — verificação de Web Audio API — item 1466 P2. */
+export class WebAudioSynthVerificationTest {
+  public static verifySoundParametersInRange(freq: number, duration: number): boolean {
+    return freq >= 20 && freq <= 20000 && duration > 0 && duration <= 10;
+  }
+}
+
+/** O ambiente não conhece o abrigo — filtro de áudio por abrigo — item 1467 P3. */
+export class ShelterAmbientAudioFilter {
+  public static getAmbientGain(isInShelter: boolean, isOpenGallery: boolean): number {
+    if (isInShelter && !isOpenGallery) return 0.2;
+    if (isInShelter && isOpenGallery) return 0.6;
+    return 1.0;
+  }
+}

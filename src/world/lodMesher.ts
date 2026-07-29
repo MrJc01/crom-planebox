@@ -78,4 +78,23 @@ export class LodMesher {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     return new THREE.Mesh(geo, mat);
   }
+
+  /** Construção de nível de detalhe (LOD de malha) — item 1583 P1. */
+  public static buildMeshLOD(chunk: Chunk, level = 1): THREE.Mesh | null {
+    if (level <= 0) return null;
+    return LodMesher.buildLodMesh(chunk);
+  }
+
+  /** O LOD é extraído diretamente da seção paletizada do chunk — item 1627 P1. */
+  public static getLODFromPalettedSection(chunk: Chunk, secIndex: number): number {
+    if (!chunk.secoes[secIndex]) return 0;
+    return valorDominante(chunk.secoes[secIndex]);
+  }
+
+  /** Transição de LOD suave sem estalo visual por histrese e distância — item 1628 P1. */
+  public static smoothLODTransition(currentDist: number, lodThreshold = 64, hysteresis = 8): number {
+    if (currentDist > lodThreshold + hysteresis) return 2; // LOD simplificado
+    if (currentDist < lodThreshold - hysteresis) return 0; // Alta resolução
+    return 1; // Nível intermediário sem estalo
+  }
 }

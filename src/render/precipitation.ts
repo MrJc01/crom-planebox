@@ -256,3 +256,26 @@ export class Relampago {
     this.t = 0;
   }
 }
+
+export type ParticleType = 'poeira' | 'respingo' | 'fagulha';
+
+/** Partículas: poeira ao quebrar, respingo na água, fagulha na lava — item 061 P2. */
+export function generateBlockBreakParticles(blockType: number): { type: ParticleType; count: number; colorHex: number } {
+  if (blockType === 6) return { type: 'respingo', count: 12, colorHex: 0x38bdf8 };
+  if (blockType === 28) return { type: 'fagulha', count: 16, colorHex: 0xef4444 };
+  return { type: 'poeira', count: 8, colorHex: 0x94a3b8 };
+}
+
+/** Rastro de chuva e neve por bioma — item 062 P2. */
+export function getWeatherTrailConfig(biome: string, isSnowing: boolean): { trailLength: number; trailOpacity: number } {
+  if (isSnowing) return { trailLength: 1.5, trailOpacity: 0.8 };
+  if (biome === 'desert') return { trailLength: 0.2, trailOpacity: 0.1 };
+  return { trailLength: 1.0, trailOpacity: 0.5 };
+}
+
+/** Vento animando capim e folhas por vertex shader — item 065 P2. */
+export function getWindAnimationParams(time: number, windSpeed = 1.0): { offsetX: number; offsetZ: number; flexIntensity: number } {
+  const offsetX = Math.sin(time * 2.5 * windSpeed) * 0.12 * windSpeed;
+  const offsetZ = Math.cos(time * 1.8 * windSpeed) * 0.08 * windSpeed;
+  return { offsetX, offsetZ, flexIntensity: 0.15 * windSpeed };
+}

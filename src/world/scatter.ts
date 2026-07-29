@@ -449,5 +449,104 @@ export function convertScatterToSavedBlocks(
   }));
 }
 
+export interface DiscoveredStructure {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+}
+
+/** Marcar no mapa as estruturas já encontradas — item 694 P2. */
+export class StructureMapMarker {
+  private foundStructures = new Map<string, DiscoveredStructure>();
+
+  public markFound(struct: DiscoveredStructure): void {
+    this.foundStructures.set(struct.id, struct);
+  }
+
+  public getDiscovered(): DiscoveredStructure[] {
+    return [...this.foundStructures.values()];
+  }
+}
+
+/** Estrutura com variação procedural (não duas iguais) — item 695 P2. */
+export class ProceduralStructureVariation {
+  public static generateVariation(structureType: string, seed: number): { width: number; height: number; material: number } {
+    const hash = Math.abs(Math.sin(seed * 12.9898 + structureType.length) * 43758.5453) % 1;
+    return {
+      width: 4 + Math.floor(hash * 6),
+      height: 3 + Math.floor(hash * 4),
+      material: hash > 0.5 ? 3 : 1, // Pedra ou Madeira
+    };
+  }
+}
+
+export interface PreSpawnedEntity {
+  entityType: string;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+}
+
+/** Estrutura com entidades pré-posicionadas — item 696 P2. */
+export class PreSpawneEntitiesStructure {
+  public static getEntitiesForStructure(structureType: string): PreSpawnedEntity[] {
+    if (structureType === 'dungeon') {
+      return [
+        { entityType: 'zombie', offsetX: 2, offsetY: 1, offsetZ: 2 },
+        { entityType: 'skeleton', offsetX: -2, offsetY: 1, offsetZ: -2 },
+      ];
+    }
+    return [];
+  }
+}
+
+/** Comando/ferramenta para localizar a estrutura mais próxima — item 697 P2. */
+export class LocateNearestStructure {
+  public static findNearest(playerX: number, playerZ: number, structures: Array<{ name: string; x: number; z: number }>): { name: string; distance: number } | null {
+    if (structures.length === 0) return null;
+    let nearest = structures[0];
+    let minLinearDistSq = (structures[0].x - playerX) ** 2 + (structures[0].z - playerZ) ** 2;
+
+    for (let i = 1; i < structures.length; i++) {
+      const dSq = (structures[i].x - playerX) ** 2 + (structures[i].z - playerZ) ** 2;
+      if (dSq < minLinearDistSq) {
+        minLinearDistSq = dSq;
+        nearest = structures[i];
+      }
+    }
+
+    return { name: nearest.name, distance: Math.round(Math.sqrt(minLinearDistSq)) };
+  }
+}
+
+/** Testes de determinismo do espalhamento por semente — item 699 P2. */
+export class StructureScatterDeterminismTest {
+  public static verifyDeterminism(seed: number, count = 10): boolean {
+    const runA: number[] = [];
+    const runB: number[] = [];
+
+    for (let i = 0; i < count; i++) runA.push(hash2(i, 0, seed));
+    for (let i = 0; i < count; i++) runB.push(hash2(i, 0, seed));
+
+    return runA.every((val, idx) => val === runB[idx]);
+  }
+}
+
+/** Testes de que nenhuma estrutura nasce dentro de outra — item 700 P2. */
+export class StructureNoOverlapVerifier {
+  public static checkNoOverlap(boxes: Array<{ minX: number; maxX: number; minZ: number; maxZ: number }>): boolean {
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const b1 = boxes[i], b2 = boxes[j];
+        const overlapX = b1.minX <= b2.maxX && b1.maxX >= b2.minX;
+        const overlapZ = b1.minZ <= b2.maxZ && b1.maxZ >= b2.minZ;
+        if (overlapX && overlapZ) return false; // Houve sobreposição!
+      }
+    }
+    return true;
+  }
+}
+
 
 

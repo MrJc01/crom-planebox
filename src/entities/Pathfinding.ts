@@ -321,3 +321,64 @@ function reconstruct(
   }
   return path.reverse();
 }
+
+/** Inimigos voadores com pathfinding 3D — item 158 P2. */
+export class FlyingPathfinding3D {
+  public static find3DPath(
+    world: PathWorld,
+    start: PathNode,
+    target: PathNode,
+    maxSteps = 20,
+  ): PathNode[] {
+    const path: PathNode[] = [start];
+    let curr = { ...start };
+
+    for (let i = 0; i < maxSteps; i++) {
+      if (curr.x === target.x && curr.y === target.y && curr.z === target.z) break;
+      const dx = Math.sign(target.x - curr.x);
+      const dy = Math.sign(target.y - curr.y);
+      const dz = Math.sign(target.z - curr.z);
+
+      const next = { x: curr.x + dx, y: curr.y + dy, z: curr.z + dz };
+      if (!isSolid(world.getBlock(next.x, next.y, next.z))) {
+        curr = next;
+        path.push({ ...curr });
+      } else {
+        // Tenta contornar por cima
+        next.y = curr.y + 1;
+        if (!isSolid(world.getBlock(next.x, next.y, next.z))) {
+          curr = next;
+          path.push({ ...curr });
+        } else break;
+      }
+    }
+    return path;
+  }
+}
+
+export type TrapType = 'espinho' | 'fogo' | 'lentidao';
+
+export interface TrapState {
+  x: number;
+  y: number;
+  z: number;
+  type: TrapType;
+  triggered: boolean;
+  damage: number;
+}
+
+/** Armadilhas colocáveis — item 159 P2. */
+export class PlaceableTrap {
+  private traps: TrapState[] = [];
+
+  public place(x: number, y: number, z: number, type: TrapType, damage = 10): void {
+    this.traps.push({ x, y, z, type, triggered: false, damage });
+  }
+
+  public checkTrigger(x: number, y: number, z: number): TrapState | null {
+    const trap = this.traps.find(t => t.x === x && t.y === y && t.z === z && !t.triggered);
+    if (!trap) return null;
+    trap.triggered = true;
+    return trap;
+  }
+}

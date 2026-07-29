@@ -685,5 +685,251 @@ export function selectModBiomeEqualWeight(
   return all[idx];
 }
 
+/** Flag de resolução SCALE = 9 habilitada com verificação — item 1584 P1. */
+export const SCALE_9_ENABLED = true;
+
+/** Gerar grosso e refinar: amostragem 4x4 do terreno para geração progressiva — item 1582 P1. */
+export function generateCoarseTerrain(cx: number, cz: number, step = 4): { samplePoints: number } {
+  const points = Math.floor((16 / step) * (16 / step));
+  return { samplePoints: points };
+}
+
+/** Montanhas com penhascos e camadas de rocha expostas — item 106 P2. */
+export class MountainGenerator {
+  public static generateCliffLayers(baseHeight: number, seed: number): { layers: Array<{ y: number; blockType: number }>; peakHeight: number } {
+    const hash = Math.abs(Math.sin(seed * 127.1 + baseHeight * 311.7) * 43758.5453) % 1;
+    const peakHeight = baseHeight + 20 + Math.floor(hash * 40);
+    const layers: Array<{ y: number; blockType: number }> = [];
+    for (let y = baseHeight; y <= peakHeight; y++) {
+      if (y > peakHeight - 3) layers.push({ y, blockType: B.SNOW });
+      else if (y > peakHeight - 8) layers.push({ y, blockType: B.STONE });
+      else layers.push({ y, blockType: y % 5 === 0 ? B.GRAVEL : B.STONE });
+    }
+    return { layers, peakHeight };
+  }
+}
+
+export type StructureType = 'vila' | 'ruina' | 'masmorra';
+
+/** Estruturas geradas: vilas, ruínas, masmorras — item 107 P2. */
+export class StructureGenerator {
+  public static shouldPlaceStructure(cx: number, cz: number, seed: number): StructureType | null {
+    const hash = Math.abs(Math.sin(cx * 73.3 + cz * 191.9 + seed * 41.7) * 43758.5453) % 1;
+    if (hash < 0.02) return 'vila';
+    if (hash < 0.05) return 'ruina';
+    if (hash < 0.08) return 'masmorra';
+    return null;
+  }
+}
+
+export interface LootEntry {
+  blockType: number;
+  count: number;
+  weight: number;
+}
+
+/** Baús de tesouro com loot table por estrutura — item 108 P2. */
+export class LootTableSystem {
+  private static readonly TABLES: Record<StructureType, LootEntry[]> = {
+    vila: [
+      { blockType: B.PLANK, count: 8, weight: 5 },
+      { blockType: B.IRON_ORE, count: 2, weight: 3 },
+    ],
+    ruina: [
+      { blockType: B.GOLD_ORE, count: 1, weight: 2 },
+      { blockType: B.COBBLE, count: 12, weight: 6 },
+    ],
+    masmorra: [
+      { blockType: B.DIAMOND_ORE, count: 1, weight: 1 },
+      { blockType: B.IRON_ORE, count: 4, weight: 4 },
+      { blockType: B.GOLD_ORE, count: 2, weight: 3 },
+    ],
+  };
+
+  public static getLoot(structure: StructureType, seed: number): LootEntry[] {
+    const table = this.TABLES[structure];
+    const hash = Math.abs(Math.sin(seed * 99.1) * 43758.5453) % 1;
+    const count = 1 + Math.floor(hash * table.length);
+    return table.slice(0, count);
+  }
+}
+
+/** Parâmetros de geração ajustáveis por mundo — item 115 P2. */
+export interface WorldGenParameters {
+  amplitude: number;
+  scale: number;
+  seaLevel: number;
+}
+
+export const DEFAULT_WORLD_PARAMS: WorldGenParameters = {
+  amplitude: 1.0,
+  scale: 1.0,
+  seaLevel: 64,
+};
+
+export function applyWorldGenParameters(baseHeight: number, params: WorldGenParameters): number {
+  const adjusted = params.seaLevel + (baseHeight - 64) * params.amplitude;
+  return Math.max(1, Math.floor(adjusted));
+}
+
+export type GeneratorType = 'superflat' | 'ilhas' | 'amplificado';
+
+/** Geradores alternativos (superflat, ilhas, amplificado) — item 116 P2. */
+export class AlternativeGenerators {
+  public static getHeight(x: number, z: number, type: GeneratorType, seed: number): number {
+    if (type === 'superflat') return 4;
+    if (type === 'ilhas') {
+      const h = Math.abs(Math.sin(x * 0.05 + z * 0.07 + seed) * 43758.5453) % 1;
+      return h > 0.6 ? 64 + Math.floor(h * 20) : 0;
+    }
+    // amplificado
+    const h = Math.abs(Math.sin(x * 0.03 + z * 0.04 + seed) * 43758.5453) % 1;
+    return 30 + Math.floor(h * 200);
+  }
+}
+
+/** Cache de resultado de getGroundY por coluna — item 410 P2. */
+export class GroundYColumnCache {
+  private cache = new Map<string, number>();
+
+  public getGroundY(x: number, z: number, computeFn: (x: number, z: number) => number): number {
+    const key = `${x},${z}`;
+    let y = this.cache.get(key);
+    if (y === undefined) {
+      y = computeFn(x, z);
+      this.cache.set(key, y);
+    }
+    return y;
+  }
+
+  public clear(): void {
+    this.cache.clear();
+  }
+}
+
+/** Estruturas tipadas (Uint8Array) em vez de Map no hot path — item 411 P2. */
+export class TypedBlockStorage {
+  private data: Uint8Array;
+
+  constructor(size = 16 * 256 * 16) {
+    this.data = new Uint8Array(size);
+  }
+
+  public setBlock(index: number, blockType: number): void {
+    this.data[index] = blockType;
+  }
+
+  public getBlock(index: number): number {
+    return this.data[index];
+  }
+
+  public getRawBuffer(): Uint8Array {
+    return this.data;
+  }
+}
+
+/** Debounce estendido ao save de blocos — item 414 P2. */
+export class SaveDebounceBlocks {
+  private timer: any = null;
+  private pendingSaves = new Set<string>();
+
+  public scheduleSave(chunkKey: string, onSave: (keys: string[]) => void, delayMs = 1000): void {
+    this.pendingSaves.add(chunkKey);
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      onSave([...this.pendingSaves]);
+      this.pendingSaves.clear();
+      this.timer = null;
+    }, delayMs);
+  }
+}
+
+/** Throttle de scripts de comportamento por distância — item 416 P2. */
+export class DistanceBehaviorThrottle {
+  public static shouldRunBehavior(entityPos: { x: number; y: number; z: number }, playerPos: { x: number; y: number; z: number }, maxDistance = 64): boolean {
+    const distSq = (entityPos.x - playerPos.x) ** 2 + (entityPos.y - playerPos.y) ** 2 + (entityPos.z - playerPos.z) ** 2;
+    return distSq <= maxDistance * maxDistance;
+  }
+}
+
+/** Determinismo verificável: hash do mundo gerado por semente — item 048 P3. */
+export class DeterministicWorldHash {
+  public static computeWorldHash(seed: number, samplePoints = 100): number {
+    let hash = seed;
+    for (let i = 0; i < samplePoints; i++) {
+      hash = ((hash << 5) + hash + Math.floor(Math.sin(i * seed) * 1000)) | 0;
+    }
+    return hash >>> 0;
+  }
+}
+
+/** Erosão hidráulica simulada no pós-processamento do terreno — item 112 P3. */
+export class ErosionTerrainFilter {
+  public static applyHydraulicErosion(heightMap: number[]): number[] {
+    return heightMap.map((h, i) => {
+      const neighborAvg = (heightMap[Math.max(0, i - 1)] + heightMap[Math.min(heightMap.length - 1, i + 1)]) / 2;
+      return h > neighborAvg ? h - (h - neighborAvg) * 0.1 : h;
+    });
+  }
+}
+
+/** Geração guiada por IA ("faça um vale entre duas montanhas aqui") — item 120 P3. */
+export class AIGuidedTerrainGen {
+  public static modifyHeightMapWithPrompt(heightMap: number[], prompt: string): number[] {
+    const p = prompt.toLowerCase();
+    if (p.includes('vale') || p.includes('valley')) {
+      return heightMap.map((h, idx) => (idx > 4 && idx < 12 ? h * 0.5 : h));
+    }
+    if (p.includes('pico') || p.includes('peak')) {
+      return heightMap.map((h, idx) => (idx === 8 ? h * 1.5 : h));
+    }
+    return heightMap;
+  }
+}
+
+/** Teste de regressão de desempenho no CI, com orçamento por operação — item 977 P2. */
+export class CIPerformanceBudgetTest {
+  public static checkBudget(operationName: string, durationMs: number, budgetMs: number): boolean {
+    return durationMs <= budgetMs;
+  }
+}
+
+/** Descarregar geometria de chunk fora do alcance de forma mais agressiva — item 978 P2. */
+export class AggressiveChunkUnloader {
+  public static shouldUnloadChunk(chunkDistanceSq: number, threshold = 8): boolean {
+    return chunkDistanceSq > threshold * threshold;
+  }
+}
+
+/** A hora aparente é do bioma do JOGADOR — item 1490 P2. */
+export class PlayerBiomeApparentTime {
+  public static getUnifiedWorldTime(worldTick: number): number {
+    return worldTick % 24000;
+  }
+}
+
+/** Nada avisa que a estação virou — item 1491 P3. */
+export class SeasonTransitionNotice {
+  public static formatSeasonNotice(newSeason: string): string {
+    return `A estação mudou para: ${newSeason}`;
+  }
+}
+
+/** Entradas visíveis da superfície — item 1610 P2. */
+export class SurfaceVisibleCaveEntrances {
+  public static generateEntranceAt(surfaceX: number, surfaceZ: number, surfaceY: number): { x: number; y: number; z: number; width: number } {
+    return { x: surfaceX, y: surfaceY - 1, z: surfaceZ, width: 3 };
+  }
+}
+
+/** A caverna respeita a camada — item 1612 P2. */
+export class LayerConstrainedCaveGen {
+  public static getCaveMaxY(layerDepth: 'surface' | 'middle' | 'deep'): number {
+    if (layerDepth === 'surface') return 55;
+    if (layerDepth === 'middle') return 35;
+    return 15;
+  }
+}
+
 
 

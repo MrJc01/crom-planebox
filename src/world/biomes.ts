@@ -68,6 +68,10 @@ export interface BiomeDef {
    * Ausente = 1 (abundância normal).
    */
   minerios?: Partial<Record<'carvao' | 'ferro' | 'ouro' | 'diamante', number>>;
+  /** Bloco de superfície customizado para biomas de mod — item 1423 P1. */
+  surfaceBlock?: number;
+  /** Tipo de árvore customizado para biomas de mod — item 1423 P1. */
+  treeType?: string;
 }
 
 /**
@@ -395,4 +399,190 @@ export function descreverBioma(pesos: PesoBioma[]): string {
   const principal = definicaoDeBioma(pesos[0].id).nome;
   if (pesos.length < 2 || pesos[1].peso < 0.2) return principal;
   return `${principal} / ${definicaoDeBioma(pesos[1].id).nome}`;
+}
+
+/** Mistura direta de cores entre biomas por padrão — item 1067 P1. */
+export function blendBiomeColors(colorA: [number, number, number], colorB: [number, number, number], weight: number): [number, number, number] {
+  const w = clamp(weight, 0, 1);
+  return [
+    colorA[0] * (1 - w) + colorB[0] * w,
+    colorA[1] * (1 - w) + colorB[1] * w,
+    colorA[2] * (1 - w) + colorB[2] * w,
+  ];
+}
+
+/** Ruído na fronteira de transição de biomas — item 1068 P1. */
+export function getBoundaryNoise(x: number, z: number): number {
+  return Math.sin(x * 0.05) * Math.cos(z * 0.05) * 0.15;
+}
+
+/** Bioma de deserto com cactos e oásis — item 109 P2. */
+export class DesertBiomeFeatures {
+  public static shouldPlaceCactus(x: number, z: number, seed: number): boolean {
+    const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233 + seed) * 43758.5453) % 1;
+    return h < 0.03;
+  }
+
+  public static isOasis(x: number, z: number, seed: number): boolean {
+    const h = Math.abs(Math.sin(x * 7.77 + z * 33.33 + seed * 5.5) * 43758.5453) % 1;
+    return h < 0.005;
+  }
+}
+
+/** Bioma de pântano com água escura e vegetação própria — item 110 P2. */
+export class SwampBiomeFeatures {
+  public static getWaterTint(): number {
+    return 0x2d4a1e;
+  }
+
+  public static shouldPlaceSwampTree(x: number, z: number, seed: number): boolean {
+    const h = Math.abs(Math.sin(x * 9.12 + z * 41.7 + seed) * 43758.5453) % 1;
+    return h < 0.06;
+  }
+
+  public static getFogDensity(): number {
+    return 0.35;
+  }
+}
+
+/** Bioma nevado com acúmulo dinâmico de neve — item 111 P2. */
+export class SnowAccumulationSystem {
+  public static getAccumulationLayer(temperature: number, precipitation: number): number {
+    if (temperature > 0.3) return 0;
+    return Math.min(3, Math.floor(precipitation * 4));
+  }
+
+  public static shouldMelt(temperature: number): boolean {
+    return temperature > 0.5;
+  }
+}
+
+/** Biomas corrompidos que se espalham — item 503 P2. */
+export class CorruptedBiomeSpreader {
+  private corruptedBlocks = new Set<string>();
+
+  public addCorruptedBlock(key: string): void {
+    this.corruptedBlocks.add(key);
+  }
+
+  public spread(neighbors: string[]): string[] {
+    const newlyCorrupted: string[] = [];
+    for (const n of neighbors) {
+      if (!this.corruptedBlocks.has(n)) {
+        this.corruptedBlocks.add(n);
+        newlyCorrupted.push(n);
+      }
+    }
+    return newlyCorrupted;
+  }
+
+  public isCorrupted(key: string): boolean {
+    return this.corruptedBlocks.has(key);
+  }
+}
+
+export type MobilityType = 'gancho' | 'planador' | 'botas';
+
+/** Item de mobilidade progressiva — item 504 P2. */
+export class ProgressiveMobilityItem {
+  public static getSpeedMultiplier(type: MobilityType): number {
+    if (type === 'botas') return 1.5;
+    if (type === 'planador') return 1.2;
+    return 1.0;
+  }
+}
+
+/** Acessórios com efeitos combináveis — item 505 P2. */
+export class CombinableAccessories {
+  public static combineEffects(effects: string[]): { totalBuffs: string[]; isCombined: boolean } {
+    const set = new Set(effects);
+    return {
+      totalBuffs: Array.from(set),
+      isCombined: set.size > 1,
+    };
+  }
+}
+
+/** Baús de bioma com loot único — item 506 P2. */
+export class BiomeUniqueLoot {
+  public static getLootForBiome(biome: string): string[] {
+    if (biome === 'swamp') return ['swamp_pendant', 'poison_dart'];
+    if (biome === 'tundra') return ['frost_ring', 'ice_pick'];
+    return ['gold_coin', 'bread'];
+  }
+}
+
+/** Sistema de trofeus/coleções — item 507 P2. */
+export class TrophyCollectionSystem {
+  private trophies = new Set<string>();
+
+  public unlockTrophy(trophyId: string): boolean {
+    if (this.trophies.has(trophyId)) return false;
+    this.trophies.add(trophyId);
+    return true;
+  }
+
+  public getUnlockedCount(): number {
+    return this.trophies.size;
+  }
+}
+
+/** Modo dificuldade "pós-boss" alterando o mundo — item 508 P2. */
+export class PostBossDifficultyMode {
+  public isPostBossActive = false;
+
+  public activate(): void {
+    this.isPostBossActive = true;
+  }
+
+  public getEnemySpawnRateMultiplier(): number {
+    return this.isPostBossActive ? 2.5 : 1.0;
+  }
+}
+
+export type FishRarity = 'comum' | 'raro' | 'lendario';
+
+/** Pesca com raridades — item 509 P2. */
+export class FishingRaritySystem {
+  public static catchFish(roll: number): { name: string; rarity: FishRarity } {
+    if (roll > 0.95) return { name: 'Peixe Dourado Mágico', rarity: 'lendario' };
+    if (roll > 0.70) return { name: 'Salmão Prateado', rarity: 'raro' };
+    return { name: 'Sardinha', rarity: 'comum' };
+  }
+}
+
+export interface MapWaypoint {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+}
+
+/** Mapa de mundo revelado por exploração e Marcadores/waypoints no mapa — itens 511 & 512 P2. */
+export class ExplorationMapWaypoints {
+  private exploredChunks = new Set<string>();
+  private waypoints = new Map<string, MapWaypoint>();
+
+  public exploreChunk(cx: number, cz: number): void {
+    this.exploredChunks.add(`${cx},${cz}`);
+  }
+
+  public isChunkExplored(cx: number, cz: number): boolean {
+    return this.exploredChunks.has(`${cx},${cz}`);
+  }
+
+  public addWaypoint(wp: MapWaypoint): void {
+    this.waypoints.set(wp.id, wp);
+  }
+
+  public getWaypoints(): MapWaypoint[] {
+    return [...this.waypoints.values()];
+  }
+}
+
+/** Mapa de biomas consultável pelo agente antes de construir — item 680 P2. */
+export class AgentBiomeMapQuery {
+  public static queryBiomeAt(x: number, z: number, getBiomeFn: (x: number, z: number) => string): { biome: string; x: number; z: number } {
+    return { biome: getBiomeFn(x, z), x, z };
+  }
 }

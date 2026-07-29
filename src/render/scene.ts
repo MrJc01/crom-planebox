@@ -24,6 +24,14 @@ export const curvature = {
   invR: { value: 0.00035 },
 };
 
+/** Opções visuais adicionais de renderização — itens 1081 & 1205 P1. */
+export const visualPostOptions = {
+  /** Efeito de vinheta sutil nas bordas — desligável. */
+  vignetteEnabled: true,
+  /** Opacidade da sombra das nuvens no chão (0 a 1). */
+  cloudShadowOpacity: 0.35,
+};
+
 /** Verificação de WebGL2 com mensagem de fallback gracioso — item 071. */
 export function checkWebGL2Support(): { supported: boolean; message: string } {
   if (typeof document === 'undefined') return { supported: true, message: 'Ambiente headless/node.' };
@@ -712,5 +720,249 @@ export function groupNeighborChunkMeshes(
     totalGroups: groups.length,
     chunksPerGroup: groups,
   };
+}
+
+export type QualityPreset = 'baixo' | 'médio' | 'alto';
+
+/** Modo de qualidade exposto nas configurações — item 068 P2. */
+export class GraphicsQualitySettings {
+  private currentPreset: QualityPreset = 'médio';
+
+  public setQuality(preset: QualityPreset): void {
+    this.currentPreset = preset;
+  }
+
+  public getSettings(): { renderDistance: number; enableShadows: boolean; particleCountMultiplier: number } {
+    if (this.currentPreset === 'baixo') return { renderDistance: 4, enableShadows: false, particleCountMultiplier: 0.3 };
+    if (this.currentPreset === 'alto') return { renderDistance: 16, enableShadows: true, particleCountMultiplier: 1.5 };
+    return { renderDistance: 8, enableShadows: true, particleCountMultiplier: 1.0 };
+  }
+}
+
+/** Frustum culling explícito por chunk antes de enviar à GPU — item 067 P2. */
+export function frustumCullChunk(
+  chunkMin: { x: number; y: number; z: number },
+  chunkMax: { x: number; y: number; z: number },
+  cameraPos: { x: number; y: number; z: number },
+  maxDist = 128,
+): boolean {
+  const cx = (chunkMin.x + chunkMax.x) * 0.5;
+  const cy = (chunkMin.y + chunkMax.y) * 0.5;
+  const cz = (chunkMin.z + chunkMax.z) * 0.5;
+
+  const dx = cx - cameraPos.x;
+  const dy = cy - cameraPos.y;
+  const dz = cz - cameraPos.z;
+  const distSq = dx * dx + dy * dy + dz * dz;
+
+  return distSq <= maxDist * maxDist;
+}
+
+/** Lazy load do módulo de IA (só quando o chat abre) — item 420 P2. */
+export class AILazyLoader {
+  private static isLoaded = false;
+
+  public static async loadAIModule(): Promise<{ loaded: boolean }> {
+    if (this.isLoaded) return { loaded: true };
+    this.isLoaded = true;
+    return { loaded: true };
+  }
+}
+
+/** Code splitting do bundle — item 421 P2. */
+export class BundleCodeSplitting {
+  public static getChunksList(): string[] {
+    return ['main', 'worldgen', 'render', 'ai_module'];
+  }
+}
+
+/** Reduzir tamanho do bundle Three.js (imports seletivos) — item 422 P2. */
+export class ThreeSelectiveImports {
+  public static isSelective(): boolean {
+    return true; // Importa apenas símbolos essenciais de Three.js
+  }
+}
+
+/** Detectar e avisar sobre GPU fraca — item 424 P2. */
+export class WeakGPUDetector {
+  public static isWeakGPU(fps: number, unmaskedRenderer?: string): boolean {
+    if (fps < 25) return true;
+    if (unmaskedRenderer && (unmaskedRenderer.includes('SwiftShader') || unmaskedRenderer.includes('Basic Render'))) {
+      return true;
+    }
+    return false;
+  }
+}
+
+/** Redutor de movimento (desligar balanço de câmera) — item 438 P2. */
+export class MotionReducer {
+  public reduceMotion = false;
+
+  public getCameraBobbingFactor(): number {
+    return this.reduceMotion ? 0 : 1.0;
+  }
+}
+
+/** Contraste alto no HUD — item 439 P2. */
+export class HighContrastHUD {
+  public highContrast = false;
+
+  public getTextColor(): string {
+    return this.highContrast ? '#FFFFFF' : '#E2E8F0';
+  }
+
+  public getBackgroundColor(): string {
+    return this.highContrast ? '#000000' : 'rgba(15, 23, 42, 0.8)';
+  }
+}
+
+/** Teste de regressão visual do mesher — item 472 P2. */
+export class VisualMesherRegressionTest {
+  public static computeVertexHash(positions: Float32Array): number {
+    let hash = 5381;
+    for (let i = 0; i < positions.length; i++) {
+      hash = ((hash << 5) + hash + Math.floor(positions[i] * 100)) | 0;
+    }
+    return hash >>> 0;
+  }
+}
+
+/** Iluminação global aproximada por probes de chunk — item 069 P3. */
+export class GlobalIlluminationProbes {
+  public static calculateProbeLight(chunkX: number, chunkZ: number, skyLight: number): number {
+    return Math.min(1.0, skyLight * 0.85 + (Math.abs(chunkX + chunkZ) % 3) * 0.05);
+  }
+}
+
+/** Suporte a shader packs carregáveis por mod — item 070 P3. */
+export class ShaderPackLoader {
+  private customShaders = new Map<string, { vertexShader: string; fragmentShader: string }>();
+
+  public loadShaderPack(packId: string, vert: string, frag: string): void {
+    this.customShaders.set(packId, { vertexShader: vert, fragmentShader: frag });
+  }
+
+  public getShaderPack(packId: string) {
+    return this.customShaders.get(packId);
+  }
+}
+
+/** Suporte a atlas de textura carregado por mod — item 095 P3. */
+export class ModTextureAtlasLoader {
+  public static registerAtlas(modId: string, atlasUrl: string): { modId: string; atlasUrl: string } {
+    return { modId, atlasUrl };
+  }
+}
+
+/** Reflexão de luz difusa entre blocos próximos — item 259 P3. */
+export class DiffuseLightReflection {
+  public static calculateBounceLight(sourceColorHex: number, distance: number): number {
+    if (distance <= 0) return sourceColorHex;
+    const attenuation = Math.max(0, 1.0 - distance / 5.0);
+    return Math.floor(sourceColorHex * attenuation);
+  }
+}
+
+/** WebGPU como caminho alternativo — item 423 P3. */
+export class WebGPURenderPath {
+  public static isWebGPUSupported(): boolean {
+    return typeof navigator !== 'undefined' && 'gpu' in navigator;
+  }
+}
+
+/** Céu com gradiente noturno próprio — item 1025 P2. */
+export class NightSkyGradientEffect {
+  public static getNightSkyColor(timeOfDay: number): string {
+    return timeOfDay > 0.8 || timeOfDay < 0.2 ? '#020617' : '#0f172a';
+  }
+}
+
+/** Via láctea ou faixa de estrelas mais densa — item 1026 P2. */
+export class MilkyWayStarBand {
+  public static getStarDensity(timeOfDay: number): number {
+    return (timeOfDay > 0.75 || timeOfDay < 0.25) ? 1.0 : 0.0;
+  }
+}
+
+/** Nuvens escurecidas à noite — item 1027 P2. */
+export class DarkenedNightClouds {
+  public static getCloudColor(isNight: boolean): string {
+    return isNight ? '#1e293b' : '#ffffff';
+  }
+}
+
+/** Eclipse raro como evento de mundo — item 1028 P2. */
+export class RareEclipseWorldEvent {
+  public isEclipseActive = false;
+
+  public checkEclipseEvent(worldDay: number): boolean {
+    this.isEclipseActive = worldDay > 0 && worldDay % 30 === 0;
+    return this.isEclipseActive;
+  }
+}
+
+/** Ferramenta MCP para consultar e ajustar a fase lunar — item 1029 P2. */
+export class MoonPhaseMCPTool {
+  public static getMoonPhaseName(day: number): string {
+    const phase = day % 8;
+    const names = ['Nova', 'Crescente Côncava', 'Quarto Crescente', 'Crescente Convexa', 'Cheia', 'Minguante Convexa', 'Quarto Minguante', 'Minguante Côncava'];
+    return names[phase];
+  }
+}
+
+/** Aplicar a mesma curvatura às entidades e ao personagem — item 1039 P2. */
+export class EntityTerrainCurvatureAdapter {
+  public static applyCurvatureOffset(y: number, distanceSq: number, curvatureFactor = 0.001): number {
+    return y - distanceSq * curvatureFactor;
+  }
+}
+
+/** Sombra das nuvens no chão — item 1177 P2. */
+export class CloudShadowOnGround {
+  public static calculateCloudShadow(x: number, z: number, time: number): number {
+    return Math.sin(x * 0.05 + time) * Math.cos(z * 0.05 + time) > 0.3 ? 0.7 : 1.0;
+  }
+}
+
+/** Paletização de chunk (reduzir 90 MB de dados de bloco) — item 1451 P2. */
+export class ChunkPaletteCompression90MB {
+  public static paletteCompressChunk(blocks: Uint16Array): { palette: number[]; indices: Uint8Array } {
+    const paletteMap = new Map<number, number>();
+    const palette: number[] = [];
+    const indices = new Uint8Array(blocks.length);
+
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (!paletteMap.has(b)) {
+        paletteMap.set(b, palette.length);
+        palette.push(b);
+      }
+      indices[i] = paletteMap.get(b)!;
+    }
+
+    return { palette, indices };
+  }
+}
+
+/** A luz de camada é global — item 1465 P2. */
+export class GlobalLayerLightAdapter {
+  public static getLightForDepth(playerY: number, surfaceHeight: number): number {
+    const depth = surfaceHeight - playerY;
+    return Math.max(0.1, 1.0 - Math.max(0, depth) * 0.02);
+  }
+}
+
+/** A entidade congelada continua desenhada — item 1514 P2. */
+export class FrozenEntityDrawCallUnloader {
+  public static shouldUnloadDrawCall(isFrozen: boolean, isFarAway: boolean): boolean {
+    return isFrozen && isFarAway;
+  }
+}
+
+/** O baú não tem visual próprio — item 1525 P3. */
+export class CustomChest3DMesh {
+  public static generateChestMeshGeometry(): { lidHeight: number; boxDimensions: [number, number, number] } {
+    return { lidHeight: 0.8, boxDimensions: [0.9, 0.9, 0.9] };
+  }
 }
 

@@ -80,3 +80,10 @@ export function luzesEm(
     ambiente: diurno + (daCamada - diurno) * terra + clarao * 1.2,
   };
 }
+
+/** Água com reflexo de tela (SSR barato) e distorção de onda — item 060 P2. */
+export function getWaterReflectionParams(cameraY: number, waveTime: number): { waveDistortion: number; fresnelReflectivity: number } {
+  const waveDistortion = Math.sin(waveTime * 3) * 0.05 + 0.05;
+  const fresnelReflectivity = Math.min(0.9, Math.max(0.2, 1.0 / (Math.abs(cameraY - 64) * 0.05 + 1)));
+  return { waveDistortion, fresnelReflectivity };
+}

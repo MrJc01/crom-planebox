@@ -249,6 +249,25 @@ export class WorldRepository {
     await db.chatMessages.where('worldId').equals(worldId).delete();
   }
 
+  /**
+   * Ponto de entrada para criação de mundo de testes determinístico — item 1574 P1.
+   */
+  static async createDeterministicTestWorld(fixedSeed = 12345): Promise<WorldRecord> {
+    const world: WorldRecord = {
+      id: `test-world-${fixedSeed}`,
+      name: `Mundo de Testes (${fixedSeed})`,
+      createdAt: 1000000,
+      updatedAt: 1000000,
+      seed: fixedSeed,
+      groundHeight: 64,
+      fov: 75,
+      cameraMode: 'fps',
+      defaultGameMode: 'creative',
+    };
+    await db.worlds.put(world);
+    return world;
+  }
+
   // Application Settings
   static async getSettings(): Promise<AppSettingsRecord> {
     const record = await db.settings.get('config');

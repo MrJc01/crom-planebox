@@ -21,6 +21,18 @@ export class UndoManager {
 
   constructor(private world: World) {}
 
+  /** Limite de memória e histórico configurável — item 046 P2. */
+  public setMaxHistory(limit: number): void {
+    this.maxHistory = Math.max(1, Math.floor(limit));
+    while (this.undoStack.length > this.maxHistory) {
+      this.undoStack.shift();
+    }
+  }
+
+  public getMaxHistory(): number {
+    return this.maxHistory;
+  }
+
   public recordBatch(changes: BlockChange[]): void {
     if (!changes || changes.length === 0) return;
     this.undoStack.push(changes);

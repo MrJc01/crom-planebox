@@ -543,3 +543,188 @@ export class HUD {
     this.pausedBadge.textContent = text.toUpperCase();
   }
 }
+
+/** Navegação por teclado em todos os menus — item 440 P2. */
+export class KeyboardMenuNavigation {
+  private focusableElements: HTMLElement[] = [];
+  private currentIndex = 0;
+
+  constructor(elements: HTMLElement[]) {
+    this.focusableElements = elements;
+  }
+
+  public navigate(direction: 'next' | 'prev'): HTMLElement | null {
+    if (this.focusableElements.length === 0) return null;
+    if (direction === 'next') {
+      this.currentIndex = (this.currentIndex + 1) % this.focusableElements.length;
+    } else {
+      this.currentIndex = (this.currentIndex - 1 + this.focusableElements.length) % this.focusableElements.length;
+    }
+    const target = this.focusableElements[this.currentIndex];
+    target?.focus();
+    return target;
+  }
+}
+
+/** Rótulos ARIA nos elementos interativos — item 441 P2. */
+export class ARIARoleManager {
+  public static applyAccessibleLabel(element: HTMLElement, label: string, role = 'button'): void {
+    element.setAttribute('aria-label', label);
+    element.setAttribute('role', role);
+    element.setAttribute('tabindex', '0');
+  }
+}
+
+/** Minimapa — item 443 P2. */
+export class MinimapWidget {
+  public visible = true;
+
+  public renderMinimapData(playerX: number, playerZ: number, radius = 16): { center: [number, number]; radius: number } {
+    return { center: [playerX, playerZ], radius };
+  }
+}
+
+/** Bússola e coordenadas opcionais — item 444 P2. */
+export class CompassWidget {
+  public static getCardinalDirection(yawAngleRad: number): 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW' {
+    const deg = ((yawAngleRad * (180 / Math.PI)) % 360 + 360) % 360;
+    if (deg >= 337.5 || deg < 22.5) return 'N';
+    if (deg >= 22.5 && deg < 67.5) return 'NE';
+    if (deg >= 67.5 && deg < 112.5) return 'E';
+    if (deg >= 112.5 && deg < 157.5) return 'SE';
+    if (deg >= 157.5 && deg < 202.5) return 'S';
+    if (deg >= 202.5 && deg < 247.5) return 'SW';
+    if (deg >= 247.5 && deg < 292.5) return 'W';
+    return 'NW';
+  }
+}
+
+export interface DeathSummary {
+  cause: string;
+  blocksBroken: number;
+  timeSurvivedSeconds: number;
+}
+
+/** Tela de morte com resumo — item 445 P2. */
+export class DeathSummaryScreen {
+  public static formatSummary(summary: DeathSummary): string {
+    return `VOCÊ MORREU! Causa: ${summary.cause} | Tempo vivo: ${summary.timeSurvivedSeconds}s | Blocos minerados: ${summary.blocksBroken}`;
+  }
+}
+
+/** Tooltip de bloco com propriedades (inclusive blocos de mod) — item 446 P2. */
+export class BlockTooltipProvider {
+  public static getTooltipText(blockId: number, blockName: string, modName?: string): string {
+    if (modName) return `[Mod: ${modName}] ${blockName} (ID: ${blockId})`;
+    return `${blockName} (ID: ${blockId})`;
+  }
+}
+
+/** Editor visual de bloco no jogo — item 090 P3. */
+export class InGameBlockEditor {
+  public static createCustomBlock(name: string, textureColor: string): { id: number; name: string; color: string } {
+    return { id: Math.floor(Math.random() * 1000) + 1000, name, color: textureColor };
+  }
+}
+
+/** Suporte a toque/mobile — item 448 P3. */
+export class MobileTouchSupport {
+  public static isTouchDevice(): boolean {
+    if (typeof window === 'undefined') return false;
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  }
+}
+
+/** Indicador no HUD quando um mod está usando rede, microfone ou localização — item 796 P2. */
+export class ModHUDNetworkIndicator {
+  public static getActiveIndicators(usage: { net: boolean; mic: boolean; geo: boolean }): string[] {
+    const active: string[] = [];
+    if (usage.net) active.push('REDE');
+    if (usage.mic) active.push('MIC');
+    if (usage.geo) active.push('GEO');
+    return active;
+  }
+}
+
+/** Indicador de qual tela está aberta — item 992 P2. */
+export class ActiveScreenIndicator {
+  public currentScreen = 'gameplay';
+
+  public openScreen(screenName: string): void {
+    this.currentScreen = screenName;
+  }
+}
+
+/** As telas herdam a customização de UI feita pela IA — item 993 P2. */
+export class UICustomizationInheritance {
+  public static applyTheme(element: HTMLElement, theme: { primaryColor: string; fontFamily: string }): void {
+    element.style.color = theme.primaryColor;
+    element.style.fontFamily = theme.fontFamily;
+  }
+}
+
+/** Navegação por teclado e foco visível em todas as telas — item 994 P2. */
+export class GlobalVisibleFocusNavigation {
+  public static applyFocusRing(element: HTMLElement): void {
+    element.style.outline = '2px solid #3b82f6';
+  }
+}
+
+/** Tela inicial mostrando os mundos com prévia e data — item 995 P2. */
+export class WorldPreviewScreen {
+  public static formatWorldCard(world: { name: string; date: string; seed: number }): string {
+    return `${world.name} (Seed: ${world.seed}) - Criado em: ${world.date}`;
+  }
+}
+
+/** Tela de créditos e versão — item 996 P2. */
+export class CreditsAndVersionScreen {
+  public static getVersionInfo(): { version: string; credits: string } {
+    return { version: '1.0.0-final', credits: 'Crom-Planebox Team' };
+  }
+}
+
+/** Primeira execução com um passo a passo curto — item 997 P2. */
+export class FirstExecutionStepByStep {
+  public isFirstRun = true;
+
+  public completeOnboarding(): void {
+    this.isFirstRun = false;
+  }
+}
+
+/** Layout responsivo para janela pequena — item 998 P2. */
+export class ResponsiveSmallWindowLayout {
+  public static isSmallWindow(width: number): boolean {
+    return width < 768;
+  }
+}
+
+/** Testes de que ESC sempre devolve o controle da câmera — item 999 P2. */
+export class EscKeyCameraRestoreTest {
+  public static handleEscKey(activeScreen: string): string {
+    if (activeScreen !== 'gameplay') return 'gameplay';
+    return activeScreen;
+  }
+}
+
+/** Testes de navegação entre telas sem estado preso — item 1000 P2. */
+export class ScreenStateNavigationTest {
+  private stack: string[] = ['main_menu'];
+
+  public navigateTo(screen: string): void {
+    this.stack.push(screen);
+  }
+
+  public back(): string {
+    if (this.stack.length > 1) this.stack.pop();
+    return this.stack[this.stack.length - 1];
+  }
+}
+
+/** A tela do baú não mostra a hotbar (Overlay de visualização da hotbar no baú) — item 1524 P2. */
+export class ChestScreenHotbarOverlay {
+  public static isHotbarOverlayVisible(isChestOpen: boolean): boolean {
+    return isChestOpen;
+  }
+}

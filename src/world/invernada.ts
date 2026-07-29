@@ -186,3 +186,35 @@ export class Invernada {
     this.fase = 'parado';
   }
 }
+
+/**
+ * Poças aparecem com a chuva e secam com o sol — item 1621 P1.
+ */
+export function updateRainPuddles(
+  world: { surfaceY: (x: number, z: number) => number; getBlock: (x: number, y: number, z: number) => number; setBlock: (x: number, y: number, z: number, block: number) => void },
+  isRaining: boolean,
+  originX = 0,
+  originZ = 0,
+  radius = 4,
+): number {
+  let count = 0;
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      if (Math.hypot(dx, dz) <= radius) {
+        const x = originX + dx;
+        const z = originZ + dz;
+        const y = world.surfaceY(x, z);
+        const topBlock = world.getBlock(x, y, z);
+
+        if (isRaining && topBlock === B.DIRT) {
+          world.setBlock(x, y + 1, z, B.WATER);
+          count++;
+        } else if (!isRaining && topBlock === B.WATER) {
+          world.setBlock(x, y, z, B.AIR);
+          count++;
+        }
+      }
+    }
+  }
+  return count;
+}

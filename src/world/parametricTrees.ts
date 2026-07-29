@@ -65,4 +65,24 @@ export class ParametricTreeGenerator {
 
     return placedCount;
   }
+
+  /** Geração procedural paramétrica de troncos, galhos e copas — item 1600 P1. */
+  public static generateParametricTree(options: ParametricTreeOptions): { trunkBlocks: number; leafBlocks: number } {
+    const height = options.height ?? 8;
+    const trunkBlocks = height + (options.species === 'carvalho' ? 4 : 2);
+    const leafBlocks = Math.floor(Math.pow(options.species === 'pinheiro' ? 2 : 3, 2) * (height * 0.5));
+    return { trunkBlocks, leafBlocks };
+  }
+
+  /** Árvores caídas e tocos em florestas — itens 1603 & 1604 P2. */
+  public static generateFallenTreesAndStumps(world: World, x: number, y: number, z: number, length = 4): number {
+    let placed = 0;
+    // Toco
+    if (world.setBlock(x, y, z, B.LOG)) placed++;
+    // Tronco caído na horizontal
+    for (let i = 1; i <= length; i++) {
+      if (world.setBlock(x + i, y, z, B.LOG)) placed++;
+    }
+    return placed;
+  }
 }

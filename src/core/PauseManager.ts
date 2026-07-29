@@ -134,3 +134,20 @@ export function pauseWorldInSingleplayer(
   }
   return currentPause;
 }
+
+/**
+ * Alerta de confirmação no fechamento da página para prevenir perda de progresso — item 1591 P1.
+ */
+export function setupBeforeUnloadHandler(isSessionActive: () => boolean): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  const handler = (e: BeforeUnloadEvent) => {
+    if (!isSessionActive()) return;
+    e.preventDefault();
+    e.returnValue = 'Tem certeza de que deseja sair? O progresso não salvo pode ser perdido.';
+    return e.returnValue;
+  };
+
+  window.addEventListener('beforeunload', handler);
+  return () => window.removeEventListener('beforeunload', handler);
+}

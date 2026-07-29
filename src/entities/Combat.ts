@@ -178,3 +178,163 @@ export const MOB_PROFILES: Record<MobKind, MobProfile> = {
 };
 
 export const MOB_KINDS: MobKind[] = ['zumbi', 'esqueleto', 'aranha'];
+
+export type StatusEffectId = 'veneno' | 'regeneracao' | 'velocidade' | 'resistencia' | 'lentidao';
+
+export interface ActiveStatusEffect {
+  id: StatusEffectId;
+  duration: number;
+  level: number;
+}
+
+/** Efeitos de status (veneno, regeneração, velocidade) — item 131 P2. */
+export class StatusEffectSystem {
+  private effects: ActiveStatusEffect[] = [];
+
+  public apply(id: StatusEffectId, duration: number, level = 1): void {
+    const existing = this.effects.find(e => e.id === id);
+    if (existing) { existing.duration = Math.max(existing.duration, duration); existing.level = level; }
+    else this.effects.push({ id, duration, level });
+  }
+
+  public tick(dt: number): { healthDelta: number; speedMultiplier: number } {
+    let healthDelta = 0;
+    let speedMultiplier = 1.0;
+    this.effects = this.effects.filter(e => {
+      e.duration -= dt;
+      if (e.id === 'veneno') healthDelta -= e.level * dt;
+      if (e.id === 'regeneracao') healthDelta += e.level * 0.5 * dt;
+      if (e.id === 'velocidade') speedMultiplier += 0.2 * e.level;
+      if (e.id === 'lentidao') speedMultiplier -= 0.15 * e.level;
+      return e.duration > 0;
+    });
+    return { healthDelta, speedMultiplier: Math.max(0.1, speedMultiplier) };
+  }
+
+  public active(): ActiveStatusEffect[] {
+    return [...this.effects];
+  }
+}
+
+export interface PotionRecipe {
+  id: string;
+  name: string;
+  effect: StatusEffectId;
+  duration: number;
+  level: number;
+  ingredients: number[];
+}
+
+/** Poções craftáveis — item 132 P2. */
+export class PotionCrafting {
+  private static readonly RECIPES: PotionRecipe[] = [
+    { id: 'potion_health', name: 'Poção de Cura', effect: 'regeneracao', duration: 10, level: 1, ingredients: [14, 6] },
+    { id: 'potion_speed', name: 'Poção de Velocidade', effect: 'velocidade', duration: 30, level: 1, ingredients: [4, 6] },
+    { id: 'potion_resist', name: 'Poção de Resistência', effect: 'resistencia', duration: 60, level: 1, ingredients: [3, 6] },
+  ];
+
+  public static getRecipes(): PotionRecipe[] {
+    return [...this.RECIPES];
+  }
+
+  public static canCraft(availableItems: number[]): PotionRecipe[] {
+    return this.RECIPES.filter(r => r.ingredients.every(i => availableItems.includes(i)));
+  }
+}
+
+/** Bloqueio/parry com escudo — item 153 P2. */
+export class ShieldParry {
+  public isBlocking = false;
+  private parryWindowMs = 200;
+  private blockStartTime = 0;
+
+  public startBlock(timestamp: number): void {
+    this.isBlocking = true;
+    this.blockStartTime = timestamp;
+  }
+
+  public stopBlock(): void {
+    this.isBlocking = false;
+  }
+
+  public calculateDamageReduction(incomingDamage: number, timestamp: number): { finalDamage: number; isParry: boolean } {
+    if (!this.isBlocking) return { finalDamage: incomingDamage, isParry: false };
+    const elapsed = timestamp - this.blockStartTime;
+    if (elapsed <= this.parryWindowMs) {
+      return { finalDamage: 0, isParry: true }; // parry perfeito
+    }
+    return { finalDamage: incomingDamage * 0.3, isParry: false }; // bloqueio normal
+  }
+}
+
+/** Ataque carregado — item 154 P2. */
+export class ChargedAttack {
+  private chargeStart = 0;
+  private maxChargeMs = 2000;
+
+  public startCharge(timestamp: number): void {
+    this.chargeStart = timestamp;
+  }
+
+  public release(timestamp: number, baseDamage: number): { damage: number; chargePercent: number } {
+    const elapsed = timestamp - this.chargeStart;
+    const chargePercent = Math.min(1.0, elapsed / this.maxChargeMs);
+    const multiplier = 1.0 + chargePercent * 2.0; // até 3x dano
+    return { damage: baseDamage * multiplier, chargePercent };
+  }
+}
+
+export type ElementType = 'fogo' | 'gelo' | 'raio' | 'fisico';
+
+/** Inimigos com resistências elementais — item 155 P2. */
+export class ElementalResistance {
+  private resistances = new Map<ElementType, number>(); // 0 = sem redução, 1 = imune, <0 = fraqueza
+
+  public setResistance(element: ElementType, factor: number): void {
+    this.resistances.set(element, factor);
+  }
+
+  public calculateDamage(rawDamage: number, element: ElementType): number {
+    const res = this.resistances.get(element) ?? 0;
+    const finalDamage = rawDamage * (1 - res);
+    return Math.max(0, finalDamage);
+  }
+}
+
+export type BossPhase = 'fase1' | 'fase2' | 'fase3';
+
+/** Bosses com fases e padrões de ataque — item 156 P2. */
+export class BossPhasePattern {
+  public currentPhase: BossPhase = 'fase1';
+  private maxHealth: number;
+
+  constructor(maxHealth = 100) {
+    this.maxHealth = maxHealth;
+  }
+
+  public updatePhase(currentHealth: number): BossPhase {
+    const pct = currentHealth / this.maxHealth;
+    if (pct <= 0.3) this.currentPhase = 'fase3';
+    else if (pct <= 0.6) this.currentPhase = 'fase2';
+    else this.currentPhase = 'fase1';
+    return this.currentPhase;
+  }
+
+  public getAttackPattern(): string {
+    if (this.currentPhase === 'fase3') return 'frenzy_area_attack';
+    if (this.currentPhase === 'fase2') return 'charge_and_summon';
+    return 'basic_melee';
+  }
+}
+
+/** Arenas de boss com invocação por item — item 157 P2. */
+export class BossSummonArena {
+  public static canSummon(itemId: string, x: number, y: number, z: number): boolean {
+    return itemId === 'item_invocacao_boss' && y >= 64;
+  }
+
+  public static summonBoss(itemId: string, x: number, y: number, z: number): { bossSpawned: boolean; bossId: string; arenaRadius: number } | null {
+    if (!this.canSummon(itemId, x, y, z)) return null;
+    return { bossSpawned: true, bossId: 'boss_rei_voxel', arenaRadius: 25 };
+  }
+}

@@ -343,10 +343,10 @@ export class ChatOverlay {
     this.worldChatInputField.value = '';
 
     if (CommandSystem.isCommand(text)) {
-      if (text.startsWith('/ia ') || text === '/ia') {
-        const prompt = text.replace(/^\/ia\s*/, '').trim();
+      if (text.startsWith('/ia ') || text === '/ia' || text.startsWith('/ai ') || text === '/ai') {
+        const prompt = text.replace(/^\/(ia|ai)\s*/, '').trim();
         if (!prompt) {
-          this.receiveWorldChatMessage('', 'Uso: /ia <mensagem> — Envia um pedido para o Assistente IA.', true);
+          this.receiveWorldChatMessage('', 'Uso: /ia <mensagem> ou /ai <mensagem> — Envia um pedido para o Assistente IA.', true);
           return;
         }
         this.receiveWorldChatMessage(this.localPlayerName, text);

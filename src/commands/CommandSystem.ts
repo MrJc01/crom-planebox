@@ -36,7 +36,8 @@ export interface CommandResult {
 
 const COMMAND_NAMES = [
   'op', 'deop', 'gamemode', 'kick', 'tp', 'crom',
-  'clima', 'weather', 'seed', 'coords', 'list', 'give', 'help', 'ajuda'
+  'clima', 'weather', 'seed', 'coords', 'list', 'give', 'help', 'ajuda',
+  'time', 'spawn', 'clear'
 ];
 
 interface CommandDef {
@@ -54,6 +55,9 @@ const COMMAND_DOCS: CommandDef[] = [
   { name: 'tp', usage: '/tp <x> <y> <z>', description: 'Teleporta você mesmo para as coordenadas XYZ' },
   { name: 'clima', usage: '/clima <limpo|chuva|tempestade|neve>', description: 'Altera o clima do mundo (requer OP)', requireOp: true },
   { name: 'weather', usage: '/weather <clear|rain|storm|snow>', description: 'Altera o clima do mundo (requer OP)', requireOp: true },
+  { name: 'time', usage: '/time <day|night|dia|noite>', description: 'Altera o ciclo solar entre dia e noite' },
+  { name: 'spawn', usage: '/spawn', description: 'Teleporta o jogador de volta para o ponto inicial de spawn' },
+  { name: 'clear', usage: '/clear', description: 'Limpa os itens da barra do jogador' },
   { name: 'seed', usage: '/seed', description: 'Exibe a semente do mundo atual' },
   { name: 'coords', usage: '/coords', description: 'Exibe sua posição atual (X, Y, Z)' },
   { name: 'list', usage: '/list', description: 'Lista os jogadores conectados no mundo' },

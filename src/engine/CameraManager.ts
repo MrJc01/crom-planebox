@@ -214,4 +214,45 @@ export class CameraManager {
   public getActiveCameraPosition(): THREE.Vector3 {
     return this.activeCamera.position;
   }
+
+  private entityCameraTarget: THREE.Vector3 | null = null;
+
+  /**
+   * Define o ponto de vista de câmera focado em uma entidade (para cinemáticas ou vigilância) — item 1559 P1.
+   */
+  public setEntityCameraTarget(targetPos?: THREE.Vector3): void {
+    this.entityCameraTarget = targetPos ? targetPos.clone() : null;
+    if (this.entityCameraTarget) {
+      this.activeCamera.position.copy(this.entityCameraTarget).add(new THREE.Vector3(0, 1.6, 0));
+      this.activeCamera.lookAt(this.entityCameraTarget);
+    }
+  }
+
+  public getEntityCameraTarget(): THREE.Vector3 | null {
+    return this.entityCameraTarget;
+  }
+}
+
+/** Ombro esquerdo/direito na câmera de 3ª pessoa — item 599 P2. */
+export class OverTheShoulderCamera {
+  public shoulder: 'left' | 'right' = 'right';
+
+  public toggleShoulder(): 'left' | 'right' {
+    this.shoulder = this.shoulder === 'right' ? 'left' : 'right';
+    return this.shoulder;
+  }
+
+  public getShoulderOffset(): number {
+    return this.shoulder === 'right' ? 0.75 : -0.75;
+  }
+}
+
+/** Modo construção 2D lateral opcional — item 510 P3. */
+export class SideConstructionMode2D {
+  public is2DMode = false;
+
+  public toggle2DMode(): boolean {
+    this.is2DMode = !this.is2DMode;
+    return this.is2DMode;
+  }
 }

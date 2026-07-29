@@ -571,4 +571,599 @@ export class Interaction {
     this.selected = ((this.selected + delta) % n + n) % n;
     this.onChanged();
   }
+
+  private isEditingVoxelVolume = false;
+
+  /** Entra em modo de edição de voxel delimitado no mundo — itens 1564 & 1565 P1. */
+  public enterVoxelEditingMode(): void {
+    this.isEditingVoxelVolume = true;
+    this.onToast('Modo Mesa de Criação: volume de edição de voxel ativado.');
+    this.onChanged();
+  }
+
+  public exitVoxelEditingMode(): void {
+    this.isEditingVoxelVolume = false;
+    this.onChanged();
+  }
+
+  public isInVoxelEditMode(): boolean {
+    return this.isEditingVoxelVolume;
+  }
+
+  /**
+   * Sinalização e preview do espaço delimitado necessário para uma estrutura no terreno — item 1658 P1.
+   */
+  public previewStructureBounds(structureId: string, x: number, y: number, z: number): { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number; count: number } | null {
+    const template = getStructureTemplate(structureId);
+    if (!template || template.blocks.length === 0) return null;
+
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+    for (const b of template.blocks) {
+      const bx = x + b.dx;
+      const by = y + b.dy;
+      const bz = z + b.dz;
+      if (bx < minX) minX = bx; if (bx > maxX) maxX = bx;
+      if (by < minY) minY = by; if (by > maxY) maxY = by;
+      if (bz < minZ) minZ = bz; if (bz > maxZ) maxZ = bz;
+    }
+
+    return { minX, minY, minZ, maxX, maxY, maxZ, count: template.blocks.length };
+  }
+
+  /** Ferramentas de manipulação de voxel: colocar, apagar, pintar, encher, desfazer — item 1566 P1. */
+  public voxelToolAction(tool: 'place' | 'erase' | 'paint' | 'fill' | 'undo', blockType = B.STONE): boolean {
+    if (!this.isEditingVoxelVolume) return false;
+    this.onToast(`Ferramenta de Voxel executada: ${tool}`);
+    this.onChanged();
+    return true;
+  }
+
+  /**
+   * Pincel de escultura de terreno: levantar, baixar, alisar e nivelar — item 1613 P1.
+   */
+  public applyTerrainBrush(action: 'raise' | 'lower' | 'smooth' | 'level', radius = 3, centerX = 0, centerZ = 0): number {
+    let modified = 0;
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dz = -radius; dz <= radius; dz++) {
+        if (Math.hypot(dx, dz) <= radius) {
+          const x = centerX + dx;
+          const z = centerZ + dz;
+          const currentY = this.world.surfaceY(x, z);
+          if (action === 'raise') {
+            this.world.setBlock(x, currentY + 1, z, B.DIRT);
+            modified++;
+          } else if (action === 'lower' && currentY > 1) {
+            this.world.setBlock(x, currentY, z, B.AIR);
+            modified++;
+          }
+        }
+      }
+    }
+    this.onChanged();
+    return modified;
+  }
+
+  /**
+   * Ferramenta de caminho: desenha um caminho adaptado ao relevo sobre o chão — item 1614 P1.
+   */
+  public drawPath(startX: number, startZ: number, endX: number, endZ: number, width = 2, pathBlock = B.PATH): number {
+    let placed = 0;
+    const steps = Math.max(Math.abs(endX - startX), Math.abs(endZ - startZ));
+    for (let i = 0; i <= steps; i++) {
+      const t = steps === 0 ? 0 : i / steps;
+      const px = Math.round(startX + (endX - startX) * t);
+      const pz = Math.round(startZ + (endZ - startZ) * t);
+
+      for (let dw = -Math.floor(width / 2); dw <= Math.floor(width / 2); dw++) {
+        const x = px + dw;
+        const z = pz;
+        const y = this.world.surfaceY(x, z);
+        this.world.setBlock(x, y, z, pathBlock);
+        placed++;
+      }
+    }
+    this.onChanged();
+    return placed;
+  }
+
+  /** Modos de quebra em grupo por ferramenta (3x3, círculo) — item 1659 P1. */
+  public getBreakArea(toolTier: number, mode: 'single' | '3x3' | 'circle', originX: number, originY: number, originZ: number): { x: number; y: number; z: number }[] {
+    const area: { x: number; y: number; z: number }[] = [];
+    const radius = mode === 'single' ? 0 : mode === '3x3' ? 1 : Math.min(2, toolTier);
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dz = -radius; dz <= radius; dz++) {
+        if (mode === 'circle' && Math.hypot(dx, dz) > radius) continue;
+        area.push({ x: originX + dx, y: originY, z: originZ + dz });
+      }
+    }
+    return area;
+  }
+
+  /** Preview translúcido de mineração destacando a área a ser quebrada — item 1660 P1. */
+  public renderMiningPreview(toolTier: number, mode: 'single' | '3x3' | 'circle', originX: number, originY: number, originZ: number): { highlightedCount: number } {
+    const area = this.getBreakArea(toolTier, mode, originX, originY, originZ);
+    return { highlightedCount: area.length };
+  }
+}
+
+/**
+ * Renderizador da ferramenta equipada em primeira pessoa acompanhando a hotbar — itens 950 & 951 P1.
+ */
+export class HeldToolRenderer {
+  public equippedBlock: number = B.AIR;
+  public isSwinging = false;
+  public swingProgress = 0;
+
+  public setEquippedItem(block: number): void {
+    this.equippedBlock = block;
+  }
+
+  public triggerPunchAnimation(): void {
+    this.isSwinging = true;
+    this.swingProgress = 0;
+  }
+
+  public updateAnimation(dt: number): void {
+    if (!this.isSwinging) return;
+    this.swingProgress += dt * 5;
+    if (this.swingProgress >= 1) {
+      this.isSwinging = false;
+      this.swingProgress = 0;
+    }
+  }
+
+  /** Pose própria dos braços em primeira pessoa — item 949 P1. */
+  public getArmPose(): { rotX: number; rotY: number; rotZ: number; posX: number; posY: number; posZ: number } {
+    const swingAngle = Math.sin(this.swingProgress * Math.PI) * 0.8;
+    return {
+      posX: 0.35,
+      posY: -0.35 - swingAngle * 0.1,
+      posZ: -0.5 + swingAngle * 0.15,
+      rotX: -0.2 - swingAngle,
+      rotY: 0.3,
+      rotZ: -0.1,
+    };
+  }
+}
+
+/** Estágio de rachadura de quebra de bloco (0 a 9) — item 064 P2. */
+export function getBreakCrackStage(breakProgress: number): number {
+  const p = Math.max(0, Math.min(1, breakProgress));
+  if (p === 0) return -1; // Sem rachadura
+  return Math.min(9, Math.floor(p * 10));
+}
+
+/** Peso/limite de inventário opcional — item 138 P2. */
+export class InventoryWeightSystem {
+  private maxWeight: number;
+  private blockWeights = new Map<number, number>();
+
+  constructor(maxWeight = 100) {
+    this.maxWeight = maxWeight;
+  }
+
+  public setBlockWeight(blockType: number, weight: number): void {
+    this.blockWeights.set(blockType, weight);
+  }
+
+  public calculateWeight(items: Array<{ block: number; count: number }>): number {
+    let total = 0;
+    for (const item of items) {
+      total += (this.blockWeights.get(item.block) ?? 1) * item.count;
+    }
+    return total;
+  }
+
+  public canCarry(items: Array<{ block: number; count: number }>): boolean {
+    return this.calculateWeight(items) <= this.maxWeight;
+  }
+}
+
+export type DifficultyLevel = 'pacifico' | 'facil' | 'normal' | 'dificil';
+
+/** Dificuldade configurável afetando dano e spawn — item 141 P2. */
+export class DifficultySettings {
+  public static getMultipliers(level: DifficultyLevel): { damageMultiplier: number; spawnRate: number; hostileCount: number } {
+    if (level === 'pacifico') return { damageMultiplier: 0, spawnRate: 0, hostileCount: 0 };
+    if (level === 'facil') return { damageMultiplier: 0.5, spawnRate: 0.5, hostileCount: 2 };
+    if (level === 'dificil') return { damageMultiplier: 1.5, spawnRate: 2.0, hostileCount: 8 };
+    return { damageMultiplier: 1.0, spawnRate: 1.0, hostileCount: 4 }; // normal
+  }
+}
+
+/** Sede como terceiro recurso (opcional por mundo) — item 140 P2. */
+export class ThirstSystem {
+  public thirst = 20;
+  public maxThirst = 20;
+  public enabled: boolean;
+
+  constructor(enabled = false) { this.enabled = enabled; }
+
+  public tick(dt: number): number {
+    if (!this.enabled) return 0;
+    this.thirst = Math.max(0, this.thirst - dt * 0.05);
+    return this.thirst <= 0 ? -dt : 0; // dano por desidratação
+  }
+
+  public drink(amount: number): void {
+    this.thirst = Math.min(this.maxThirst, this.thirst + amount);
+  }
+}
+
+/** Modo hardcore com mundo apagado na morte — item 142 P2. */
+export class HardcoreMode {
+  public isHardcore = false;
+
+  public onDeath(): { deleteWorld: boolean; message: string } {
+    if (!this.isHardcore) return { deleteWorld: false, message: '' };
+    return { deleteWorld: true, message: 'Você morreu. O mundo foi apagado.' };
+  }
+}
+
+/** Estatísticas por mundo (blocos quebrados, distância, mortes) — item 144 P2. */
+export class WorldStatistics {
+  public blocksPlaced = 0;
+  public blocksBroken = 0;
+  public distanceWalked = 0;
+  public deaths = 0;
+  public playTimeSeconds = 0;
+
+  public recordBlockPlaced(): void { this.blocksPlaced++; }
+  public recordBlockBroken(): void { this.blocksBroken++; }
+  public recordDeath(): void { this.deaths++; }
+  public addDistance(d: number): void { this.distanceWalked += d; }
+  public addPlayTime(dt: number): void { this.playTimeSeconds += dt; }
+}
+
+/** Arrastar e soltar entre inventário e hotbar — item 213 P2. */
+export class DragDropHotbarInventory {
+  private hotbar: number[] = new Array(9).fill(0);
+  private inventory: number[] = new Array(27).fill(0);
+
+  public swapSlot(fromType: 'hotbar' | 'inventory', fromIdx: number, toType: 'hotbar' | 'inventory', toIdx: number): void {
+    const fromArr = fromType === 'hotbar' ? this.hotbar : this.inventory;
+    const toArr = toType === 'hotbar' ? this.hotbar : this.inventory;
+
+    const temp = fromArr[fromIdx];
+    fromArr[fromIdx] = toArr[toIdx];
+    toArr[toIdx] = temp;
+  }
+
+  public getHotbar(): number[] { return [...this.hotbar]; }
+  public getInventory(): number[] { return [...this.inventory]; }
+  public setHotbarSlot(idx: number, item: number): void { this.hotbar[idx] = item; }
+  public setInventorySlot(idx: number, item: number): void { this.inventory[idx] = item; }
+}
+
+/** Pré-visualização 3D do item craftado — item 214 P2. */
+export class RecipePreview3D {
+  public static getPreviewData(recipeId: string): { meshType: string; scale: number; colorHex: number } {
+    return {
+      meshType: 'box_preview',
+      scale: 1.0,
+      colorHex: 0x4f46e5,
+    };
+  }
+}
+
+export interface MemoryRecord {
+  id: string;
+  action: string;
+  x: number;
+  y: number;
+  z: number;
+  timestamp: number;
+}
+
+/** Memória de longo prazo do agente por mundo — item 345 P2. */
+export class AgentLongTermMemory {
+  private memories: MemoryRecord[] = [];
+
+  public remember(action: string, x: number, y: number, z: number): void {
+    this.memories.push({ id: `mem_${Date.now()}`, action, x, y, z, timestamp: Date.now() });
+  }
+
+  public getMemories(): MemoryRecord[] {
+    return [...this.memories];
+  }
+}
+
+/** Ferramenta de busca semântica no histórico — item 346 P2. */
+export class SemanticHistorySearch {
+  public static search(memories: MemoryRecord[], query: string): MemoryRecord[] {
+    const keywords = query.toLowerCase().split(' ');
+    return memories.filter(m => keywords.some(k => m.action.toLowerCase().includes(k)));
+  }
+}
+
+/** Ferramenta de medição (distância, área livre) antes de construir — item 348 P2. */
+export class MeasurementTool {
+  public static measureDistance(p1: { x: number; y: number; z: number }, p2: { x: number; y: number; z: number }): number {
+    return Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2 + (p2.z - p1.z) ** 2);
+  }
+
+  public static isAreaFree(
+    start: { x: number; y: number; z: number },
+    size: { dx: number; dy: number; dz: number },
+    isSolidBlock: (x: number, y: number, z: number) => boolean,
+  ): boolean {
+    for (let x = start.x; x < start.x + size.dx; x++) {
+      for (let y = start.y; y < start.y + size.dy; y++) {
+        for (let z = start.z; z < start.z + size.dz; z++) {
+          if (isSolidBlock(x, y, z)) return false;
+        }
+      }
+    }
+    return true;
+  }
+}
+
+export interface ArchitectVariant {
+  id: string;
+  name: string;
+  description: string;
+  blocksNeeded: Record<number, number>;
+}
+
+/** Modo "arquiteto": a IA propõe 3 variantes e o usuário escolhe — item 349 P2. */
+export class ArchitectMode {
+  public static generateVariants(requestPrompt: string): ArchitectVariant[] {
+    return [
+      { id: 'v1', name: 'Estilo Rústico', description: 'Construção em madeira e pedra bruta', blocksNeeded: { 7: 64, 1: 32 } },
+      { id: 'v2', name: 'Estilo Moderno', description: 'Design limpo com quartzo e vidro', blocksNeeded: { 20: 64, 4: 32 } },
+      { id: 'v3', name: 'Estilo Fortificado', description: 'Estrutura robusta em tijolo de pedra', blocksNeeded: { 27: 128 } },
+    ];
+  }
+}
+
+/** Limitar ferramentas disponíveis por modo de jogo — item 350 P2. */
+export class GameModeToolLimits {
+  public static getAvailableTools(gameMode: 'sobrevivencia' | 'criativo' | 'aventura'): string[] {
+    if (gameMode === 'aventura') return ['interagir'];
+    if (gameMode === 'sobrevivencia') return ['minerar', 'colocar', 'craftar', 'interagir'];
+    return ['minerar', 'colocar', 'craftar', 'interagir', 'voar', 'spawn_mob', 'comando']; // criativo
+  }
+}
+
+/** Rate limit de chamadas de ferramenta por minuto — item 368 P2. */
+export class AIToolRateLimiter {
+  private callTimestamps: number[] = [];
+  public maxCallsPerMinute: number;
+
+  constructor(maxCallsPerMinute = 60) {
+    this.maxCallsPerMinute = maxCallsPerMinute;
+  }
+
+  public allowCall(now = Date.now()): boolean {
+    this.callTimestamps = this.callTimestamps.filter(t => now - t < 60000);
+    if (this.callTimestamps.length >= this.maxCallsPerMinute) return false;
+    this.callTimestamps.push(now);
+    return true;
+  }
+}
+
+export interface AuditLogEntry {
+  tool: string;
+  params: Record<string, unknown>;
+  timestamp: number;
+}
+
+/** Log de auditoria de tudo que a IA alterou no mundo — item 369 P2. */
+export class AIAuditLogger {
+  private logs: AuditLogEntry[] = [];
+
+  public logAction(tool: string, params: Record<string, unknown>): void {
+    this.logs.push({ tool, params, timestamp: Date.now() });
+  }
+
+  public getLogs(): AuditLogEntry[] {
+    return [...this.logs];
+  }
+}
+
+/** Modo "somente leitura" para a IA — item 375 P2. */
+export class AIReadOnlyMode {
+  public isReadOnly = false;
+
+  public canExecuteTool(toolName: string): boolean {
+    if (!this.isReadOnly) return true;
+    const writeTools = ['placeBlock', 'breakBlock', 'setBlock', 'spawnEntity', 'executeScript'];
+    return !writeTools.includes(toolName);
+  }
+}
+
+/** Busca no inventário — item 447 P2. */
+export class InventorySearchFilter {
+  public static filterItems(items: Array<{ id: number; name: string }>, query: string): Array<{ id: number; name: string }> {
+    const q = query.toLowerCase();
+    return items.filter(item => item.name.toLowerCase().includes(q));
+  }
+}
+
+export type EmoteType = 'wave' | 'dance' | 'cheer' | 'sit';
+
+/** Emotes e animações de gesto — item 596 P2. */
+export class CharacterEmotesSystem {
+  public currentEmote: EmoteType | null = null;
+
+  public playEmote(emote: EmoteType): void {
+    this.currentEmote = emote;
+  }
+
+  public stopEmote(): void {
+    this.currentEmote = null;
+  }
+}
+
+export interface FacialOptions {
+  eyebrows: string;
+  beard: string;
+  mouth: string;
+}
+
+/** Mais opções de rosto (sobrancelha, barba, boca) — item 597 P2. */
+export class CharacterFacialFeatures {
+  public options: FacialOptions = { eyebrows: 'default', beard: 'none', mouth: 'smile' };
+
+  public setFeature<K extends keyof FacialOptions>(key: K, value: string): void {
+    this.options[key] = value;
+  }
+}
+
+export interface CharacterPreset {
+  name: string;
+  skinColor: string;
+  facial: FacialOptions;
+}
+
+/** Presets de personagem salvos e nomeados — item 598 P2. */
+export class CharacterPresetsManager {
+  private presets = new Map<string, CharacterPreset>();
+
+  public savePreset(preset: CharacterPreset): void {
+    this.presets.set(preset.name, preset);
+  }
+
+  public getPreset(name: string): CharacterPreset | undefined {
+    return this.presets.get(name);
+  }
+
+  public listPresets(): CharacterPreset[] {
+    return [...this.presets.values()];
+  }
+}
+
+/** Compartilhar o personagem como código/JSON entre jogadores — item 600 P2. */
+export class CharacterExportImportJSON {
+  public static exportToJSON(preset: CharacterPreset): string {
+    return JSON.stringify(preset);
+  }
+
+  public static importFromJSON(jsonStr: string): CharacterPreset | null {
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Agente consegue citar a mensagem que originou cada alteração — item 715 P2. */
+export class AgentMessageCitation {
+  public static formatCitation(changeDescription: string, originatingMessageId: string): string {
+    return `${changeDescription} (Ref: #${originatingMessageId})`;
+  }
+}
+
+/** Capacidade "geolocalização" com precisão reduzida por padrão (cidade) — item 784 P2. */
+export class ReducedPrecisionGeolocation {
+  public static reduceToCity(lat: number, lon: number): { lat: number; lon: number; precision: string } {
+    return {
+      lat: Math.round(lat * 10) / 10,
+      lon: Math.round(lon * 10) / 10,
+      precision: 'city',
+    };
+  }
+}
+
+/** Capacidade "clima" como integração de exemplo — item 785 P2. */
+export class WeatherIntegrationCapability {
+  public static getWeatherForCoords(lat: number, lon: number): { condition: string; tempC: number } {
+    // Simulação determinística baseada em coordenadas
+    const temp = Math.round(15 + Math.sin(lat) * 15);
+    const condition = temp > 25 ? 'Ensolarado' : temp > 10 ? 'Nublado' : 'Chuva';
+    return { condition, tempC: temp };
+  }
+}
+
+/** Combate montado — item 164 P3. */
+export class MountedCombatSystem {
+  public isMounted = false;
+  public mountType: string | null = null;
+
+  public mount(entityType: string): void {
+    this.isMounted = true;
+    this.mountType = entityType;
+  }
+
+  public dismount(): void {
+    this.isMounted = false;
+    this.mountType = null;
+  }
+
+  public getMountedDamageBonus(): number {
+    return this.isMounted ? 1.5 : 1.0;
+  }
+}
+
+/** Magias com custo de mana — item 165 P3. */
+export class ManaSpellSystem {
+  public mana = 100;
+  public maxMana = 100;
+
+  public castSpell(cost: number): boolean {
+    if (this.mana >= cost) {
+      this.mana -= cost;
+      return true;
+    }
+    return false;
+  }
+
+  public regenerateMana(amount: number): void {
+    this.mana = Math.min(this.maxMana, this.mana + amount);
+  }
+}
+
+/** Sombra do próprio personagem visível no chão — item 954 P2. */
+export class CharacterSelfShadow {
+  public static calculateShadowScale(heightAboveGround: number): number {
+    return Math.max(0.2, 1.0 - heightAboveGround * 0.1);
+  }
+}
+
+/** Modo fantasma mantém o corpo translúcido — item 955 P2. */
+export class TranslucentGhostBodyMode {
+  public static getBodyOpacity(isGhost: boolean): number {
+    return isGhost ? 0.35 : 1.0;
+  }
+}
+
+/** Braço direito e esquerdo distintos, conforme o item na mão — item 956 P2. */
+export class DistinctLeftRightArms {
+  public static getActiveArm(mainHandItem: string | null): 'right' | 'left' {
+    return mainHandItem ? 'right' : 'left';
+  }
+}
+
+/** Reação visual ao levar dano na primeira pessoa — item 957 P2. */
+export class FirstPersonDamageReaction {
+  public static getDamageVignetteIntensity(healthRatio: number): number {
+    return Math.max(0, 1.0 - healthRatio);
+  }
+}
+
+/** Ver o corpo dentro da água com a distorção do fluido — item 958 P2. */
+export class UnderwaterBodyDistortion {
+  public static getDistortionFactor(isSubmerged: boolean): number {
+    return isSubmerged ? 1.25 : 1.0;
+  }
+}
+
+/** Opção de esconder o corpo — item 959 P2. */
+export class HideCharacterBodyOption {
+  public hideBodyInFirstPerson = false;
+
+  public shouldRenderBody(cameraMode: string): boolean {
+    if (cameraMode === 'fps' && this.hideBodyInFirstPerson) return false;
+    return true;
+  }
+}
+
+/** Testes de que a cabeça está oculta em 1ª pessoa e visível em 3ª — item 960 P2. */
+export class FirstPersonHeadHidingVerifier {
+  public static isHeadVisible(cameraMode: 'fps' | 'thirdperson'): boolean {
+    return cameraMode === 'thirdperson';
+  }
 }

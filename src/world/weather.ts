@@ -245,3 +245,19 @@ export function descreverClima(c: ClimaAtual): string {
   if (c.clima === c.proximo) return CLIMAS[c.clima].nome;
   return `${CLIMAS[c.clima].nome} → ${CLIMAS[c.proximo].nome} (${Math.round(c.progresso * 100)}%)`;
 }
+
+export type WorldEventId = 'chuva_meteoros' | 'lua_sangue' | 'tempestade_solar';
+
+/** Disparo de eventos sazonais no mundo pelo EventSystem — item 016 P2. */
+export function triggerWorldEvent(eventName: WorldEventId): { eventName: WorldEventId; active: boolean; skyColor: string } {
+  const colors: Record<WorldEventId, string> = {
+    chuva_meteoros: '#38bdf8',
+    lua_sangue: '#ef4444',
+    tempestade_solar: '#fbbf24',
+  };
+  return {
+    eventName,
+    active: true,
+    skyColor: colors[eventName] ?? '#ffffff',
+  };
+}

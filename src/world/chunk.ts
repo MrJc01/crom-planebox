@@ -176,3 +176,56 @@ export function paletizeChunk(
   return { palette, indices };
 }
 
+/**
+ * Compressão RLE (Run-Length Encoding) para gravação compactada dos chunks em save — item 1581 P1.
+ */
+export function compressRLE(data: Uint8Array): number[] {
+  const result: number[] = [];
+  if (data.length === 0) return result;
+
+  let current = data[0];
+  let count = 1;
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i] === current && count < 255) {
+      count++;
+    } else {
+      result.push(current, count);
+      current = data[i];
+      count = 1;
+    }
+  }
+  result.push(current, count);
+  return result;
+}
+
+export function decompressRLE(rle: number[], targetLength = CX * CY * CX): Uint8Array {
+  const result = new Uint8Array(targetLength);
+  let pos = 0;
+  for (let i = 0; i < rle.length; i += 2) {
+    const value = rle[i];
+    const count = rle[i + 1] ?? 0;
+    for (let c = 0; c < count && pos < targetLength; c++) {
+      result[pos++] = value;
+    }
+  }
+  return result;
+}
+
+/** Chunks verticais (seções de 16³) em vez de coluna inteira — item 035 P2. */
+export class VerticalChunkSection {
+  public data = new Uint8Array(16 * 16 * 16);
+
+  constructor(public sectionY: number) {}
+
+  public getBlock(x: number, y: number, z: number): number {
+    const index = (y & 15) * 256 + (z & 15) * 16 + (x & 15);
+    return this.data[index];
+  }
+
+  public setBlock(x: number, y: number, z: number, type: number): void {
+    const index = (y & 15) * 256 + (z & 15) * 16 + (x & 15);
+    this.data[index] = type;
+  }
+}
+

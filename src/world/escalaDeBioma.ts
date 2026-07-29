@@ -115,3 +115,18 @@ export function climaEm(
     moist: emTresEscalas(nMoist, 311, -47) / norma + rio * UMIDADE_DE_RIO,
   };
 }
+
+/** Regiões celulares em vez de limiares rígidos para distribuição de biomas — item 1597 P1. */
+export function getCellularBiomeRegion(x: number, z: number, cellSize = 512): { cellX: number; cellZ: number } {
+  return {
+    cellX: Math.floor(x / cellSize),
+    cellZ: Math.floor(z / cellSize),
+  };
+}
+
+/** Espaçamento variável por tipo de bioma (vastos vs locais) — item 1598 P1. */
+export function getBiomeSpacingFactor(biomeType: string): number {
+  if (biomeType === 'deserto' || biomeType === 'oceano' || biomeType === 'tundra') return 2.5; // biomas vastos
+  if (biomeType === 'pantano' || biomeType === 'praia') return 0.6; // biomas locais
+  return 1.0;
+}

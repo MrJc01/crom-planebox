@@ -265,3 +265,14 @@ export class SignalingClient {
     }
   }
 }
+
+/** Relay de sinalização nunca recebendo dados de mundo (teste/verificação) — item 373 P2. */
+export class SignalingPrivacyCheck {
+  public static verifySignalOnlyPayload(payload: Record<string, unknown>): boolean {
+    const allowedKeys = new Set(['kind', 'from', 'to', 'data', 'op', 'sdp', 'candidate', 'roomId', 'worldName']);
+    for (const key of Object.keys(payload)) {
+      if (!allowedKeys.has(key)) return false; // Bloqueia se contiver dados de blocos do mundo
+    }
+    return true;
+  }
+}

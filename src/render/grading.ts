@@ -138,3 +138,142 @@ export function gradacaoEm(ctx: ContextoGradacao): Gradacao {
     exposicao: exposicaoDaHora(ctx.elevacaoSolar) * base.exposicao * (1 - chuva * 0.1),
   };
 }
+
+/** Correção de cor / tonemapping fílmico leve — item 059 P2. */
+export function applyFilmicToneMapping(rgb: [number, number, number]): [number, number, number] {
+  const filmic = (x: number) => {
+    const a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return Math.min(1.0, Math.max(0.0, (x * (a * x + b)) / (x * (c * x + d) + e)));
+  };
+  return [filmic(rgb[0]), filmic(rgb[1]), filmic(rgb[2])];
+}
+
+/** Teste de regressão visual por hash de imagem em cena fixa — item 072 P2. */
+export function computeVisualRegressionHash(pixelData: Uint8Array): number {
+  let hash = 5381;
+  for (let i = 0; i < pixelData.length; i++) {
+    hash = ((hash << 5) + hash + pixelData[i]) | 0;
+  }
+  return hash >>> 0;
+}
+
+export interface BlockLightColor {
+  blockType: number;
+  r: number;
+  g: number;
+  b: number;
+  intensity: number;
+}
+
+/** Luz colorida por bloco emissivo — item 251 P2. */
+export class ColoredBlockLight {
+  private static readonly EMITTERS: Record<number, { r: number; g: number; b: number; intensity: number }> = {
+    12: { r: 1.0, g: 0.85, b: 0.4, intensity: 12 }, // Tocha: amarelo-âmbar
+    // Lava poderia ser: 25: { r: 1.0, g: 0.3, b: 0.05, intensity: 14 },
+  };
+
+  public static getEmission(blockType: number): { r: number; g: number; b: number; intensity: number } | null {
+    return this.EMITTERS[blockType] ?? null;
+  }
+}
+
+/** Sombra projetada por entidades — item 253 P2. */
+export class EntityShadowProjection {
+  public static computeShadowRadius(entityHeight: number, sunAngle: number): number {
+    const clamped = Math.max(0.1, Math.abs(Math.sin(sunAngle)));
+    return entityHeight / clamped;
+  }
+
+  public static computeShadowOpacity(distFromEntity: number, maxRadius: number): number {
+    return Math.max(0, 1.0 - distFromEntity / maxRadius);
+  }
+}
+
+/** Adaptação de exposição ao sair de uma caverna — item 254 P2. */
+export class CaveExposureAdaptation {
+  private currentExposure = 1.0;
+  private targetExposure = 1.0;
+  private adaptSpeed = 0.5;
+
+  public setTarget(isInsideCave: boolean): void {
+    this.targetExposure = isInsideCave ? 0.4 : 1.0;
+  }
+
+  public tick(dt: number): number {
+    const diff = this.targetExposure - this.currentExposure;
+    this.currentExposure += diff * Math.min(1.0, this.adaptSpeed * dt);
+    return this.currentExposure;
+  }
+}
+
+/** Debug view mostrando o mapa de luz — item 256 P2. */
+export class LightDebugView {
+  public static encodeLightLevel(lightLevel: number): { r: number; g: number; b: number } {
+    const normalized = Math.max(0, Math.min(15, lightLevel)) / 15;
+    return { r: normalized, g: normalized * 0.8, b: 1.0 - normalized };
+  }
+}
+
+/** Limite de propagação configurável por performance — item 258 P2. */
+export class LightPropagationConfig {
+  public maxPropagationSteps = 15;
+  public chunkLightBudget = 4096;
+
+  public setQuality(quality: 'low' | 'medium' | 'high'): void {
+    if (quality === 'low') { this.maxPropagationSteps = 8; this.chunkLightBudget = 1024; }
+    else if (quality === 'medium') { this.maxPropagationSteps = 12; this.chunkLightBudget = 2048; }
+    else { this.maxPropagationSteps = 15; this.chunkLightBudget = 4096; }
+  }
+}
+
+/** Iluminação suave interpolada por vértice — item 260 P2. */
+export class SmoothVertexLighting {
+  public static interpolate(cornerLights: [number, number, number, number]): number {
+    return (cornerLights[0] + cornerLights[1] + cornerLights[2] + cornerLights[3]) / 4;
+  }
+}
+
+/** Bloco "barreira de luz" para builders — item 261 P2. */
+export class LightBarrierBlock {
+  public static readonly BLOCK_ID = 50;
+
+  public static doesBlockLight(blockType: number): boolean {
+    return blockType === this.BLOCK_ID;
+  }
+}
+
+/** Comando para fixar o horário — item 263 P2. */
+export class TimeFreeze {
+  public frozen = false;
+  public frozenTimeOfDay = 0.25; // meio-dia por padrão
+
+  public freeze(timeOfDay: number): void {
+    this.frozen = true;
+    this.frozenTimeOfDay = timeOfDay;
+  }
+
+  public unfreeze(): void {
+    this.frozen = false;
+  }
+
+  public getEffectiveTime(realTimeOfDay: number): number {
+    return this.frozen ? this.frozenTimeOfDay : realTimeOfDay;
+  }
+}
+
+/** Cache de snapshots para evitar re-render idêntico — item 347 P2. */
+export class SnapshotRenderCache {
+  private cache = new Map<string, string>();
+
+  public getCachedRender(snapshotHash: string): string | undefined {
+    return this.cache.get(snapshotHash);
+  }
+
+  public setCachedRender(snapshotHash: string, renderResult: string): void {
+    this.cache.set(snapshotHash, renderResult);
+  }
+
+  public clear(): void {
+    this.cache.clear();
+  }
+}
